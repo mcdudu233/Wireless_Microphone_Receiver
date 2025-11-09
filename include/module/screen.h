@@ -11,6 +11,9 @@
 #define TFT_MOSI 21
 #define TFT_CLK 18
 
+// 屏幕背光
+#define TFT_BLK 7
+
 namespace screen
 {
   void setup();

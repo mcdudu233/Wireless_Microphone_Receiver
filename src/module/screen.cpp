@@ -1,4 +1,5 @@
 #include "config.h"
+#include "logger.h"
 #include "module/screen.h"
 
 #include "lvgl.h"
@@ -7,9 +8,7 @@
 #include "freertos/task.h"
 #include "Adafruit_GFX.h"
 #include "Adafruit_ST7735.h"
-#include "Adafruit_miniTFTWing.h"
 
-Adafruit_miniTFTWing ss;
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST);
 
 // 时间回调
@@ -42,22 +41,15 @@ static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 // 初始化显示屏
 static void setup_tft()
 {
-  if (!ss.begin())
-  {
-    Serial.println("seesaw init error!");
-    while (1)
-      ;
-  }
-  else
-    Serial.println("seesaw started");
+  Log.verboseln("TFT now starting to init.");
+  // 初始化
+  tft.initR(INITR_MINI160x80);
+  // tft.initR(INITR_MINI160x80_PLUGIN); // 翻转
+  tft.setSPISpeed(40 * 1000 * 1000); // 设置速度
+  Log.verboseln("TFT is inited.");
 
-  ss.tftReset();
-  ss.setBacklight(0x0); // set the backlight fully on
-
-  // Use this initializer (uncomment) if you're using a 0.96" 180x60 TFT
-  tft.initR(INITR_MINI160x80); // initialize a ST7735S chip, mini display
-  tft.setRotation(3);
   tft.fillScreen(ST77XX_BLACK);
+  Log.verboseln("TFT is started in black.");
 }
 
 // 初始化图形库
@@ -79,6 +71,8 @@ static void setup_lvgl()
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_ENCODER);
   lv_indev_set_read_cb(indev, button_cb);
+
+  Log.verboseln("LVGL is started.");
 }
 
 static void screen_handle(void *arg)
@@ -101,4 +95,6 @@ void screen::setup()
 
   // 创建图形库处理线程
   xTaskCreate(screen_handle, "screen_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL);
+
+  Log.verboseln("Module screen is started!");
 }
