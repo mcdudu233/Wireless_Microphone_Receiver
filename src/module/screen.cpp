@@ -42,7 +42,7 @@ static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 static void setup_tft()
 {
   Log.verboseln("TFT now starting to init.");
-  // 初始化
+  // 初始化 TFT
   tft.initR(INITR_MINI160x80);
   // tft.initR(INITR_MINI160x80_PLUGIN); // 翻转
   tft.setSPISpeed(40 * 1000 * 1000); // 设置速度
@@ -50,6 +50,11 @@ static void setup_tft()
 
   tft.fillScreen(ST77XX_BLACK);
   Log.verboseln("TFT is started in black.");
+
+  // 初始化背光
+  Log.verboseln("TFT backlight now starting to init.");
+
+  Log.verboseln("TFT backlight is inited.");
 }
 
 // 初始化图形库

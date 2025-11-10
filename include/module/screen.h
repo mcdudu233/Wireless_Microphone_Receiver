@@ -13,6 +13,9 @@
 
 // 屏幕背光
 #define TFT_BLK 7
+#define TFT_BLK_FREQ 1 * 1000 * 1000
+#define TFT_BLK_BIT 8
+#define TFT_BLK_TIME 100
 
 namespace screen
 {

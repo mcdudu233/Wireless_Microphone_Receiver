@@ -1,11 +1,5 @@
 #include "logger.h"
 
-void printPrefix(Print *_logOutput, int logLevel)
-{
-  printTimestamp(_logOutput);
-  printLogLevel(_logOutput, logLevel);
-}
-
 void printTimestamp(Print *_logOutput)
 {
   // Division constants
@@ -23,7 +17,7 @@ void printTimestamp(Print *_logOutput)
   const unsigned long Hours = (secs % SECS_PER_DAY) / SECS_PER_HOUR;
   // Time as string
   char timestamp[20];
-  sprintf(timestamp, "%02d:%02d:%02d.%03d ", Hours, Minutes, Seconds, MilliSeconds);
+  sprintf(timestamp, "%02lu:%02lu:%02lu.%03lu ", Hours, Minutes, Seconds, MilliSeconds);
   _logOutput->print(timestamp);
 }
 
@@ -54,6 +48,12 @@ void printLogLevel(Print *_logOutput, int logLevel)
     _logOutput->print("VERBOSE ");
     break;
   }
+}
+
+void printPrefix(Print *_logOutput, int logLevel)
+{
+  printTimestamp(_logOutput);
+  printLogLevel(_logOutput, logLevel);
 }
 
 void printSuffix(Print *_logOutput, int logLevel)
