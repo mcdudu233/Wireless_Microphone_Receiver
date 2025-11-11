@@ -1,5 +1,7 @@
 #include "logger.h"
 
+#include "ArduinoLog.h"
+
 void printTimestamp(Print *_logOutput)
 {
   // Division constants
@@ -25,13 +27,6 @@ void printLogLevel(Print *_logOutput, int logLevel)
 {
   switch (logLevel)
   {
-  default:
-  case 0:
-    _logOutput->print("SILENT ");
-    break;
-  case 1:
-    _logOutput->print("FATAL ");
-    break;
   case 2:
     _logOutput->print("ERROR ");
     break;
@@ -41,11 +36,11 @@ void printLogLevel(Print *_logOutput, int logLevel)
   case 4:
     _logOutput->print("INFO ");
     break;
-  case 5:
-    _logOutput->print("TRACE ");
-    break;
   case 6:
-    _logOutput->print("VERBOSE ");
+    _logOutput->print("DEBUG ");
+    break;
+  default:
+    _logOutput->print("UNKNOW");
     break;
   }
 }
@@ -61,7 +56,7 @@ void printSuffix(Print *_logOutput, int logLevel)
   _logOutput->print("");
 }
 
-void setup()
+void logger::setup()
 {
   Log.setPrefix(printPrefix);
   Log.setSuffix(printSuffix);
@@ -73,5 +68,53 @@ void setup()
     ;
   Log.begin(LOG_LEVEL_VERBOSE, &Serial);
 
-  Log.verboseln("Logger is started!");
+  logger::debugln("Logger is started!");
+}
+
+template <class T, typename... Args>
+void logger::debug(T msg, Args... args)
+{
+  Log.verbose(msg, args...);
+}
+
+template <class T, typename... Args>
+void logger::info(T msg, Args... args)
+{
+  Log.info(msg, args...);
+}
+
+template <class T, typename... Args>
+void logger::warn(T msg, Args... args)
+{
+  Log.warning(msg, args...);
+}
+
+template <class T, typename... Args>
+void logger::error(T msg, Args... args)
+{
+  Log.error(msg, args...);
+}
+
+template <class T, typename... Args>
+void logger::debugln(T msg, Args... args)
+{
+  Log.verboseln(msg, args...);
+}
+
+template <class T, typename... Args>
+void logger::infoln(T msg, Args... args)
+{
+  Log.infoln(msg, args...);
+}
+
+template <class T, typename... Args>
+void logger::warnln(T msg, Args... args)
+{
+  Log.warningln(msg, args...);
+}
+
+template <class T, typename... Args>
+void logger::errorln(T msg, Args... args)
+{
+  Log.errorln(msg, args...);
 }

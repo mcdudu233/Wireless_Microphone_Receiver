@@ -41,20 +41,20 @@ static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 // 初始化显示屏
 static void setup_tft()
 {
-  Log.verboseln("TFT now starting to init.");
+  logger::debugln("TFT now starting to init.");
   // 初始化 TFT
   tft.initR(INITR_MINI160x80);
   // tft.initR(INITR_MINI160x80_PLUGIN); // 翻转
   tft.setSPISpeed(40 * 1000 * 1000); // 设置速度
-  Log.verboseln("TFT is inited.");
+  logger::debugln("TFT is inited.");
 
   tft.fillScreen(ST77XX_BLACK);
-  Log.verboseln("TFT is started in black.");
+  logger::debugln("TFT is started in black.");
 
   // 初始化背光
-  Log.verboseln("TFT backlight now starting to init.");
+  logger::debugln("TFT backlight now starting to init.");
 
-  Log.verboseln("TFT backlight is inited.");
+  logger::debugln("TFT backlight is inited.");
 }
 
 // 初始化图形库
@@ -77,7 +77,7 @@ static void setup_lvgl()
   lv_indev_set_type(indev, LV_INDEV_TYPE_ENCODER);
   lv_indev_set_read_cb(indev, button_cb);
 
-  Log.verboseln("LVGL is started.");
+  logger::debugln("LVGL is started.");
 }
 
 static void screen_handle(void *arg)
@@ -101,5 +101,5 @@ void screen::setup()
   // 创建图形库处理线程
   xTaskCreate(screen_handle, "screen_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL);
 
-  Log.verboseln("Module screen is started!");
+  logger::debugln("Module screen is started!");
 }
