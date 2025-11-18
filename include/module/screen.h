@@ -10,6 +10,7 @@
 #define TFT_DC 17
 #define TFT_MOSI 21
 #define TFT_CLK 18
+#define TFT_SPI_FREQ 80 * 1000 * 1000
 
 // 屏幕背光
 #define TFT_BLK 7

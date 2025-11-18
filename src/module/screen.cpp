@@ -3,6 +3,7 @@
 #include "module/screen.h"
 
 #include "lvgl.h"
+#include "SPI.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -10,7 +11,7 @@
 #include "Adafruit_GFX.h"
 #include "Adafruit_ST7735.h"
 
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST);
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 // 时间回调
 static uint32_t tick_cb(void)
@@ -68,10 +69,12 @@ void screen::lv_unlock()
 static void setup_tft()
 {
   logger::debugln("TFT now starting to init.");
+  // 先初始化 SPI
+  SPI.begin(TFT_CLK, -1, TFT_MOSI, -1);
   // 初始化 TFT
   tft.initR(INITR_MINI160x80);
-  // tft.initR(INITR_MINI160x80_PLUGIN); // 翻转
-  tft.setSPISpeed(40 * 1000 * 1000); // 设置速度
+  // tft.initR(INITR_MINI160x80_PLUGIN); // 颜色翻转
+  tft.setSPISpeed(TFT_SPI_FREQ);
   tft.setRotation(3);
   logger::debugln("TFT is inited.");
 
@@ -83,6 +86,30 @@ static void setup_tft()
   ledcAttach(TFT_BLK, TFT_BLK_FREQ, TFT_BLK_BIT);
   screen::backlight(50);
   logger::debugln("TFT backlight is inited.");
+
+  // 测试帧率
+  // unsigned long last = millis();
+  // int i = 0;
+  // while (true)
+  // {
+  //   if (i % 2 == 0)
+  //   {
+  //     tft.fillScreen(ST77XX_BLACK);
+  //   }
+  //   else
+  //   {
+  //     tft.fillScreen(ST77XX_GREEN);
+  //   }
+  //   i++;
+  //   unsigned long now = millis();
+  //   if (now - last > 1000)
+  //   {
+  //     last = now;
+  //     logger::debugln("%d", i);
+  //     i = 0;
+  //   }
+  //   delay(1);
+  // }
 }
 
 // 初始化图形库
@@ -137,5 +164,9 @@ void screen::setup()
   lv_obj_t *label = lv_label_create(lv_screen_active());
   lv_label_set_text(label, "I LOVE YOU");
   lv_obj_center(label);
+
+  lv_obj_t *sw = lv_switch_create(lv_screen_active());
+  lv_obj_add_flag(sw, LV_OBJ_FLAG_EVENT_BUBBLE);
+  lv_obj_align(sw, LV_ALIGN_CENTER, 0, 25);
   logger::debugln("Module screen is started!");
 }
