@@ -2,7 +2,7 @@
 #include "logger.h"
 #include "module/screen.h"
 
-#include "lvgl.h"
+#include "ui/ui_widget.h"
 #include "SPI.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -160,13 +160,6 @@ void screen::setup()
 
   // 创建图形库处理线程
   xTaskCreatePinnedToCore(screen_handle, "screen_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL, TASK_SCREEN_CORE);
-
-  lv_obj_t *label = lv_label_create(lv_screen_active());
-  lv_label_set_text(label, "I LOVE YOU");
-  lv_obj_center(label);
-
-  lv_obj_t *sw = lv_switch_create(lv_screen_active());
-  lv_obj_add_flag(sw, LV_OBJ_FLAG_EVENT_BUBBLE);
-  lv_obj_align(sw, LV_ALIGN_CENTER, 0, 25);
-  logger::debugln("Module screen is started!");
+  ui_init();
+  
 }
