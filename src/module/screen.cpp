@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "Adafruit_GFX.h"
+#include "Adafruit_SPITFT.h"
 #include "Adafruit_ST7735.h"
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
@@ -47,7 +48,7 @@ static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 
 void screen::backlight(float percent)
 {
-  ledcWrite(TFT_BLK, percent * (pow(2, TFT_BLK_BIT) - 1));
+  ledcWrite(TFT_BLK, (int)(percent / 100 * (pow(2.0, TFT_BLK_BIT) - 1)));
 }
 
 // LVGL 互斥锁
@@ -84,7 +85,7 @@ static void setup_tft()
   // 初始化背光
   logger::debugln("TFT backlight now starting to init.");
   ledcAttach(TFT_BLK, TFT_BLK_FREQ, TFT_BLK_BIT);
-  screen::backlight(50);
+  screen::backlight(0);
   logger::debugln("TFT backlight is inited.");
 
   // 测试帧率
@@ -160,6 +161,78 @@ void screen::setup()
 
   // 创建图形库处理线程
   xTaskCreatePinnedToCore(screen_handle, "screen_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL, TASK_SCREEN_CORE);
+
+  LV_LOCK();
   ui_init();
-  
+  LV_UNLOCK();
 }
+
+/*****************************
+       LVGL 内存分配函数
+      采用 PSRAM 分配内存
+*****************************/
+#include "lv_conf.h"
+#if LV_USE_STDLIB_MALLOC == LV_STDLIB_CUSTOM
+
+/**********************
+ *   GLOBAL FUNCTIONS
+ **********************/
+
+void lv_mem_init(void)
+{
+  return; /*Nothing to init*/
+}
+
+void lv_mem_deinit(void)
+{
+  return; /*Nothing to deinit*/
+}
+
+lv_mem_pool_t lv_mem_add_pool(void *mem, size_t bytes)
+{
+  /*Not supported*/
+  LV_UNUSED(mem);
+  LV_UNUSED(bytes);
+  return NULL;
+}
+
+void lv_mem_remove_pool(lv_mem_pool_t pool)
+{
+  /*Not supported*/
+  LV_UNUSED(pool);
+  return;
+}
+
+void *lv_malloc_core(size_t size)
+{
+  return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+void *lv_realloc_core(void *p, size_t new_size)
+{
+  return heap_caps_realloc(p, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+void lv_free_core(void *p)
+{
+  heap_caps_free(p);
+}
+
+void lv_mem_monitor_core(lv_mem_monitor_t *mon_p)
+{
+  /*Not supported*/
+  LV_UNUSED(mon_p);
+  return;
+}
+
+lv_result_t lv_mem_test_core(void)
+{
+  /*Not supported*/
+  return LV_RESULT_OK;
+}
+
+/**********************
+ *   STATIC FUNCTIONS
+ **********************/
+
+#endif /*LV_STDLIB_CLIB*/
