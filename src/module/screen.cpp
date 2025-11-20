@@ -154,6 +154,20 @@ static void screen_handle(void *arg)
   }
 }
 
+// 屏幕渐亮线程
+static void screen_backlight_on_handle(void *arg)
+{
+  // 先等待屏幕控件加载再渐亮
+  vTaskDelay(pdMS_TO_TICKS(500));
+  // 屏幕渐亮
+  for (int i = 0; i <= 50; i++)
+  {
+    screen::backlight(i);
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  vTaskDelete(NULL);
+}
+
 void screen::setup()
 {
   setup_tft();
@@ -161,6 +175,7 @@ void screen::setup()
 
   // 创建图形库处理线程
   xTaskCreatePinnedToCore(screen_handle, "screen_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL, TASK_SCREEN_CORE);
+  xTaskCreatePinnedToCore(screen_backlight_on_handle, "screen_backlight_on_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL, TASK_SCREEN_CORE);
 
   LV_LOCK();
   ui_init();
