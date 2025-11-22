@@ -180,6 +180,8 @@ void screen::setup()
   LV_LOCK();
   ui_init();
   LV_UNLOCK();
+
+  logger::debugln("Screen is started.");
 }
 
 /*****************************
