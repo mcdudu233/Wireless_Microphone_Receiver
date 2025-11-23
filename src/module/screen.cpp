@@ -1,6 +1,7 @@
 #include "config.h"
 #include "logger.h"
 #include "module/screen.h"
+#include "module/button.h"
 
 #include "ui/ui_widget.h"
 #include "SPI.h"
@@ -33,12 +34,13 @@ static void screen_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map
 // 按键回调
 static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
-  // 往左往右
-  data->enc_diff = 1;
-  data->enc_diff = -1;
-  // 按下
-  data->state = LV_INDEV_STATE_PRESSED;
-  data->state = LV_INDEV_STATE_RELEASED;
+  logger::debugln("%d", millis());
+  // // 往左往右
+  // data->enc_diff = 1;
+  // data->enc_diff = -1;
+  // // 按下
+  // data->state = LV_INDEV_STATE_PRESSED;
+  // data->state = LV_INDEV_STATE_RELEASED;
 }
 
 // void log_cb(lv_log_level_t level, const char *buf)
