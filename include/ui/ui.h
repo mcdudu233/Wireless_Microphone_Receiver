@@ -25,3 +25,6 @@
 void obj_set_pos(lv_obj_t * obj, int32_t x, int32_t y);
 void obj_set_size(lv_obj_t * obj, int32_t w, int32_t h);
 void grid_dsc_array(int32_t* dsc_array, int32_t* val, int32_t len);
+
+extern const lv_image_dsc_t bt_o;
+extern const lv_image_dsc_t usb;
