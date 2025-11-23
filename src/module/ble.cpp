@@ -81,15 +81,16 @@ static void batteryNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteris
     servers.at(address).battery = *pData;
   }
 }
-static void configControlNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
+static void configControlIndicateCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
   std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
   if (servers.contains(address))
   {
     servers.at(address).configControl = *(ConfigControl *)pData;
+    logger::debugln("BLE get indicate config.");
   }
 }
-static void audioControlNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
+static void audioControlIndicateCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
   std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
   if (servers.contains(address))
@@ -97,11 +98,27 @@ static void audioControlNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharac
     servers.at(address).audioControl = *(AudioControl *)pData;
   }
 }
+static unsigned long last_time = millis();
+static uint32_t last_num;
+static uint32_t packet_size = 0;
+static uint32_t packet_num = 0;
 static void dataNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
   std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
   if (servers.contains(address))
   {
+    AudioPacket *packet = (AudioPacket *)pData;
+    packet_size += length;
+    packet_num += packet->num - last_num - 1;
+    last_num = packet->num;
+    unsigned long now_time = millis();
+    if (now_time - last_time > 1000)
+    {
+      last_time = now_time;
+      logger::debugln("BLE get packet for %dbytes/s and loss for %D.", packet_size, packet_num / 1000.0 * 100.0);
+      packet_size = 0;
+      packet_num = 0;
+    }
   }
 }
 
@@ -173,13 +190,15 @@ static void ble_handle(void *arg)
               connection.dataCharacteristic = audioCharacteristics->at(dataCharacteristicUUID);
               connection.dataCharacteristic->registerForNotify(dataNotifyCallback);
               connection.configControlCharacteristic = audioCharacteristics->at(configControlCharacteristicUUID);
-              connection.configControlCharacteristic->registerForNotify(configControlNotifyCallback);
+              connection.configControlCharacteristic->registerForNotify(configControlIndicateCallback, false);
               connection.audioControlCharacteristic = audioCharacteristics->at(audioControlCharacteristicUUID);
-              connection.audioControlCharacteristic->registerForNotify(audioControlNotifyCallback);
+              connection.audioControlCharacteristic->registerForNotify(audioControlIndicateCallback, false);
               // 读取数据
               connection.battery = connection.batteryCharacteristic->readUInt8();
               connection.configControl = *(ConfigControl *)(connection.configControlCharacteristic->readValue().c_str());
               connection.audioControl = *(AudioControl *)(connection.configControlCharacteristic->readValue().c_str());
+              connection.audioControl.start = true;
+              connection.audioControlCharacteristic->writeValue((uint8_t *)&connection.audioControl, sizeof(AudioControl));
 
               connection.connected = true;
               logger::debugln("BLE successfully connected to %s.", address);

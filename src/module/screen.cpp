@@ -30,7 +30,7 @@ static void screen_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map
   lv_display_flush_ready(disp);
 }
 
-//
+// 按键回调
 static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
   // 往左往右
