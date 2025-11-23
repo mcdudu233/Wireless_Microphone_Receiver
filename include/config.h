@@ -1,6 +1,11 @@
 #pragma once
 
 // 多线程任务配置
+#define TASK_BUTTON_CORE 1
+#define TASK_BUTTON_PERIOD 5
+#define TASK_BUTTON_STACK 4096
+#define TASK_BUTTON_PRIORITY 2
+
 #define TASK_SCREEN_CORE 1
 #define TASK_SCREEN_PERIOD 10
 #define TASK_SCREEN_STACK 8192

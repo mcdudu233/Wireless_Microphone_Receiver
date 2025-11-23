@@ -32,18 +32,45 @@ static void screen_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map
 }
 
 // 按键回调
+static bool left = false;
+static bool right = false;
+static bool ok = false;
 static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
-  logger::debugln("%d", millis());
-  // // 往左往右
-  // data->enc_diff = 1;
-  // data->enc_diff = -1;
-  // // 按下
-  // data->state = LV_INDEV_STATE_PRESSED;
-  // data->state = LV_INDEV_STATE_RELEASED;
+  // 往左往右
+  if (button::left() && !left)
+  {
+    logger::debugln("left");
+    left = true;
+    data->enc_diff = -1;
+  }
+  else if (button::right() && !right)
+  {
+    logger::debugln("right");
+    right = true;
+    data->enc_diff = 1;
+  }
+  else if (left || right)
+  {
+    left = false;
+    right = false;
+    data->enc_diff = 0;
+  }
+  // 按下
+  if (button::ok() && !ok)
+  {
+    logger::debugln("ok");
+    ok = true;
+    data->state = LV_INDEV_STATE_PRESSED;
+  }
+  else if (ok)
+  {
+    ok = false;
+    data->state = LV_INDEV_STATE_RELEASED;
+  }
 }
 
-// void log_cb(lv_log_level_t level, const char *buf)
+// void log_cb(lv_log_level_t level, const char * buf)
 // {
 //   logger::debugln("%s", buf);
 // }
@@ -137,6 +164,9 @@ static void setup_lvgl()
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_ENCODER);
   lv_indev_set_read_cb(indev, button_cb);
+  lv_group_t *group = lv_group_create();
+  lv_group_set_default(group);
+  lv_indev_set_group(indev, group);
 
   logger::debugln("LVGL is started.");
 }
