@@ -1,5 +1,17 @@
 #pragma once
-#include "lvgl.h"
+#ifdef __has_include
+    #if __has_include("lvgl.h")
+        #ifndef LV_LVGL_H_INCLUDE_SIMPLE
+            #define LV_LVGL_H_INCLUDE_SIMPLE
+        #endif
+    #endif
+#endif
+
+#ifdef LV_LVGL_H_INCLUDE_SIMPLE
+    #include "lvgl.h"
+#else
+    #include "lvgl/lvgl.h"
+#endif
 
 // 显示设备
 #define WIN 0
@@ -44,10 +56,9 @@ extern const lv_image_dsc_t bt_o;
 extern const lv_image_dsc_t usb;
 extern const lv_image_dsc_t img_star;
 
-extern const lv_font_t harmonyos_8;
-extern const lv_font_t harmonyos_10;
-extern const lv_font_t harmonyos_12;
-extern const lv_font_t harmonyos_16;
+extern const lv_font_t lv_font_harmonyos_12;
+extern const lv_font_t lv_font_harmonyos_14;
+extern const lv_font_t lv_font_harmonyos_16;
 
 
 typedef struct
