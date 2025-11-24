@@ -39,11 +39,9 @@ lv_obj_t* add_button(lv_obj_t * parent, char * title, int32_t w, int32_t h,const
     //lv_obj_set_size(label,w,h);
     lv_label_set_text(label, title);
     lv_obj_align(label,LV_ALIGN_CENTER,0,0);
-    lv_obj_set_style_text_font(label,font,0);
-    if(font == &harmonyos_10||font == &harmonyos_8)
+    if(font != NULL)
     {
-        lv_obj_set_size(label,w,h);
-        lv_obj_set_style_text_letter_space(label, 15, 0);
+        lv_obj_set_style_text_font(label,font,0);
     }
     return btn;
 }
@@ -55,7 +53,10 @@ lv_obj_t* add_list_obj(lv_obj_t * list, char * content, lv_event_cb_t cb,const l
     lv_obj_set_style_pad_all(btn, 1, 1);
 
     // lv_obj_set_size(btn,lv_pct(90),15);
-    lv_obj_set_style_text_font(btn,font,0);
+    if(font!=NULL)
+    {
+        lv_obj_set_style_text_font(btn,font,0);
+    }
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
     if(bg_color != -1)
     {

@@ -47,7 +47,7 @@ void ui_main_init(lv_event_t * e)
 
     lv_obj_t * bt = lv_label_create(f_card);
     lv_label_set_text(bt, LV_SYMBOL_BLUETOOTH);  // 使用内置的蓝牙符号
-    lv_obj_set_style_text_font(bt, &lv_font_montserrat_12, 0);  // 设置合适的字体大小
+    lv_obj_set_style_text_font(bt, &lv_font_harmonyos_12, 0);  // 设置合适的字体大小
     lv_obj_align(bt,LV_ALIGN_LEFT_MID, 2, 0);
 
     lv_obj_t* left_bar_1 = lv_bar_create(f_card);
@@ -123,7 +123,7 @@ void ui_main_init(lv_event_t * e)
 
     lv_obj_t * bt_2 = lv_label_create(s_card);
     lv_label_set_text(bt_2, LV_SYMBOL_BLUETOOTH);  // 使用内置的蓝牙符号
-    lv_obj_set_style_text_font(bt_2, &lv_font_montserrat_12, 0);  // 设置合适的字体大小
+    lv_obj_set_style_text_font(bt_2, &lv_font_harmonyos_12, 0);  // 设置合适的字体大小
     lv_obj_align(bt_2,LV_ALIGN_LEFT_MID, 2, 0);
 
     lv_obj_t* left_bar_2 = lv_bar_create(s_card);
@@ -153,20 +153,20 @@ void ui_main_init(lv_event_t * e)
 
     lv_obj_t *label_widget = lv_obj_create(main_widget);
     lv_obj_set_style_pad_all(label_widget, 0, 0); // 去除内边距
-    lv_obj_set_size(label_widget,160*0.3,25);
-    lv_obj_align_to(label_widget,info_widget,LV_ALIGN_OUT_RIGHT_MID,5,-5);
+    lv_obj_set_size(label_widget,160*0.3,35);
+    lv_obj_align_to(label_widget,info_widget,LV_ALIGN_OUT_RIGHT_MID,5,-10);
     label = lv_label_create(label_widget);
-    lv_label_set_text(label,"up:");
-    lv_obj_set_style_text_font(label,&lv_font_montserrat_8,0);
+    lv_label_set_text(label,"上传:");
+    lv_obj_set_style_text_font(label,&lv_font_harmonyos_12,0);
     lv_obj_align(label,LV_ALIGN_TOP_LEFT,0,0);
     // lv_obj_align_to(label,info_widget,LV_ALIGN_OUT_RIGHT_MID,10,-10);
     lv_obj_t * last = label;
     label = lv_label_create(label_widget);
-    lv_label_set_text(label,"down:");
-    lv_obj_set_style_text_font(label,&lv_font_montserrat_8,0);
+    lv_label_set_text(label,"下载:");
+    lv_obj_set_style_text_font(label,&lv_font_harmonyos_12,0);
     lv_obj_align_to(label,last,LV_ALIGN_OUT_BOTTOM_LEFT,0,0);
 
-    btn = add_button(main_widget,"setting",160*0.3,20,&lv_font_montserrat_10);
+    btn = add_button(main_widget,"设置",160*0.3,20,NULL);
     lv_obj_align_to(btn,info_widget,LV_ALIGN_OUT_RIGHT_MID,5,20);
     lv_obj_add_event_cb(btn,setting_widget_cb,LV_EVENT_CLICKED,main_widget); // 切换窗体并隐藏
 
@@ -174,7 +174,7 @@ void ui_main_init(lv_event_t * e)
     img = lv_img_create(main_widget);
     lv_obj_set_size(img,16,16);
     lv_img_set_src(img,&usb);
-    lv_obj_align_to(img,label_widget,LV_ALIGN_OUT_TOP_LEFT,1,-5);
+    lv_obj_align_to(img,label_widget,LV_ALIGN_OUT_TOP_LEFT,1,0);
     last = img;
     img = lv_img_create(main_widget);
     lv_obj_set_size(img,16,16);
@@ -195,6 +195,6 @@ void ui_main_init(lv_event_t * e)
     // 使用 LV_SYMBOL 替代 SVG,或者使用文本标签
     lv_obj_t * bt_label = lv_label_create(main_widget);
     lv_label_set_text(bt_label, LV_SYMBOL_BLUETOOTH);  // 使用内置的蓝牙符号
-    lv_obj_set_style_text_font(bt_label, &lv_font_montserrat_12, 0);  // 设置合适的字体大小
+    lv_obj_set_style_text_font(bt_label, &lv_font_harmonyos_12, 0);  // 设置合适的字体大小
     lv_obj_align_to(bt_label, last, LV_ALIGN_OUT_RIGHT_MID, 2, 0);
 }

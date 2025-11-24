@@ -88,25 +88,23 @@ void ui_bt_init(lv_event_t * e)
 
     obj_set_pos(bt_list,0,0);
     lv_obj_align_to(bt_list,bt_widget,LV_ALIGN_TOP_LEFT,5,5);
-    //lv_obj_align(bt_list,LV_ALIGN_TOP_LEFT,0,0);
 
     // 示例蓝牙
     label = lv_list_add_text(bt_list,"选择设备");
-    lv_obj_set_style_text_font(label,&harmonyos_8,0);
-    lv_obj_set_style_text_letter_space(label, 15, 0);
+    //lv_obj_set_style_text_font(label,&lv_font_harmonyos_12,0);
     lv_obj_align(label,LV_ALIGN_CENTER,0,0);
 
-    add_list_obj(bt_list,"device1",list_event_handler,&lv_font_montserrat_10,none);
-    add_list_obj(bt_list,"device2",list_event_handler,&lv_font_montserrat_10,none);
-    add_list_obj(bt_list,"device3",list_event_handler,&lv_font_montserrat_10,none);
-    add_list_obj(bt_list,"device4",list_event_handler,&lv_font_montserrat_10,none);
+    add_list_obj(bt_list,"device1",list_event_handler,NULL,none);
+    add_list_obj(bt_list,"device2",list_event_handler,NULL,none);
+    add_list_obj(bt_list,"device3",list_event_handler,NULL,none);
+    add_list_obj(bt_list,"device4",list_event_handler,NULL,none);
 
-    btn = add_button(bt_widget,"连接",160*0.3,20,&harmonyos_8);
+    btn = add_button(bt_widget,"连接",160*0.3,20,NULL);
     lv_obj_align_to(btn,bt_list,LV_ALIGN_OUT_RIGHT_MID,5,-15);
     lv_obj_add_event_cb(btn,link_cb,LV_EVENT_CLICKED,bt_list);
     lv_obj_t * last = btn;
 
-    btn = add_button(bt_widget,"完成",160*0.3,20,&harmonyos_8);
+    btn = add_button(bt_widget,"完成",160*0.3,20,NULL);
     lv_obj_align_to(btn,bt_list,LV_ALIGN_OUT_RIGHT_MID,5,15);
     lv_obj_add_event_cb(btn,main_widget_cb,LV_EVENT_CLICKED,bt_widget);
 }

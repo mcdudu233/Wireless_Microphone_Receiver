@@ -32,6 +32,7 @@ void finish_loading_cb(lv_event_t * e)
 void ui_init(void)
 {
     // 设置屏幕背景色为白色
+
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, LV_PART_MAIN);
 

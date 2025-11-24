@@ -33,7 +33,7 @@ static lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char *
         lv_obj_add_flag(img, LV_OBJ_FLAG_FLEX_IN_NEW_TRACK);
         lv_obj_swap(img, label);
     }
-    lv_obj_set_style_text_font(obj,&lv_font_montserrat_10,0);
+    //lv_obj_set_style_text_font(obj,&lv_font_montserrat_10,0);
     return obj;
 }
 
@@ -149,7 +149,7 @@ void ui_setting_init(lv_event_t * e)
 
     /*Create a root page*/
     lv_obj_t* root_page = lv_menu_page_create(menu, "Settings");
-    lv_obj_set_style_text_font(root_page,&lv_font_montserrat_10,0);
+    //lv_obj_set_style_text_font(root_page,&lv_font_montserrat_10,0);
     lv_obj_set_style_pad_hor(root_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
     section = lv_menu_section_create(root_page);
     cont = create_text(section, NULL, "Mechanics", LV_MENU_ITEM_BUILDER_VARIANT_1);
