@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui/ui.h"
+#include "ui.h"
 
 #ifdef __cplusplus
 extern "C" {
