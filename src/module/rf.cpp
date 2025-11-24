@@ -1,27 +1,25 @@
 #include "logger.h"
 #include "config.h"
-#include "module/ble.h"
+#include "module/rf.h"
 
 #include "map"
+#include "iostream"
+#include "random"
+#include "string"
+#include "algorithm"
 #include "BLEDevice.h"
+#include "WiFi.h"
+#include "NetworkUdp.h"
 
-// Structure to hold information about each connected server
-struct ServerConnection
-{
-  BLEClient *pClient;
-  BLEAdvertisedDevice *pDevice;
-  BLERemoteCharacteristic *batteryCharacteristic;
-  BLERemoteCharacteristic *dataCharacteristic;
-  BLERemoteCharacteristic *configControlCharacteristic;
-  BLERemoteCharacteristic *audioControlCharacteristic;
-  uint8_t battery;
-  ConfigControl configControl;
-  AudioControl audioControl;
-  bool connected;
-  bool doConnect;
-};
+// 记录所有设备
+static std::map<std::string, DeviceConnection> devices;
 
-static std::map<std::string, ServerConnection> servers;
+// WIFI
+static std::string generateRandomWord(int length);
+static bool wifiOn = false;
+static const char *wifiName = WIFI_NAME_VALUE;
+static const char *wifiPassword = WIFI_PASSWORD_VALUE;
+NetworkUDP wifiServer;
 
 // Client callback class to handle connect/disconnect events
 class BLEClientCallback : public BLEClientCallbacks
@@ -39,7 +37,7 @@ public:
 
   void onDisconnect(BLEClient *pclient)
   {
-    servers[serverAddress].connected = false;
+    devices[serverAddress].bleConnected = false;
     logger::debugln("BLE disconnected from server %s.", serverAddress);
   }
 };
@@ -53,7 +51,7 @@ class BLEAdvertisedDeviceCallback : public BLEAdvertisedDeviceCallbacks
     if (pDevice.getName().equalsIgnoreCase("Microphone Transmitter"))
     {
       std::string address = pDevice.getAddress().toString().c_str();
-      if (servers.contains(address))
+      if (devices.contains(address))
       {
         // 如果已经连接
         logger::debugln("BLE already connected or connecting to this device {name=%s, address=%s}.", pDevice.getName(), address);
@@ -61,10 +59,12 @@ class BLEAdvertisedDeviceCallback : public BLEAdvertisedDeviceCallbacks
       else
       {
         // 设备加入待连接列表
-        servers.insert(std::pair<std::string, ServerConnection>(address, (ServerConnection){
-                                                                             .pDevice = new BLEAdvertisedDevice(pDevice),
-                                                                             .doConnect = true,
+        devices.insert(std::pair<std::string, DeviceConnection>(address, (DeviceConnection){
+                                                                             .bleDoConnect = true,
+                                                                             .bleDevice = new BLEAdvertisedDevice(pDevice),
                                                                          }));
+        strcpy(devices.at(address).configBasic.name, wifiName);
+        strcpy(devices.at(address).configBasic.password, wifiPassword);
 
         // BLEDevice::getScan()->start(5, false);
       }
@@ -76,26 +76,32 @@ class BLEAdvertisedDeviceCallback : public BLEAdvertisedDeviceCallbacks
 static void batteryNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
   std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
-  if (servers.contains(address))
+  if (devices.contains(address))
   {
-    servers.at(address).battery = *pData;
+    devices.at(address).configBattery = *pData;
   }
 }
 static void configControlIndicateCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
   std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
-  if (servers.contains(address))
+  if (devices.contains(address))
   {
-    servers.at(address).configControl = *(ConfigControl *)pData;
+    ConfigControl *src = (ConfigControl *)pData;
+    ConfigControl &dst = devices.at(address).configBasic;
+    dst.start = src->start;
+    dst.mode = src->mode;
+    dst.ip = src->ip;
+    strcpy(dst.name, src->name);
+    strcpy(dst.password, src->password);
     logger::debugln("BLE get indicate config.");
   }
 }
 static void audioControlIndicateCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
   std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
-  if (servers.contains(address))
+  if (devices.contains(address))
   {
-    servers.at(address).audioControl = *(AudioControl *)pData;
+    devices.at(address).configAudio = *(AudioControl *)pData;
   }
 }
 static unsigned long last_time = millis();
@@ -105,7 +111,7 @@ static uint32_t packet_num = 0;
 static void dataNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
   std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
-  if (servers.contains(address))
+  if (devices.contains(address))
   {
     AudioPacket *packet = (AudioPacket *)pData;
     packet_size += length;
@@ -122,36 +128,52 @@ static void dataNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic
   }
 }
 
-static void ble_handle(void *arg)
+static void rf_handle(void *arg)
 {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(TASK_BLE_PERIOD);
+  const TickType_t xFrequency = pdMS_TO_TICKS(TASK_RF_PERIOD);
   while (true)
   {
     xTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-    // 连接到设备
-    for (auto &server : servers)
+    if (wifiOn)
     {
-      std::string address = server.first;
-      ServerConnection &connection = server.second;
-      if (connection.doConnect)
+      int size = wifiServer.parsePacket();
+      if (size != 0)
+      {
+        logger::debugln("Received packet from %s:%d.", wifiServer.remoteIP().toString(), wifiServer.remotePort());
+        char buffer[255];
+        int len = wifiServer.read(buffer, 255);
+        if (len > 0)
+        {
+          buffer[len] = 0;
+          Serial.println(buffer);
+        }
+      }
+    }
+
+    // 连接到设备
+    for (auto &device : devices)
+    {
+      const std::string &address = device.first;
+      DeviceConnection &connection = device.second;
+      if (connection.bleDoConnect)
       {
         logger::debugln("BLE connecting to server %s.", address);
-        connection.pClient = BLEDevice::createClient();
+        connection.bleClient = BLEDevice::createClient();
         // Set the callback for this specific server connection
-        connection.pClient->setClientCallbacks(new BLEClientCallback(address));
+        connection.bleClient->setClientCallbacks(new BLEClientCallback(address));
         // Connect to the remote BLE Server
-        connection.pClient->connect(connection.pDevice);
-        connection.pClient->setMTU(517); // Request maximum MTU from server
+        connection.bleClient->connect(connection.bleDevice);
+        connection.bleClient->setMTU(517); // Request maximum MTU from server
         // Obtain a reference to the service we are after in the remote BLE server
-        std::map<std::string, BLERemoteService *> *pRemoteService = connection.pClient->getServices();
+        std::map<std::string, BLERemoteService *> *pRemoteService = connection.bleClient->getServices();
         if (pRemoteService->size() == 0)
         {
           logger::warnln("BLE failed to find service at %s.", address);
-          connection.pClient->disconnect();
-          delete connection.pDevice;
-          connection.pDevice = nullptr;
+          connection.bleClient->disconnect();
+          delete connection.bleDevice;
+          connection.bleDevice = nullptr;
         }
         else
         {
@@ -161,9 +183,9 @@ static void ble_handle(void *arg)
               !pRemoteService->contains(audioServiceUUID))
           {
             logger::warnln("BLE failed to find service UUID at ", address);
-            connection.pClient->disconnect();
-            delete connection.pDevice;
-            connection.pDevice = nullptr;
+            connection.bleClient->disconnect();
+            delete connection.bleDevice;
+            connection.bleDevice = nullptr;
           }
           else
           {
@@ -179,9 +201,9 @@ static void ble_handle(void *arg)
                 !audioCharacteristics->contains(audioControlCharacteristicUUID))
             {
               logger::warnln("BLE failed to find characteristic UUID at ", address);
-              connection.pClient->disconnect();
-              delete connection.pDevice;
-              connection.pDevice = nullptr;
+              connection.bleClient->disconnect();
+              delete connection.bleDevice;
+              connection.bleDevice = nullptr;
             }
             else
             {
@@ -194,24 +216,49 @@ static void ble_handle(void *arg)
               connection.audioControlCharacteristic = audioCharacteristics->at(audioControlCharacteristicUUID);
               connection.audioControlCharacteristic->registerForNotify(audioControlIndicateCallback, false);
               // 读取数据
-              connection.battery = connection.batteryCharacteristic->readUInt8();
-              connection.configControl = *(ConfigControl *)(connection.configControlCharacteristic->readValue().c_str());
-              connection.audioControl = *(AudioControl *)(connection.configControlCharacteristic->readValue().c_str());
-              connection.audioControl.start = true;
-              connection.audioControlCharacteristic->writeValue((uint8_t *)&connection.audioControl, sizeof(AudioControl));
+              connection.configBattery = connection.batteryCharacteristic->readUInt8();
 
-              connection.connected = true;
+              // 测试连接
+              connection.configBasic.start = true;
+              connection.configBasic.mode = AUDIO_CONTROL_MODE_WIFI;
+              if (!wifiOn)
+              {
+                logger::debugln("WiFi is starting...");
+                WiFi.mode(WIFI_AP);
+                if (!WiFi.softAP(wifiName, wifiPassword))
+                {
+                  WiFi.mode(WIFI_OFF);
+                  logger::warnln("WiFi started fail!");
+                  break;
+                }
+                logger::debugln("WiFi is opened for IP %s.", WiFi.softAPIP().toString());
+                logger::debugln("WiFi UDP starting...");
+                if (!wifiServer.begin(WIFI_UDP_PORT))
+                {
+                  WiFi.mode(WIFI_OFF);
+                  logger::warnln("WiFi UDP started fail!");
+                  break;
+                }
+                logger::debugln("WiFi UDP is started.");
+                logger::debugln("WiFi is started.");
+                wifiOn;
+              }
+              connection.configAudio.start = true;
+              connection.configControlCharacteristic->writeValue((uint8_t *)&connection.configBasic, sizeof(ConfigControl));
+              connection.audioControlCharacteristic->writeValue((uint8_t *)&connection.configAudio, sizeof(AudioControl));
+
+              connection.bleConnected = true;
               logger::debugln("BLE successfully connected to %s.", address);
             }
           }
         }
-        connection.doConnect = false;
+        connection.bleDoConnect = false;
       }
     }
   }
 }
 
-void ble::setup()
+void rf::setup()
 {
   logger::debugln("BLE is starting...");
   // 初始化蓝牙
@@ -226,6 +273,10 @@ void ble::setup()
   pBLEScan->setActiveScan(true);
   pBLEScan->start(5, false);
 
-  xTaskCreatePinnedToCore(ble_handle, "ble_handle", TASK_BLE_STACK, NULL, TASK_BLE_PRIORITY, NULL, TASK_BLE_CORE);
   logger::debugln("BLE is started.");
+
+  WiFi.mode(WIFI_OFF);
+  logger::debugln("WiFi is off.");
+
+  xTaskCreatePinnedToCore(rf_handle, "rf_handle", TASK_RF_STACK, NULL, TASK_RF_PRIORITY, NULL, TASK_RF_CORE);
 }
