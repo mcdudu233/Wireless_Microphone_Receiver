@@ -40,30 +40,31 @@ static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
   // 往左往右
   if (button::left() && !left)
   {
-    logger::debugln("left");
     left = true;
     data->enc_diff = -1;
   }
+  else if (!button::left() && left)
+  {
+    left = false;
+    data->enc_diff = 0;
+  }
   else if (button::right() && !right)
   {
-    logger::debugln("right");
     right = true;
     data->enc_diff = 1;
   }
-  else if (left || right)
+  else if (!button::right() && right)
   {
-    left = false;
     right = false;
     data->enc_diff = 0;
   }
   // 按下
   if (button::ok() && !ok)
   {
-    logger::debugln("ok");
     ok = true;
     data->state = LV_INDEV_STATE_PRESSED;
   }
-  else if (ok)
+  else if (!button::ok() && ok)
   {
     ok = false;
     data->state = LV_INDEV_STATE_RELEASED;
