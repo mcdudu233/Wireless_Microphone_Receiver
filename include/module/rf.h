@@ -16,7 +16,7 @@
 // WIFI
 #define WIFI_NAME_VALUE "Microphone Receiver"
 #define WIFI_PASSWORD_VALUE "Cx^9Xbg5wih3"
-#define WIFI_UDP_PORT 23333
+#define WIFI_UDP_PORT 3333
 
 enum ConfigControlMode
 {
@@ -44,7 +44,7 @@ struct AudioControl
 struct AudioPacket
 {
   uint32_t num;
-  uint8_t data[384];
+  uint8_t data[1536];
 };
 
 // 设备信息结构体

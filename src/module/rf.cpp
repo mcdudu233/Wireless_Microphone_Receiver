@@ -128,6 +128,7 @@ static void dataNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic
   }
 }
 
+AudioPacket packet;
 static void rf_handle(void *arg)
 {
   TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -141,13 +142,12 @@ static void rf_handle(void *arg)
       int size = wifiServer.parsePacket();
       if (size != 0)
       {
-        logger::debugln("Received packet from %s:%d.", wifiServer.remoteIP().toString(), wifiServer.remotePort());
-        char buffer[255];
-        int len = wifiServer.read(buffer, 255);
+        // logger::debugln("Received packet from %s:%d, len is %d.", wifiServer.remoteIP().toString(), wifiServer.remotePort(), size);
+        int len = wifiServer.read((char *)&packet, size);
         if (len > 0)
         {
-          buffer[len] = 0;
-          Serial.println(buffer);
+          logger::debugln("Received packet, num is %d.", packet.num);
+          // wifiServer.clear();
         }
       }
     }
@@ -241,7 +241,7 @@ static void rf_handle(void *arg)
                 }
                 logger::debugln("WiFi UDP is started.");
                 logger::debugln("WiFi is started.");
-                wifiOn;
+                wifiOn = true;
               }
               connection.configAudio.start = true;
               connection.configControlCharacteristic->writeValue((uint8_t *)&connection.configBasic, sizeof(ConfigControl));
