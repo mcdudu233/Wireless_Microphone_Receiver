@@ -50,7 +50,7 @@ lv_obj_t* add_button(lv_obj_t * parent, char * title, int32_t w, int32_t h,const
 lv_obj_t* add_list_obj(lv_obj_t * list, char * content, lv_event_cb_t cb,const lv_font_t * font, lv_palette_t bg_color)
 {
     lv_obj_t* btn = lv_list_add_button(list, NULL, content);
-    lv_obj_set_style_pad_all(btn, 1, 1);
+    //lv_obj_set_style_pad_all(btn, 1, 0);
 
     // lv_obj_set_size(btn,lv_pct(90),15);
     if(font!=NULL)
