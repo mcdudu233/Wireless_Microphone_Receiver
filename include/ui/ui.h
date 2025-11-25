@@ -80,5 +80,5 @@ typedef enum {
 enum bt_section_color{
     selected = LV_PALETTE_YELLOW,
     linked = LV_PALETTE_GREEN,
-    none = LV_PALETTE_GREY
+    none = -1
 } ;

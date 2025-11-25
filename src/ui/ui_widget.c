@@ -81,7 +81,7 @@ void ui_init(void)
     ld->label = pct;
     ld->next_cb = finish_loading_cb;
 
-    lv_timer_create(loding_timer_cb,50,ld);
+    lv_timer_create(loding_timer_cb,1,ld); // 设置加载速率
     LV_LOG_INFO("timer已创建");
 
 
