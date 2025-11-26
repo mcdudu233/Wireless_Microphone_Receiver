@@ -1,6 +1,7 @@
 #include "logger.h"
 #include "config.h"
 #include "module/rf.h"
+#include "module/audio/decoder.h"
 
 #include "map"
 #include "iostream"
@@ -147,7 +148,7 @@ static void rf_handle(void *arg)
         if (len > 0)
         {
           logger::debugln("Received packet, num is %d.", packet.num);
-          // wifiServer.clear();
+          audio::decoder::writeData(packet.data);
         }
       }
     }

@@ -12,6 +12,8 @@ void setup()
   audio::decoder::setup();
   rf::setup();
   logger::infoln("All modules are started now!");
+
+  audio::decoder::on(48000, 32);
 }
 
 void loop()

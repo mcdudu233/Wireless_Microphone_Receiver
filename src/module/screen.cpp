@@ -107,6 +107,8 @@ static void setup_tft()
   // tft.initR(INITR_MINI160x80_PLUGIN); // 颜色翻转
   tft.setSPISpeed(TFT_SPI_FREQ);
   tft.setRotation(3);
+  uint8_t madctl = ST77XX_MADCTL_MX | ST77XX_MADCTL_MV | TFT_COLOR;
+  tft.sendCommand(ST77XX_MADCTL, &madctl, 1);
   logger::debugln("TFT is inited.");
 
   tft.fillScreen(ST77XX_BLACK);
@@ -158,6 +160,7 @@ static void setup_lvgl()
   // 创建屏幕 RGB565
   lv_display_t *display = lv_display_create(TFT_HOR_RES, TFT_VER_RES);
   lv_display_set_buffers(display, screen_buffer, NULL, sizeof(screen_buffer), LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
   lv_display_set_flush_cb(display, screen_cb);
   // lv_display_set_rotation(display, LV_DISP_ROTATION_270);
 

@@ -1,5 +1,8 @@
 #pragma once
 
+// 屏幕颜色顺序
+#define TFT_COLOR ST7735_MADCTL_BGR
+
 // 屏幕分辨率
 #define TFT_HOR_RES 160
 #define TFT_VER_RES 80
