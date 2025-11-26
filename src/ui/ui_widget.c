@@ -25,7 +25,7 @@ void loding_timer_cb(lv_timer_t * timer)
 // 加载完成后回调函数 -> 进入蓝牙连接界面
 void finish_loading_cb(lv_event_t * e)
 {
-    ui_bt_init(e);
+    ui_bt_init(NULL);
 }
 
 // ui初始化函数
