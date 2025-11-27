@@ -147,7 +147,7 @@ static void rf_handle(void *arg)
         int len = wifiServer.read((char *)&packet, size);
         if (len > 0)
         {
-          logger::debugln("Received packet, num is %d.", packet.num);
+          // logger::debugln("Received packet, num is %d, size is %d.", packet.num, len);
           audio::decoder::writeData(packet.data);
         }
       }

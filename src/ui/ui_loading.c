@@ -1,15 +1,46 @@
-#include "ui/ui_widget.h"
+#include "ui/ui.h"
+#include "ui/ui_loading.h"
 
-// 160 * 80
+// 加载百分比
+static uint8_t percent = 0;
 
-static void loding_timer_cb(lv_timer_t *timer); // 加载timer的周期回调函数
-static void finish_loading_cb(lv_event_t *e);   // 加载完成后回调函数 -> 进入蓝牙连接界面
+void ui_loading_set_percent(uint8_t p)
+{
+    percent = p;
+}
+
+// 加载timer的周期回调函数
+static void loding_timer_cb(lv_timer_t *timer)
+{
+    // 强转数据
+    load_data *ld = (load_data *)lv_timer_get_user_data(timer);
+    uint32_t val = lv_bar_get_value(ld->bar);
+    if (percent > val)
+    {
+        val++;
+        lv_bar_set_value(ld->bar, val, LV_ANIM_ON);
+        lv_label_set_text_fmt(ld->label, "%d%%", val);
+    }
+    if (val >= lv_bar_get_max_value(ld->bar))
+    {
+        lv_obj_delete(ld->load_widget);
+        ld->next_cb();
+        lv_timer_delete(timer);
+        lv_free(ld);
+        LV_LOG_INFO("加载完成");
+    }
+}
+
+// 加载完成后回调函数 -> 进入蓝牙连接界面
+static void finish_loading_cb(lv_event_t *e)
+{
+    ui_bt_init(NULL);
+}
 
 // ui初始化函数
-void ui_init(void)
+void ui_loading_init()
 {
     // 设置屏幕背景色为白色
-
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, LV_PART_MAIN);
 
@@ -46,29 +77,4 @@ void ui_init(void)
 
     lv_timer_create(loding_timer_cb, 1, ld); // 设置加载速率
     LV_LOG_INFO("timer已创建");
-}
-// 加载timer的周期回调函数
-static void loding_timer_cb(lv_timer_t *timer)
-{
-    // 强转数据
-    load_data *ld = (load_data *)lv_timer_get_user_data(timer);
-    uint32_t val = lv_bar_get_value(ld->bar) + 1;
-    lv_bar_set_value(ld->bar, val, LV_ANIM_ON);
-    lv_label_set_text_fmt(ld->label, "%d%%", val);
-    if (val >= lv_bar_get_max_value(ld->bar))
-    {
-        lv_obj_delete(ld->load_widget);
-        ld->next_cb();
-        lv_timer_delete(timer);
-
-        lv_free(ld);
-
-        LV_LOG_INFO("加载完成");
-    }
-}
-
-// 加载完成后回调函数 -> 进入蓝牙连接界面
-static void finish_loading_cb(lv_event_t *e)
-{
-    ui_bt_init(NULL);
 }

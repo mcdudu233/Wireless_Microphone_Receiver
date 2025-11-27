@@ -1,4 +1,5 @@
 #include "logger.h"
+#include "ui/ui_loading.h"
 #include "module/screen.h"
 #include "module/rf.h"
 #include "module/button.h"
@@ -8,9 +9,13 @@ void setup()
 {
   logger::setup();
   screen::setup();
+  ui_loading_set_percent(25);
   button::setup();
+  ui_loading_set_percent(30);
   audio::decoder::setup();
+  ui_loading_set_percent(50);
   rf::setup();
+  ui_loading_set_percent(100);
   logger::infoln("All modules are started now!");
 
   audio::decoder::on(48000, 32);
@@ -18,5 +23,14 @@ void setup()
 
 void loop()
 {
-  delay(100);
+  // logger::debugln("Internal:\n");
+  // logger::debugln("  Total: %d bytes\n", heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+  // logger::debugln("  Free: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  // logger::debugln("  Min Free: %d bytes\n", heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+  // // PSRAM
+  // logger::debugln("PSRAM:\n");
+  // logger::debugln("  Total: %d bytes\n", heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+  // logger::debugln("  Free: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+  // logger::debugln("  Min Free: %d bytes\n", heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
+  delay(1000);
 }

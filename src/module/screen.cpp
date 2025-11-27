@@ -2,8 +2,9 @@
 #include "logger.h"
 #include "module/screen.h"
 #include "module/button.h"
+#include "ui/ui_loading.h"
 
-#include "ui/ui_widget.h"
+#include "lvgl.h"
 #include "SPI.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -214,9 +215,10 @@ void screen::setup()
   xTaskCreatePinnedToCore(screen_backlight_on_handle, "screen_backlight_on_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL, TASK_SCREEN_CORE);
 
   LV_LOCK();
-  ui_init();
+  ui_loading_init();
   LV_UNLOCK();
 
+  delay(500);
   logger::debugln("Screen is started.");
 }
 
