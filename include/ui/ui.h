@@ -1,4 +1,7 @@
 #pragma once
+#ifdef __cplusplus
+extern "C" {
+#endif
 #ifdef __has_include
 #if __has_include("lvgl.h")
 #ifndef LV_LVGL_H_INCLUDE_SIMPLE
@@ -115,3 +118,7 @@ char *get_upload_speed();
 char *get_download_speed();
 bool link_bt(const char *device_name);
 bool unlink_bt(const char *device_name);
+
+#ifdef __cplusplus
+}
+#endif
