@@ -43,14 +43,14 @@ char **get_linked_bt_list()
 int32_t get_left_voice_per(const char *device_name)
 {
     int32_t vp;
-    vp = 100;
+    vp = 30;
     return vp;
 }
 // 获取设备右声道音量大小百分比
 int32_t get_right_voice_per(const char *device_name)
 {
     int32_t vp;
-    vp = 100;
+    vp = 50;
     return vp;
 }
 // 获取设备信号强度百分比

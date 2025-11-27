@@ -125,7 +125,6 @@ static void link_cb(lv_event_t *e)
         {
             label = lv_obj_get_child(btn, 0);
             char *bt_name = lv_label_get_text(label); // 待链接蓝牙的名称
-            // TODO:链接操作
             LV_LOG_USER("正在连接蓝牙%s", bt_name);
             bool state = link_bt(bt_name);
             if (state) // 链接成功
@@ -154,7 +153,6 @@ static void list_event_handler(lv_event_t *e)
         lv_state_t current_state = lv_obj_get_state(obj);
         LV_LOG_USER("state:%d", current_state);
         const char *bt_name = lv_list_get_button_text(list, obj);
-        // TODO:功能待验证
         if (!lv_obj_has_state(obj, LV_STATE_CHECKED)) // 非选中状态说明之前为选中
         {
             // lv_color_t c = lv_obj_get_style_bg_color(obj, 0);

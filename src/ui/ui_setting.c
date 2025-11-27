@@ -1,5 +1,7 @@
 #include "ui/ui.h"
+
 static lv_obj_t *menu;
+static lv_obj_t *setting_widget;
 
 static void back_cb(lv_event_t *e);      // 设置页面back按钮回调
 static void relink_bt_cb(lv_event_t *e); // 重新链接蓝牙回调
@@ -18,11 +20,10 @@ void ui_setting_init(lv_event_t *e)
     lv_obj_t *main_widget = (lv_obj_t *)lv_event_get_user_data(e);
     lv_obj_add_flag(main_widget, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *setting_widget = add_win();
+    setting_widget = add_win();
     setting_back_data *bd = lv_malloc(sizeof(setting_back_data));
     LV_ASSERT_MALLOC(bd);
     bd->main_widget = main_widget;
-    bd->setting_widget = setting_widget;
 
     menu = lv_menu_create(setting_widget);
     lv_color_t bg_color = lv_obj_get_style_bg_color(menu, 0);
@@ -64,6 +65,7 @@ void ui_setting_init(lv_event_t *e)
     // 蓝牙
     section = lv_menu_section_create(sub_bt_page);
     cont = create_text(section, NULL, "返回连接蓝牙界面", LV_MENU_ITEM_BUILDER_VARIANT_1);
+
     lv_obj_add_event_cb(cont, relink_bt_cb, LV_EVENT_CLICKED, setting_widget);
     // lv_obj_t *sub_mechanics_page = lv_menu_page_create(menu, NULL);
     // lv_obj_set_style_pad_hor(sub_mechanics_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
@@ -115,14 +117,17 @@ static void back_cb(lv_event_t *e)
         setting_back_data *bd = (setting_back_data *)lv_event_get_user_data(e);
         // lv_obj_set_flag(bd->main_widget,LV_OBJ_FLAG_HIDDEN, false);
         lv_obj_clear_flag(bd->main_widget, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_del(bd->setting_widget);
+        lv_obj_del(setting_widget);
         lv_free(bd);
     }
 }
 // 重新连接蓝牙点击
 static void relink_bt_cb(lv_event_t *e)
 {
-    ui_bt_init(e);
+    lv_obj_t *setting_widget = (lv_obj_t *)lv_event_get_user_data(e);
+    lv_obj_del(setting_widget);
+    free_main_widget();
+    ui_bt_init(NULL);
 }
 
 static lv_obj_t *create_text(lv_obj_t *parent, const void *icon, const char *txt,
@@ -152,6 +157,8 @@ static lv_obj_t *create_text(lv_obj_t *parent, const void *icon, const char *txt
         lv_obj_swap(img, label);
     }
     // lv_obj_set_style_text_font(obj,&lv_font_montserrat_10,0);
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_group_add_obj(lv_group_get_default(), obj);
     return obj;
 }

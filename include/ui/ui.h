@@ -37,6 +37,8 @@ extern "C" {
 
 // 主窗口数据获取周期 单位：ms
 #define DEVICE_DATA_REFLUSH_TIME 500
+// 最大蓝牙连接数
+#define MAX_DEVICE_COUNT 4
 
 typedef void (*callback)();
 
@@ -52,6 +54,8 @@ void bind_group_to_all_encoders(lv_group_t *g);
 lv_obj_t *add_win();
 lv_obj_t *add_button(lv_obj_t *parent, char *title, int32_t w, int32_t h, const lv_font_t *font);
 lv_obj_t *add_list_obj(lv_obj_t *list, char *content, lv_event_cb_t cb, const lv_font_t *font, lv_palette_t bg_color);
+
+void free_main_widget();
 
 static inline void set_bar_val(void *bar, int32_t val)
 {
@@ -81,7 +85,6 @@ typedef struct
 typedef struct
 {
     lv_obj_t *main_widget;
-    lv_obj_t *setting_widget;
 } setting_back_data;
 
 typedef struct
@@ -110,10 +113,10 @@ enum bt_section_color
 // ui_api
 char **get_bt_list();
 char **get_linked_bt_list();
-int32_t get_left_voice_per(char *device_name);
-int32_t get_right_voice_per(char *device_name);
-int32_t get_signal_per(char *device_name);
-int32_t get_power_per(char *device_name);
+int32_t get_left_voice_per(const char *device_name);
+int32_t get_right_voice_per(const char *device_name);
+int32_t get_signal_per(const char *device_name);
+int32_t get_power_per(const char *device_name);
 char *get_upload_speed();
 char *get_download_speed();
 bool link_bt(const char *device_name);
