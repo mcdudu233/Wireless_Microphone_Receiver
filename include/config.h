@@ -1,5 +1,9 @@
 #pragma once
 
+// 配置文件名
+#define CONFIG_NAME "config"
+#define CONFIG_VALUE_NAME "config"
+
 // 多线程任务配置
 #define TASK_BUTTON_CORE 1
 #define TASK_BUTTON_PERIOD 5
@@ -31,7 +35,7 @@ namespace config
   };
 
   // 全局配置
-  struct
+  struct ConfigValue
   {
     TransmitMode transmitMode = TRANSMIT_MODE_WIFI_TCP;
   } value;

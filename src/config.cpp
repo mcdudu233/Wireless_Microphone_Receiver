@@ -1,7 +1,23 @@
 #include "logger.h"
 #include "config.h"
 
+#include "Preferences.h"
+
+static Preferences prefs;
+
 void config::setup()
 {
-  
+  logger::debugln("Config is starting...");
+
+  prefs.begin(CONFIG_NAME);
+  if (prefs.isKey(CONFIG_VALUE_NAME))
+  {
+    prefs.getBytes(CONFIG_VALUE_NAME, &value, sizeof(ConfigValue));
+  }
+  else
+  {
+    prefs.putBytes(CONFIG_VALUE_NAME, &value, sizeof(ConfigValue));
+  }
+
+  logger::debugln("Config is started.");
 }
