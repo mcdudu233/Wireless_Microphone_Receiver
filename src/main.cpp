@@ -2,6 +2,7 @@
 #include "ui/ui_loading.h"
 #include "module/screen.h"
 #include "module/rf.h"
+#include "module/tf.h"
 #include "module/button.h"
 #include "module/audio/decoder.h"
 
@@ -15,6 +16,8 @@ void setup()
   audio::decoder::setup();
   ui_loading_set_percent(50);
   rf::setup();
+  ui_loading_set_percent(80);
+  tf::setup();
   ui_loading_set_percent(100);
   logger::infoln("All modules are started now!");
 

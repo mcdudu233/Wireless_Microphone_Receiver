@@ -195,7 +195,7 @@ static void screen_handle(void *arg)
 static void screen_backlight_on_handle(void *arg)
 {
   // 先等待屏幕控件加载再渐亮
-  vTaskDelay(pdMS_TO_TICKS(500));
+  vTaskDelay(pdMS_TO_TICKS(200));
   // 屏幕渐亮
   for (int i = 0; i <= 50; i++)
   {
@@ -207,6 +207,7 @@ static void screen_backlight_on_handle(void *arg)
 
 void screen::setup()
 {
+  logger::debugln("Screen is starting...");
   setup_tft();
   setup_lvgl();
 
@@ -218,7 +219,6 @@ void screen::setup()
   ui_loading_init();
   LV_UNLOCK();
 
-  delay(500);
   logger::debugln("Screen is started.");
 }
 

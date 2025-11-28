@@ -16,7 +16,6 @@
 static std::map<std::string, DeviceConnection> devices;
 
 // WIFI
-static std::string generateRandomWord(int length);
 static bool wifiOn = false;
 static const char *wifiName = WIFI_NAME_VALUE;
 static const char *wifiPassword = WIFI_PASSWORD_VALUE;
