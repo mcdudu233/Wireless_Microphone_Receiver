@@ -1,4 +1,6 @@
 #include "ui/ui.h"
+#include "ui/ui_setting.h"
+#include <string>
 
 static lv_obj_t *menu;
 static lv_obj_t *setting_widget;
@@ -13,31 +15,25 @@ static lv_obj_t *create_slider(lv_obj_t *parent, const char *icon, const char *t
 static lv_obj_t *create_switch(lv_obj_t *parent, const char *icon, const char *txt, bool chk);
 
 static lv_obj_t *create_sub_page(lv_obj_t *parent); // 新建子页面
-
-void ui_setting_init(lv_event_t *e)
+void ui_setting_init()
 {
     lv_obj_t *btn;
-    lv_obj_t *main_widget = (lv_obj_t *)lv_event_get_user_data(e);
-    lv_obj_add_flag(main_widget, LV_OBJ_FLAG_HIDDEN);
 
+    set_hidden_main_widget(true);
     setting_widget = add_win();
-    setting_back_data *bd = lv_malloc(sizeof(setting_back_data));
-    LV_ASSERT_MALLOC(bd);
-    bd->main_widget = main_widget;
-
     menu = lv_menu_create(setting_widget);
-    lv_color_t bg_color = lv_obj_get_style_bg_color(menu, 0);
+    lv_color_t bg_color = lv_obj_get_style_bg_color(menu, LV_PART_MAIN);
     if (lv_color_brightness(bg_color) > 127)
     {
-        lv_obj_set_style_bg_color(menu, lv_color_darken(lv_obj_get_style_bg_color(menu, 0), 10), 0);
+        lv_obj_set_style_bg_color(menu, lv_color_darken(lv_obj_get_style_bg_color(menu, LV_PART_MAIN), 10), 0);
     }
     else
     {
-        lv_obj_set_style_bg_color(menu, lv_color_darken(lv_obj_get_style_bg_color(menu, 0), 50), 0);
+        lv_obj_set_style_bg_color(menu, lv_color_darken(lv_obj_get_style_bg_color(menu, LV_PART_MAIN), 50), 0);
     }
     lv_menu_set_mode_root_back_button(menu, LV_MENU_ROOT_BACK_BUTTON_ENABLED);
 
-    lv_obj_add_event_cb(menu, back_cb, LV_EVENT_CLICKED, bd);
+    lv_obj_add_event_cb(menu, back_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_set_size(menu, lv_display_get_horizontal_resolution(NULL) - 5, lv_display_get_vertical_resolution(NULL) - 5);
     lv_obj_center(menu);
 
@@ -46,27 +42,20 @@ void ui_setting_init(lv_event_t *e)
 
     /*Create sub pages*/
     lv_obj_t *sub_about_page = create_sub_page(menu);
-    lv_obj_t *sub_software_info_page = create_sub_page(menu);
-    lv_obj_t *sub_legal_info_page = create_sub_page(menu);
+    lv_obj_t *sub_usb_page = create_sub_page(menu);
+    lv_obj_t *sub_system_page = create_sub_page(menu);
     lv_obj_t *sub_audio_page = create_sub_page(menu);
-    lv_obj_t *sub_bt_page = create_sub_page(menu);
-    lv_obj_t *sub_wifi_page = create_sub_page(menu);
-
-    lv_obj_t *label = lv_label_create(sub_software_info_page);
-    lv_label_set_text(label, "dududu");
+    // lv_obj_t *sub_bt_page = create_sub_page(menu);
+    lv_obj_t *sub_wireless_page = create_sub_page(menu);
 
     // 关于
     section = lv_menu_section_create(sub_about_page);
-    cont = create_text(section, NULL, "Software information", LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_menu_set_load_page_event(menu, cont, sub_software_info_page);
-    cont = create_text(section, NULL, "Legal information", LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_menu_set_load_page_event(menu, cont, sub_legal_info_page);
+    cont = create_text(section, NULL, "无线麦克风", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    cont = create_text(section, NULL, ("固件版本:" + std::string(VERSION)).c_str(), LV_MENU_ITEM_BUILDER_VARIANT_1);
+    cont = create_text(section, NULL, "作者:awa", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    cont = create_text(section, NULL, ("外部链接:\n" + std::string(EXTERNAL_LINK)).c_str(), LV_MENU_ITEM_BUILDER_VARIANT_1);
+    section = lv_menu_section_create(sub_usb_page);
 
-    // 蓝牙
-    section = lv_menu_section_create(sub_bt_page);
-    cont = create_text(section, NULL, "返回连接蓝牙界面", LV_MENU_ITEM_BUILDER_VARIANT_1);
-
-    lv_obj_add_event_cb(cont, relink_bt_cb, LV_EVENT_CLICKED, setting_widget);
     // lv_obj_t *sub_mechanics_page = lv_menu_page_create(menu, NULL);
     // lv_obj_set_style_pad_hor(sub_mechanics_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
     // lv_menu_separator_create(sub_mechanics_page);
@@ -76,28 +65,35 @@ void ui_setting_init(lv_event_t *e)
     // create_slider(section, LV_SYMBOL_SETTINGS, "Weight limit", 0, 150, 80);
     /*Create a root page*/
     lv_obj_t *root_page = lv_menu_page_create(menu, "设置");
-    lv_obj_set_style_pad_hor(root_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_obj_set_style_pad_hor(root_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), LV_PART_MAIN), 0);
     section = lv_menu_section_create(root_page);
     // cont = create_text(section, NULL, "Mechanics", LV_MENU_ITEM_BUILDER_VARIANT_1);
     // lv_group_add_obj(lv_group_get_default(), cont);
     // lv_menu_set_load_page_event(menu, cont, sub_mechanics_page);
-
-    // create_text(root_page, NULL, "     ", LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(root_page);
-    cont = create_text(section, LV_SYMBOL_AUDIO, "音频", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    cont = create_text(section, LV_SYMBOL_AUDIO, "音频设置", LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_audio_page);
     section = lv_menu_section_create(root_page);
-    cont = create_text(section, LV_SYMBOL_BLUETOOTH, "蓝牙", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    cont = create_text(section, LV_SYMBOL_BLUETOOTH, "设备连接", LV_MENU_ITEM_BUILDER_VARIANT_1); // finish
     lv_group_add_obj(lv_group_get_default(), cont);
-    lv_menu_set_load_page_event(menu, cont, sub_bt_page);
+    // lv_menu_set_load_page_event(menu, cont, sub_bt_page);
+    lv_obj_add_event_cb(cont, relink_bt_cb, LV_EVENT_CLICKED, NULL);
     section = lv_menu_section_create(root_page);
-    cont = create_text(section, LV_SYMBOL_WIFI, "WIFI", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    cont = create_text(section, LV_SYMBOL_WIFI, "无线传输设置", LV_MENU_ITEM_BUILDER_VARIANT_1); // TODO: 传输协议（BLE udp tcp）
     lv_group_add_obj(lv_group_get_default(), cont);
-    lv_menu_set_load_page_event(menu, cont, sub_wifi_page);
+    lv_menu_set_load_page_event(menu, cont, sub_wireless_page);
+    section = lv_menu_section_create(root_page);
+    cont = create_text(section, LV_SYMBOL_USB, "USB传输设置", LV_MENU_ITEM_BUILDER_VARIANT_1); // TODO: 模式（音频传输、读卡器）
+    lv_group_add_obj(lv_group_get_default(), cont);
+    lv_menu_set_load_page_event(menu, cont, sub_usb_page);
+    section = lv_menu_section_create(root_page);
+    cont = create_text(section, &system_info, "系统信息", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(lv_group_get_default(), cont);
+    lv_menu_set_load_page_event(menu, cont, sub_system_page); // TODO: AWA  CPU核1、2占用 运行内存（IRAM PSRAM） tf储存
 
     section = lv_menu_section_create(root_page);
-    cont = create_text(section, &about, "关于", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    cont = create_text(section, &about, "关于", LV_MENU_ITEM_BUILDER_VARIANT_1); // TODO: 大标题 固件版本 作者 链接
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_about_page);
 
@@ -114,20 +110,16 @@ static void back_cb(lv_event_t *e)
     lv_obj_t *obj = lv_event_get_target_obj(e);
     if (lv_menu_back_button_is_root(menu, obj))
     {
-        setting_back_data *bd = (setting_back_data *)lv_event_get_user_data(e);
-        // lv_obj_set_flag(bd->main_widget,LV_OBJ_FLAG_HIDDEN, false);
-        lv_obj_clear_flag(bd->main_widget, LV_OBJ_FLAG_HIDDEN);
+        set_hidden_main_widget(false);
         lv_obj_del(setting_widget);
-        lv_free(bd);
     }
 }
 // 重新连接蓝牙点击
 static void relink_bt_cb(lv_event_t *e)
 {
-    lv_obj_t *setting_widget = (lv_obj_t *)lv_event_get_user_data(e);
     lv_obj_del(setting_widget);
     free_main_widget();
-    ui_bt_init(NULL);
+    ui_bt_init();
 }
 
 static lv_obj_t *create_text(lv_obj_t *parent, const void *icon, const char *txt,
@@ -158,8 +150,15 @@ static lv_obj_t *create_text(lv_obj_t *parent, const void *icon, const char *txt
     }
     // lv_obj_set_style_text_font(obj,&lv_font_montserrat_10,0);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_group_add_obj(lv_group_get_default(), obj);
+
+    // lv_obj_add_event_cb(obj, [](lv_event_t *e)
+    //                     {
+    //     lv_obj_t* target = lv_event_get_target_obj(e);
+    //     lv_obj_scroll_to_view(target, LV_ANIM_ON);
+    // }, LV_EVENT_FOCUSED, NULL);
     return obj;
 }
 static lv_obj_t *create_slider(lv_obj_t *parent, const char *icon, const char *txt, int32_t min, int32_t max,
@@ -184,14 +183,14 @@ static lv_obj_t *create_switch(lv_obj_t *parent, const char *icon, const char *t
     lv_obj_t *obj = create_text(parent, icon, txt, LV_MENU_ITEM_BUILDER_VARIANT_1);
 
     lv_obj_t *sw = lv_switch_create(obj);
-    lv_obj_add_state(sw, chk ? LV_STATE_CHECKED : 0);
+    lv_obj_add_state(sw, chk ? LV_STATE_CHECKED : LV_STATE_DEFAULT);
 
     return obj;
 }
 static lv_obj_t *create_sub_page(lv_obj_t *parent)
 {
     lv_obj_t *sub_page = lv_menu_page_create(parent, NULL);
-    lv_obj_set_style_pad_hor(sub_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(parent), 0), 0);
+    lv_obj_set_style_pad_hor(sub_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(parent), LV_PART_MAIN), 0);
     lv_menu_separator_create(sub_page);
     return sub_page;
 }

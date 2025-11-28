@@ -3,22 +3,7 @@
  * Bpp: 2
  * Opts: --bpp 2 --size 12 --no-compress --stride 1 --align 1 --font HarmonyOS_Sans_SC_Regular.ttf --symbols 选择设备连接完成置蓝牙上传下载重新音频关于返回界面 --range 32-127 --format lvgl -o lv_font_harmonyos_12.c
  ******************************************************************************/
-#include "ui/ui.h"
-#ifdef __has_include
-    #if __has_include("lvgl.h")
-        #ifndef LV_LVGL_H_INCLUDE_SIMPLE
-            #define LV_LVGL_H_INCLUDE_SIMPLE
-        #endif
-    #endif
-#endif
-
-#ifdef LV_LVGL_H_INCLUDE_SIMPLE
-    #include "lvgl.h"
-#else
-    #include "lvgl/lvgl.h"
-#endif
-
-
+#include "ui/ui_res.h"
 
 #ifndef LV_FONT_HARMONYOS_12
 #define LV_FONT_HARMONYOS_12 1
