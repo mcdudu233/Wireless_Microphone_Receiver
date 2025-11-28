@@ -3,6 +3,8 @@
 
 #include "Preferences.h"
 
+config::ConfigValue config::value;
+
 static Preferences prefs;
 
 void config::setup()

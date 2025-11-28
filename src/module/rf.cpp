@@ -13,21 +13,23 @@
 #include "NetworkUdp.h"
 
 // 记录所有设备
-static std::map<std::string, DeviceConnection> devices;
+static std::map<const String, DeviceConnection> devices;
 
 // WIFI
 static bool wifiOn = false;
 static const char *wifiName = WIFI_NAME_VALUE;
 static const char *wifiPassword = WIFI_PASSWORD_VALUE;
-NetworkUDP wifiServer;
+static NetworkUDP wifiUDPServer;
+static NetworkServer wifiTCPServer;
+static std::map<const String, std::pair<const String, DeviceConnection> *> wifiTCPClients;
 
 // Client callback class to handle connect/disconnect events
 class BLEClientCallback : public BLEClientCallbacks
 {
-  std::string serverAddress;
+  String serverAddress;
 
 public:
-  BLEClientCallback(std::string index) : serverAddress(index) {}
+  BLEClientCallback(String index) : serverAddress(index) {}
 
   void onConnect(BLEClient *pclient)
   {
@@ -50,7 +52,7 @@ class BLEAdvertisedDeviceCallback : public BLEAdvertisedDeviceCallbacks
     // logger::debugln("BLE Device found: %s", advertisedDevice.toString().c_str());
     if (pDevice.getName().equalsIgnoreCase("Microphone Transmitter"))
     {
-      std::string address = pDevice.getAddress().toString().c_str();
+      String address = pDevice.getAddress().toString();
       if (devices.contains(address))
       {
         // 如果已经连接
@@ -59,10 +61,10 @@ class BLEAdvertisedDeviceCallback : public BLEAdvertisedDeviceCallbacks
       else
       {
         // 设备加入待连接列表
-        devices.insert(std::pair<std::string, DeviceConnection>(address, (DeviceConnection){
-                                                                             .bleDoConnect = true,
-                                                                             .bleDevice = new BLEAdvertisedDevice(pDevice),
-                                                                         }));
+        devices.insert(std::make_pair(address, (DeviceConnection){
+                                                   .bleDoConnect = true,
+                                                   .bleDevice = new BLEAdvertisedDevice(pDevice),
+                                               }));
         strcpy(devices.at(address).configBasic.name, wifiName);
         strcpy(devices.at(address).configBasic.password, wifiPassword);
 
@@ -75,7 +77,7 @@ class BLEAdvertisedDeviceCallback : public BLEAdvertisedDeviceCallbacks
 // Callback function to handle notifications from any server
 static void batteryNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
-  std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
+  String address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
   if (devices.contains(address))
   {
     devices.at(address).configBattery = *pData;
@@ -83,7 +85,7 @@ static void batteryNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteris
 }
 static void configControlIndicateCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
-  std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
+  String address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
   if (devices.contains(address))
   {
     ConfigControl *src = (ConfigControl *)pData;
@@ -98,7 +100,7 @@ static void configControlIndicateCallback(BLERemoteCharacteristic *pBLERemoteCha
 }
 static void audioControlIndicateCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
-  std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
+  String address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
   if (devices.contains(address))
   {
     devices.at(address).configAudio = *(AudioControl *)pData;
@@ -110,7 +112,7 @@ static uint32_t packet_size = 0;
 static uint32_t packet_num = 0;
 static void dataNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
-  std::string address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
+  String address = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString().c_str();
   if (devices.contains(address))
   {
     AudioPacket *packet = (AudioPacket *)pData;
@@ -129,6 +131,7 @@ static void dataNotifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic
 }
 
 AudioPacket packet;
+NetworkClient test_client;
 static void rf_handle(void *arg)
 {
   TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -139,23 +142,75 @@ static void rf_handle(void *arg)
 
     if (wifiOn)
     {
-      int size = wifiServer.parsePacket();
-      if (size != 0)
+      switch (config::value.transmitProtocol)
       {
-        // logger::debugln("Received packet from %s:%d, len is %d.", wifiServer.remoteIP().toString(), wifiServer.remotePort(), size);
-        int len = wifiServer.read((char *)&packet, size);
-        if (len > 0)
+      case config::TRANSMIT_MODE_WIFI_UDP:
+      {
+        int size = wifiUDPServer.parsePacket();
+        if (size != 0)
         {
-          // logger::debugln("Received packet, num is %d, size is %d.", packet.num, len);
-          audio::decoder::writeData(packet.data);
+          // logger::debugln("Received packet from %s:%d, len is %d.", wifiServer.remoteIP().toString(), wifiServer.remotePort(), size);
+          int len = wifiUDPServer.read((char *)&packet, size);
+          if (len > 0)
+          {
+            // logger::debugln("Received packet, num is %d, size is %d.", packet.num, len);
+            audio::decoder::writeData(packet.data);
+          }
         }
+        break;
+      }
+      case config::TRANSMIT_MODE_WIFI_TCP:
+      {
+        if (!test_client)
+        {
+          NetworkClient client = wifiTCPServer.accept();
+          if (client)
+          {
+            String address = client.remoteIP().toString();
+            test_client = client;
+            // std::pair<const String, DeviceConnection> *devicePair = nullptr;
+            // for (auto &device : devices)
+            // {
+            //   // logger::debugln("%s  == %s", address, IPAddress(device.second.configBasic.ip).toString());
+            //   if (address.equals(IPAddress(device.second.configBasic.ip).toString()))
+            //   {
+            //     devicePair = &device;
+            //     break;
+            //   }
+            // }
+            // if (devicePair != nullptr)
+            // {
+            //   wifiTCPClients.insert(std::make_pair(address, devicePair));
+            //   logger::debugln("WiFi TCP get new client %s.", client.remoteIP().toString());
+            // }
+          }
+        }
+        else
+        {
+          // NetworkClient client = wifiTCPClients[String("192.168.4.2")];
+          if (test_client.connected())
+          {
+            if (test_client.available())
+            {
+              // logger::debugln("Received packet from %s:%d, len is %d.", wifiServer.remoteIP().toString(), wifiServer.remotePort(), size);
+              size_t len = test_client.readBytes((char *)&packet, 1152);
+              if (len > 0)
+              {
+                // logger::debugln("Received packet, num is %d, size is %d.", packet.num, len);
+                audio::decoder::writeData(packet.data);
+              }
+            }
+          }
+          break;
+        }
+      }
       }
     }
 
     // 连接到设备
     for (auto &device : devices)
     {
-      const std::string &address = device.first;
+      const String &address = device.first;
       DeviceConnection &connection = device.second;
       if (connection.bleDoConnect)
       {
@@ -220,7 +275,7 @@ static void rf_handle(void *arg)
 
               // 测试连接
               connection.configBasic.start = true;
-              connection.configBasic.mode = AUDIO_CONTROL_MODE_WIFI;
+              connection.configBasic.mode = AUDIO_CONTROL_MODE_WIFI_TCP;
               if (!wifiOn)
               {
                 logger::debugln("WiFi is starting...");
@@ -232,14 +287,17 @@ static void rf_handle(void *arg)
                   break;
                 }
                 logger::debugln("WiFi is opened for IP %s.", WiFi.softAPIP().toString());
-                logger::debugln("WiFi UDP starting...");
-                if (!wifiServer.begin(WIFI_UDP_PORT))
-                {
-                  WiFi.mode(WIFI_OFF);
-                  logger::warnln("WiFi UDP started fail!");
-                  break;
-                }
-                logger::debugln("WiFi UDP is started.");
+                // logger::debugln("WiFi UDP starting...");
+                // if (!wifiUDPServer.begin(WIFI_UDP_PORT))
+                // {
+                //   WiFi.mode(WIFI_OFF);
+                //   logger::warnln("WiFi UDP started fail!");
+                //   break;
+                // }
+                // logger::debugln("WiFi UDP is started.");
+                logger::debugln("WiFi TCP starting...");
+                wifiTCPServer.begin(WIFI_TCP_PORT);
+                logger::debugln("WiFi TCP is started.");
                 logger::debugln("WiFi is started.");
                 wifiOn = true;
               }

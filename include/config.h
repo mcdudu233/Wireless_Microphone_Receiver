@@ -1,5 +1,7 @@
 #pragma once
 
+#include "cstdint"
+
 // 配置文件名
 #define CONFIG_NAME "config"
 #define CONFIG_VALUE_NAME "config"
@@ -37,8 +39,11 @@ namespace config
   // 全局配置
   struct ConfigValue
   {
-    TransmitMode transmitMode = TRANSMIT_MODE_WIFI_TCP;
-  } value;
+    uint16_t audioRate = 48000;
+    uint8_t audioBit = 16;
+    TransmitMode transmitProtocol = TRANSMIT_MODE_WIFI_TCP;
+  };
+  extern ConfigValue value;
 
   void setup();
 }
