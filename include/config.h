@@ -20,3 +20,21 @@
 #define TASK_RF_PERIOD 1
 #define TASK_RF_STACK 8192
 #define TASK_RF_PRIORITY 1
+
+namespace config
+{
+  enum TransmitMode
+  {
+    TRANSMIT_MODE_BLE = 0,
+    TRANSMIT_MODE_WIFI_UDP = 1,
+    TRANSMIT_MODE_WIFI_TCP = 2,
+  };
+
+  // 全局配置
+  struct
+  {
+    TransmitMode transmitMode = TRANSMIT_MODE_WIFI_TCP;
+  } value;
+
+  void setup();
+}

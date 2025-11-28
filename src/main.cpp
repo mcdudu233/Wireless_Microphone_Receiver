@@ -1,4 +1,5 @@
 #include "logger.h"
+#include "config.h"
 #include "ui/ui_loading.h"
 #include "module/screen.h"
 #include "module/rf.h"
@@ -9,6 +10,7 @@
 void setup()
 {
   logger::setup();
+  config::setup();
   screen::setup();
   ui_loading_set_percent(25);
   button::setup();
