@@ -197,7 +197,7 @@ static void bt_list_update_event_cb(lv_event_t *e)
 // 添加蓝牙/更新蓝牙状态
 void update_bt(device_data *dev)
 {
-    if(lv_obj_get_parent(bt_list) != NULL)
+    if(bt_list && lv_obj_is_valid(bt_list))
         lv_obj_send_event(bt_list, EVENT_UPDATE, dev);
 }
 
