@@ -5,20 +5,18 @@
 #include "cctype"
 #include "ESP_I2S.h"
 
-static bool powerOn = false;
-
-static i2s_chan_handle_t i2s_tx_handle;
-static i2s_chan_config_t i2s_chan_cfg = {
+// I2S配置
+static const i2s_chan_config_t i2s_chan_cfg = {
     .id = I2S_NUM_AUTO,
     .role = I2S_ROLE_MASTER,
     .dma_desc_num = 10,   // 多少个DMA
     .dma_frame_num = 384, // 每个DMA大小
-    .auto_clear_after_cb = false,
+    .auto_clear_after_cb = true,
     .auto_clear_before_cb = false,
     .allow_pd = false,
     .intr_priority = 0,
 };
-static i2s_std_gpio_config_t i2s_gpio_cfg = {
+static const i2s_std_gpio_config_t i2s_gpio_cfg = {
     .mclk = I2S_GPIO_UNUSED,
     .bclk = AUDIO_DECODER_CLK,
     .ws = AUDIO_DECODER_WS,
@@ -29,8 +27,11 @@ static i2s_std_gpio_config_t i2s_gpio_cfg = {
         .bclk_inv = false,
         .ws_inv = false,
     }};
+
+static i2s_chan_handle_t i2s_tx_handle;
 static uint32_t i2s_rate;
 static i2s_data_bit_width_t i2s_bit;
+static bool powerOn = false;
 
 // 循环缓冲区
 static AudioData *data;
@@ -118,7 +119,17 @@ void audio::decoder::on(uint32_t rate, uint32_t bit)
   i2s_new_channel(&i2s_chan_cfg, &i2s_tx_handle, NULL);
   i2s_std_config_t std_cfg = {
       .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(i2s_rate),
-      .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(i2s_bit, I2S_SLOT_MODE_STEREO),
+      .slot_cfg = {
+          .data_bit_width = i2s_bit,
+          .slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT,
+          .slot_mode = I2S_SLOT_MODE_STEREO,
+          .slot_mask = I2S_STD_SLOT_BOTH,
+          .ws_width = I2S_SLOT_BIT_WIDTH_32BIT,
+          .ws_pol = false,
+          .bit_shift = true,
+          .left_align = false,
+          .big_endian = false,
+          .bit_order_lsb = false},
       .gpio_cfg = i2s_gpio_cfg,
   };
   i2s_channel_init_std_mode(i2s_tx_handle, &std_cfg);
