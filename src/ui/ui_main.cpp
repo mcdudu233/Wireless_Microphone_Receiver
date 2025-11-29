@@ -1,4 +1,4 @@
-#include "ui/ui.h"
+#include "ui/ui_main.h"
 
 static lv_style_t style_indic_h; // 横向bar样式
 static lv_style_t style_indic_v;
@@ -50,21 +50,20 @@ void ui_main_init()
     // lv_obj_set_size(tabview, 160 * 0.6, 70);
     lv_obj_align(tabview, LV_ALIGN_CENTER, 0, 0);
 
-    // char buf[13];
-    // lv_snprintf(buf, 13, "#0000FF %s#", LV_SYMBOL_BLUETOOTH);
-    // char **linked_devices = get_linked_bt_list();
-    // for (int i = 0; linked_devices[i] != NULL && i < MAX_DEVICE_COUNT; i++)
-    // {
-    //     LV_LOG_USER(linked_devices[i]);
-    //     char index[3]; // 最大99不然越界了
-    //     lv_snprintf(index, 3, "%d", i + 1);
-
-    //     lv_obj_t *tab = lv_tabview_add_tab(tabview, index);
-    //     lv_obj_t *card = create_device_card(tab, linked_devices[i], buf, false);
-    //     lv_obj_set_style_pad_all(tab, 0, 0);
-    //     lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
-    //     tabs[i] = tab;
-    // }
+    char buf[13];
+    int i = 0;
+    lv_snprintf(buf, 13, "#0000FF %s#", LV_SYMBOL_BLUETOOTH);
+    std::vector<std::string> linked_devices = get_linked_bt();
+    for (std::string dev : linked_devices)
+    {
+        LV_LOG_USER(dev.c_str());
+        lv_obj_t *tab = lv_tabview_add_tab(tabview, std::to_string(i + 1).c_str());
+        lv_obj_t *card = create_device_card(tab, dev.data(), buf, false);
+        lv_obj_set_style_pad_all(tab, 0, 0);
+        lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
+        tabs[i] = tab;
+        i++;
+    }
 
     lv_obj_t *tab_bar = lv_tabview_get_tab_bar(tabview); // 标题栏
     uint32_t cnt = lv_obj_get_child_count_by_type(tab_bar, &lv_button_class);
@@ -238,10 +237,10 @@ static void pull_data_timer_cb(lv_timer_t *timer)
     // lv_label_set_text_fmt(upload_label, "#00FF00 %s#%s", LV_SYMBOL_UP, get_upload_speed());
     // lv_label_set_text_fmt(download_label, "#00FF00 %s#%s", LV_SYMBOL_DOWN, get_download_speed());
 
-    // lv_obj_t *cur_tab = tabs[lv_tabview_get_tab_active(tabview)];
-    // lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
-    // device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
-    // char *name = card_data->device_name;
+    lv_obj_t *cur_tab = tabs[lv_tabview_get_tab_active(tabview)];
+    lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
+    device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
+    char *name = card_data->device_name;
 
     // lv_bar_set_value(card_data->left_voice_bar, get_left_voice_per(name), LV_ANIM_ON);
     // lv_bar_set_value(card_data->right_voice_bar, get_right_voice_per(name), LV_ANIM_ON);
@@ -271,4 +270,11 @@ void free_main_widget()
 void set_hidden_main_widget(bool state)
 {
     lv_obj_set_flag(main_widget, LV_OBJ_FLAG_HIDDEN, state);
+}
+
+// api
+std::vector<std::string> get_linked_bt()
+{
+    std::vector<std::string> dev = {"mac1", "mac2", "mac3"};
+    return dev;
 }
