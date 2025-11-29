@@ -22,6 +22,11 @@
 #define TASK_SCREEN_STACK 8192
 #define TASK_SCREEN_PRIORITY 1
 
+#define TASK_SOCKET_CORE 1
+#define TASK_SOCKET_PERIOD 1
+#define TASK_SOCKET_STACK 4096
+#define TASK_SOCKET_PRIORITY 5
+
 #define TASK_RF_CORE 1
 #define TASK_RF_PERIOD 1
 #define TASK_RF_STACK 8192
@@ -41,7 +46,7 @@ namespace config
   {
     uint16_t audioRate = 48000;
     uint8_t audioBit = 16;
-    TransmitMode transmitProtocol = TRANSMIT_MODE_WIFI_TCP;
+    TransmitMode transmitProtocol = TRANSMIT_MODE_WIFI_UDP;
   };
   extern ConfigValue value;
 
