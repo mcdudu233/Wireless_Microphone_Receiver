@@ -40,8 +40,4 @@ lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb,
 
 void ui_free_main_widget();
 void ui_set_hidden_main_widget(bool state);
-
-void ui_set_bar_val(void *bar, int32_t val)
-{
-    lv_bar_set_value((lv_obj_t *)bar, val, LV_ANIM_ON);
-}
+void ui_set_bar_val(void *bar, int32_t val);

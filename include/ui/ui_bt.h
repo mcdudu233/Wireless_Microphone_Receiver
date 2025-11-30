@@ -18,7 +18,7 @@ struct device_data
 #define EVENT_UPDATE (lv_event_code_t)(LV_EVENT_LAST + 1)
 
 // api
-bool ui_unlink_bt(const char *device_name);
-bool ui_link_bt(const char *device_name);
-void ui_search_bt();
-void ui_update_bt(device_data dev); // 调用
+bool ui_bt_unlink(const char *device_name);
+bool ui_bt_link(const char *device_name);
+void ui_bt_search();
+void ui_bt_update(device_data dev); // 调用

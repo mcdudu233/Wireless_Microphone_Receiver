@@ -8,8 +8,8 @@ static lv_obj_t *main_widget;
 static lv_obj_t *upload_label;
 static lv_obj_t *download_label;
 static lv_obj_t *tabview;
-static lv_obj_t *tabs[MAX_DEVICE_COUNT];                                                               // 最多4个                                                                              // 纵向bar样式
-static lv_obj_t *create_device_card(lv_obj_t *parent, char *device_name, char *icon, bool color_test); // 创建自定义card容器组件
+static lv_obj_t *tabs[MAX_DEVICE_COUNT];                                                                  // 最多4个                                                                              // 纵向bar样式
+static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char *icon, bool color_test); // 创建自定义card容器组件
 
 static void setting_widget_cb(lv_event_t *e);      // 设置按钮回调
 static void pull_data_timer_cb(lv_timer_t *timer); // 获取设备数据回调
@@ -58,7 +58,7 @@ void ui_main_init()
     {
         LV_LOG_USER(dev.c_str());
         lv_obj_t *tab = lv_tabview_add_tab(tabview, std::to_string(i + 1).c_str());
-        lv_obj_t *card = create_device_card(tab, dev.data(), buf, true);
+        lv_obj_t *card = ui_create_device_card(tab, dev.data(), buf, true);
         lv_obj_set_style_pad_all(tab, 0, 0);
         lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
         tabs[i] = tab;
@@ -137,7 +137,7 @@ static void setting_widget_cb(lv_event_t *e)
 }
 
 // 创建设备卡片
-static lv_obj_t *create_device_card(lv_obj_t *parent, char *device_name, char *icon, bool color_test)
+static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char *icon, bool color_test)
 {
     lv_obj_t *card = lv_obj_create(parent);
 
@@ -147,43 +147,41 @@ static lv_obj_t *create_device_card(lv_obj_t *parent, char *device_name, char *i
     lv_obj_set_width(card, lv_pct(100));
     lv_obj_set_height(card, lv_pct(100));
 
-    lv_obj_t *symbol = lv_label_create(card);
-    lv_label_set_recolor(symbol, true);                           // 允许颜色
-    lv_label_set_text(symbol, icon);                              // 使用内置的蓝牙符号
-    lv_obj_set_style_text_font(symbol, &lv_font_harmonyos_12, 0); // 设置合适的字体大小
-    lv_obj_align(symbol, LV_ALIGN_LEFT_MID, 4, 5);
-
-    lv_obj_t *label = lv_label_create(card);
-    lv_label_set_text(label, device_name);
-    // 让长文本在卡片内循环滚动（跑马灯效果）
-    lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_width(label, lv_pct(100));
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(label, &lv_font_harmonyos_12, 0);
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 5);
+    // lv_obj_t *symbol = lv_label_create(card);
+    // lv_label_set_recolor(symbol, true);                           // 允许颜色
+    // lv_label_set_text(symbol, icon);                              // 使用内置的蓝牙符号
+    // lv_obj_set_style_text_font(symbol, &lv_font_harmonyos_12, 0); // 设置合适的字体大小
+    // lv_obj_align(symbol, LV_ALIGN_LEFT_MID, 4, 5);
+    lv_obj_t *label;
+    label = lv_label_create(card);
+    lv_label_set_text(label, "L");
+    lv_obj_align(label, LV_ALIGN_CENTER, -40, -5);
+    label = lv_label_create(card);
+    lv_label_set_text(label, "R");
+    lv_obj_align(label, LV_ALIGN_CENTER, -40, 15);
 
     lv_obj_t *left_bar_1 = lv_bar_create(card);
     lv_obj_add_style(left_bar_1, &style_indic_h, LV_PART_INDICATOR);
-    lv_obj_set_size(left_bar_1, 160 * 0.6 - 15 - 10 - 12 - 10, 5);
-    lv_obj_align_to(left_bar_1, label, LV_ALIGN_OUT_BOTTOM_MID, 10, 5);
+    lv_obj_set_size(left_bar_1, 160 * 0.6 - 15 - 10 - 12 - 10, 10);
+    lv_obj_align(left_bar_1, LV_ALIGN_CENTER, -10, -5);
     lv_bar_set_range(left_bar_1, 0, 100);
 
     lv_obj_t *right_bar_1 = lv_bar_create(card);
     lv_obj_add_style(right_bar_1, &style_indic_h, LV_PART_INDICATOR);
-    lv_obj_set_size(right_bar_1, 160 * 0.6 - 15 - 10 - 12 - 10, 5);
-    lv_obj_align_to(right_bar_1, label, LV_ALIGN_OUT_BOTTOM_MID, 10, 15);
+    lv_obj_set_size(right_bar_1, 160 * 0.6 - 15 - 10 - 12 - 10, 10);
+    lv_obj_align(right_bar_1, LV_ALIGN_CENTER, -10, 15);
     lv_bar_set_range(right_bar_1, 0, 100);
 
     lv_obj_t *power_bar_1 = lv_bar_create(card);
     lv_obj_add_style(power_bar_1, &style_indic_v, LV_PART_INDICATOR);
-    lv_obj_set_size(power_bar_1, 5, 15);
-    lv_obj_align_to(power_bar_1, left_bar_1, LV_ALIGN_OUT_RIGHT_TOP, 3, 0);
+    lv_obj_set_size(power_bar_1, 10, 30);
+    lv_obj_align_to(power_bar_1, right_bar_1, LV_ALIGN_OUT_RIGHT_TOP, 15, -7);
     lv_bar_set_range(power_bar_1, 0, 100);
 
     lv_obj_t *signal_bar_1 = lv_bar_create(card);
     lv_obj_add_style(signal_bar_1, &style_indic_v, LV_PART_INDICATOR);
-    lv_obj_set_size(signal_bar_1, 5, 15);
-    lv_obj_align_to(signal_bar_1, power_bar_1, LV_ALIGN_OUT_RIGHT_TOP, 3, 0);
+    lv_obj_set_size(signal_bar_1, 10, 30);
+    lv_obj_align_to(signal_bar_1, power_bar_1, LV_ALIGN_OUT_RIGHT_TOP, 5, 0);
     lv_bar_set_range(signal_bar_1, 0, 100);
 
     if (color_test)

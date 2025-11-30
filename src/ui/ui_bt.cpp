@@ -69,7 +69,7 @@ void ui_bt_init()
     lv_obj_add_event_cb(bt_list, bt_list_update_event_cb, EVENT_UPDATE, NULL);
     ui_bind_group_to_all_encoders(g1);
 
-    ui_search_bt();
+    ui_bt_search();
     // 滚动list移到首项
     // lv_obj_scroll_to_view(lv_obj_get_child(bt_list, 0), LV_ANIM_OFF);
 }
@@ -82,7 +82,6 @@ static void link_cb(lv_event_t *e)
     lv_obj_t *list = (lv_obj_t *)lv_event_get_user_data(e);
 
     int32_t cnt = lv_obj_get_child_count_by_type(list, &lv_list_button_class);
-    LV_LOG_USER("有%d个", cnt);
     for (int i = 0; i < cnt; i++)
     {
         btn = lv_obj_get_child_by_type(list, i, &lv_list_button_class);
@@ -91,7 +90,7 @@ static void link_cb(lv_event_t *e)
             label = lv_obj_get_child(btn, 0);
             char *bt_name = lv_label_get_text(label); // 待链接蓝牙的名称
             LV_LOG_USER("正在连接蓝牙%s", bt_name);
-            bool state = ui_link_bt(bt_name);
+            bool state = ui_bt_link(bt_name);
             if (state) // 链接成功
             {
                 lv_obj_set_style_bg_color(btn, COLOR_LINKED, LV_STATE_CHECKED); // 设置连接状态
@@ -99,7 +98,6 @@ static void link_cb(lv_event_t *e)
             }
         }
     }
-    ui_info_msgbox("awa", "coneettt");
 }
 
 // 完成按钮点击回调 进入主窗口
@@ -126,7 +124,7 @@ static void list_event_handler(lv_event_t *e)
             // LV_LOG_USER("rgb:%d %d %d", c.red, c.green, c.blue);
             if (lv_obj_get_user_data(obj) == BT_LINKED) // 判断是否连接，如果是则断开连接
             {
-                bool ret = ui_unlink_bt(bt_name);
+                bool ret = ui_bt_unlink(bt_name);
                 LV_LOG_USER("断开连接");
                 if (!ret)
                     lv_obj_add_state(obj, LV_STATE_CHECKED);
@@ -203,23 +201,23 @@ static void bt_list_update_event_cb(lv_event_t *e)
 }
 
 // 添加蓝牙/更新蓝牙状态
-void update_bt(device_data *dev)
+void ui_bt_update(device_data *dev)
 {
     if (bt_list && lv_obj_is_valid(bt_list))
         lv_obj_send_event(bt_list, EVENT_UPDATE, dev);
 }
 
 // 连接蓝牙设备
-bool ui_link_bt(const char *device_name)
+bool ui_bt_link(const char *device_name)
 {
     return true; // 返回连接状态
 }
 // 断开蓝牙设备
-bool ui_unlink_bt(const char *device_name)
+bool ui_bt_unlink(const char *device_name)
 {
     return true; // 返回连接状态
 }
-void ui_search_bt()
+void ui_bt_search()
 {
     // 模拟搜索
     // 注意: 这些数据会被定时器回调异步访问，必须保证其生命周期
@@ -230,16 +228,16 @@ void ui_search_bt()
     lv_timer_create([](lv_timer_t *timer)
                     {
         device_data* dev = (device_data*)lv_timer_get_user_data(timer);
-        update_bt(dev);
+        ui_bt_update(dev);
         lv_timer_delete(timer); }, 2000, &dev1); // 2000ms=2秒，无用户数据
     lv_timer_create([](lv_timer_t *timer)
                     {
         device_data* dev = (device_data*)lv_timer_get_user_data(timer);
-        update_bt(dev);
+        ui_bt_update(dev);
         lv_timer_delete(timer); }, 4000, &dev2); // 2000ms=2秒，无用户数据
     lv_timer_create([](lv_timer_t *timer)
                     {
         device_data* dev = (device_data*)lv_timer_get_user_data(timer);
-        update_bt(dev);
+        ui_bt_update(dev);
         lv_timer_delete(timer); }, 6000, &dev3); // 2000ms=2秒，无用户数据
 }
