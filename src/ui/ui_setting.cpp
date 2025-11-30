@@ -7,10 +7,18 @@ static lv_obj_t *menu;
 static lv_obj_t *setting_widget;
 static lv_obj_t *last_enter_btn = NULL; // 记录进入子页面所用的条目
 
+static lv_obj_t *cpu1;
+static lv_obj_t *cpu2;
+static lv_obj_t *iram;
+static lv_obj_t *psram;
+static lv_obj_t *sd;
+
 static void back_cb(lv_event_t *e);          // 设置页面back按钮回调
 static void relink_bt_cb(lv_event_t *e);     // 重新链接蓝牙回调
 static void enter_subpage_cb(lv_event_t *e); // 记录进入子页的来源条目
 static void focus_async_cb(void *obj_p);     // 异步将焦点移回来源条目
+static void choose_cb(lv_event_t *e);        // 下拉菜单选中回调
+static void sys_info_timer(lv_timer_t *);    // 系统信息更新timer
 
 static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt,
                                 lv_menu_builder_variant_t builder_variant, std::optional<lv_obj_t **> label_o = std::nullopt, std::optional<bool> is_from_svg = std::nullopt);
@@ -19,6 +27,16 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const char *icon, const char
 static lv_obj_t *ui_create_switch(lv_obj_t *parent, const char *icon, const char *txt, bool chk);
 static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const char *txt, const char *options, std::optional<lv_obj_t **> dd_o = std::nullopt);
 static lv_obj_t *ui_create_sub_page(lv_obj_t *parent, const char *title); // 新建子页面
+
+namespace SystemInfo
+{
+    uint8_t cpu1 = 0;
+    uint8_t cpu2 = 0;
+    uint64_t IRAM = 0;
+    uint64_t PSRAM = 0;
+    uint64_t SD = 0;
+}
+
 void ui_setting_init()
 {
     lv_obj_t *btn;
@@ -121,17 +139,23 @@ void ui_setting_init()
     // create_text(section, NULL, ("外部链接:\n" + std::string(EXTERNAL_LINK)).c_str(), LV_MENU_ITEM_BUILDER_VARIANT_1);
 
     section = lv_menu_section_create(sub_system_page); // CPU核1、2占用 运行内存（IRAM PSRAM） tf储存
-    ui_create_text(section, NULL, "CPU 1", LV_MENU_ITEM_BUILDER_VARIANT_1);
-    ui_create_text(section, NULL, "CPU 2", LV_MENU_ITEM_BUILDER_VARIANT_1);
-    ui_create_text(section, NULL, "IRAM", LV_MENU_ITEM_BUILDER_VARIANT_1);
-    ui_create_text(section, NULL, "PSRAM", LV_MENU_ITEM_BUILDER_VARIANT_1);
-    ui_create_text(section, NULL, "外置存储", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    ui_create_text(section, NULL, "CPU 1", LV_MENU_ITEM_BUILDER_VARIANT_1, &cpu1);
+    ui_create_text(section, NULL, "CPU 2", LV_MENU_ITEM_BUILDER_VARIANT_1, &cpu2);
+    ui_create_text(section, NULL, "IRAM", LV_MENU_ITEM_BUILDER_VARIANT_1, &iram);
+    ui_create_text(section, NULL, "PSRAM", LV_MENU_ITEM_BUILDER_VARIANT_1, &psram);
+    ui_create_text(section, NULL, "外置存储", LV_MENU_ITEM_BUILDER_VARIANT_1, &sd);
+
+    lv_label_set_recolor(cpu1, true);
+    lv_label_set_recolor(cpu2, true);
+    lv_label_set_recolor(iram, true);
+    lv_label_set_recolor(psram, true);
+    lv_label_set_recolor(sd, true);
 
     section = lv_menu_section_create(sub_usb_page);
     ui_create_dropdown(section, NULL, "传输模式", "音频传输\n"
                                                   "读卡器",
                        &dd);
-
+    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)1);
     // 音频 频率 比特 通道 下拉菜单
     // 48000 96000 192000 Hz
     // 16 24 32 bit
@@ -141,20 +165,25 @@ void ui_setting_init()
                                                 "96000Hz\n"
                                                 "192000Hz",
                        &dd);
+    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)2);
     section = lv_menu_section_create(sub_audio_page);
     ui_create_dropdown(section, NULL, "位深度", "16bit\n"
                                                 "24bit\n"
-                                                "32bit");
+                                                "32bit",
+                       &dd);
+    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)3);
     section = lv_menu_section_create(sub_audio_page);
     ui_create_dropdown(section, NULL, "通道数", "单通道\n"
                                                 "立体声",
                        &dd);
+    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)4);
 
     section = lv_menu_section_create(sub_wireless_page);
     ui_create_dropdown(section, NULL, "传输协议", "BLE\n"
                                                   "UDP\n"
                                                   "TCP",
                        &dd);
+    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)5);
 
     // lv_obj_align(dd, LV_ALIGN_TOP_MID, 0, 20);
     // lv_obj_add_event_cb(dd, event_handler, LV_EVENT_ALL, NULL);
@@ -210,6 +239,7 @@ void ui_setting_init()
     // lv_obj_send_event(lv_obj_get_child(lv_obj_get_child(lv_menu_get_cur_sidebar_page(menu), 0), 0), LV_EVENT_CLICKED,
     //                   NULL);
     lv_menu_set_page(menu, root_page);
+    lv_timer_create(sys_info_timer, SYSTEM_INFO_REFLUSH_TIME, NULL);
 }
 
 // 设置页面back按钮回调
@@ -324,21 +354,14 @@ static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const ch
 
     lv_obj_t *dd = lv_dropdown_create(obj);
     lv_dropdown_set_options(dd, options);
-
     lv_obj_set_size(dd, 100, 20);
     lv_obj_add_flag(dd, LV_OBJ_FLAG_FLEX_IN_NEW_TRACK);
-
-    // 给下拉菜单添加滚动到视图的标志
     lv_obj_add_flag(dd, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-
-    // 将下拉菜单添加到焦点组，使其可以被编码器选中
     lv_group_add_obj(lv_group_get_default(), dd);
-
-    // 添加焦点事件处理，当下拉菜单获得焦点时，确保标签容器也滚动到可见区域
     lv_obj_add_event_cb(dd, [](lv_event_t *e)
                         {
         lv_obj_t *dd = lv_event_get_target_obj(e);
-        lv_obj_t *container = lv_obj_get_parent(dd); // 获取标签容器
+        lv_obj_t *container = lv_obj_get_parent(dd); 
         if (container && lv_obj_is_valid(container)) {
             lv_obj_scroll_to_view_recursive(container, LV_ANIM_ON);
         } }, LV_EVENT_FOCUSED, NULL);
@@ -373,4 +396,60 @@ static void focus_async_cb(void *obj_p)
         lv_obj_scroll_to_view(obj, LV_ANIM_ON);
         lv_obj_add_state(obj, LV_STATE_FOCUS_KEY); // 使返回焦点正常显示
     }
+}
+static void choose_cb(lv_event_t *e)
+{
+    lv_obj_t *dd = lv_event_get_target_obj(e);
+    void *ud = lv_event_get_user_data(e);
+    int choice = lv_dropdown_get_selected(dd);
+    int sec = (int)ud;
+    switch (sec)
+    {
+    case 1:
+        ui_set_transmit_mode(choice);
+        break;
+    case 2:
+        ui_set_sample_freq(choice);
+        break;
+    case 3:
+        ui_set_bit(choice);
+        break;
+    case 4:
+        ui_set_channel(choice);
+        break;
+    case 5:
+        ui_set_transmit_protocol(choice);
+        break;
+    default:
+        break;
+    }
+}
+static void sys_info_timer(lv_timer_t *)
+{
+    lv_label_set_text_fmt(cpu1, "CPU1   #626367 %d%#", SystemInfo::cpu1);
+    lv_label_set_text_fmt(cpu2, "CPU2   #626367 %d%#", SystemInfo::cpu2);
+    lv_label_set_text_fmt(iram, "IRAM   #626367 %dbit#", SystemInfo::IRAM);
+    lv_label_set_text_fmt(psram, "PSRAM   #626367 %dbit#", SystemInfo::PSRAM);
+    lv_label_set_text_fmt(sd, "SD   #626367 %dbit#", SystemInfo::SD);
+}
+
+// 传输模式 0:音频转换 1:usb
+void ui_set_transmit_mode(uint32_t choice)
+{
+}
+// 采样率 0:48000 1:96000 2:192000
+void ui_set_sample_freq(uint32_t freq)
+{
+}
+// 位深度 0:16 1:24 2:32
+void ui_set_bit(uint32_t b)
+{
+}
+// 通道数 0:单通道 1:立体声
+void ui_set_channel(uint32_t choice)
+{
+}
+// 传输协议 0:BLE 1:UDP 2:TCP
+void ui_set_transmit_protocol(uint32_t choice)
+{
 }
