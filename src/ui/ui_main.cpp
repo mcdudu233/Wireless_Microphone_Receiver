@@ -58,7 +58,7 @@ void ui_main_init()
     {
         LV_LOG_USER(dev.c_str());
         lv_obj_t *tab = lv_tabview_add_tab(tabview, std::to_string(i + 1).c_str());
-        lv_obj_t *card = create_device_card(tab, dev.data(), buf, false);
+        lv_obj_t *card = create_device_card(tab, dev.data(), buf, true);
         lv_obj_set_style_pad_all(tab, 0, 0);
         lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
         tabs[i] = tab;
@@ -141,26 +141,37 @@ static lv_obj_t *create_device_card(lv_obj_t *parent, char *device_name, char *i
 {
     lv_obj_t *card = lv_obj_create(parent);
 
+    // lv_obj_set_style_border_width(card, 0, 0); // 去除边框
     lv_obj_set_style_pad_all(card, 0, 0);
-    lv_obj_set_size(card, 160 * 0.6 - 15, (70 - 15) / 2);
-    // lv_obj_align(f_card, LV_ALIGN_TOP_LEFT, 5, 5);
+    // 使用百分比自适应大小，而不是在创建时读取parent尺寸
+    lv_obj_set_width(card, lv_pct(100));
+    lv_obj_set_height(card, lv_pct(100));
 
     lv_obj_t *symbol = lv_label_create(card);
     lv_label_set_recolor(symbol, true);                           // 允许颜色
     lv_label_set_text(symbol, icon);                              // 使用内置的蓝牙符号
     lv_obj_set_style_text_font(symbol, &lv_font_harmonyos_12, 0); // 设置合适的字体大小
-    lv_obj_align(symbol, LV_ALIGN_LEFT_MID, 2, 0);
+    lv_obj_align(symbol, LV_ALIGN_LEFT_MID, 4, 5);
+
+    lv_obj_t *label = lv_label_create(card);
+    lv_label_set_text(label, device_name);
+    // 让长文本在卡片内循环滚动（跑马灯效果）
+    lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_width(label, lv_pct(100));
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(label, &lv_font_harmonyos_12, 0);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 5);
 
     lv_obj_t *left_bar_1 = lv_bar_create(card);
     lv_obj_add_style(left_bar_1, &style_indic_h, LV_PART_INDICATOR);
-    lv_obj_set_size(left_bar_1, 160 * 0.6 - 15 - 10 - 12 - 5 - 10, 5);
-    lv_obj_align_to(left_bar_1, symbol, LV_ALIGN_OUT_RIGHT_TOP, 2, 0);
+    lv_obj_set_size(left_bar_1, 160 * 0.6 - 15 - 10 - 12 - 10, 5);
+    lv_obj_align_to(left_bar_1, label, LV_ALIGN_OUT_BOTTOM_MID, 10, 5);
     lv_bar_set_range(left_bar_1, 0, 100);
 
     lv_obj_t *right_bar_1 = lv_bar_create(card);
     lv_obj_add_style(right_bar_1, &style_indic_h, LV_PART_INDICATOR);
-    lv_obj_set_size(right_bar_1, 160 * 0.6 - 15 - 10 - 12 - 5 - 10, 5);
-    lv_obj_align_to(right_bar_1, symbol, LV_ALIGN_OUT_RIGHT_BOTTOM, 2, 0);
+    lv_obj_set_size(right_bar_1, 160 * 0.6 - 15 - 10 - 12 - 10, 5);
+    lv_obj_align_to(right_bar_1, label, LV_ALIGN_OUT_BOTTOM_MID, 10, 15);
     lv_bar_set_range(right_bar_1, 0, 100);
 
     lv_obj_t *power_bar_1 = lv_bar_create(card);
@@ -275,6 +286,6 @@ void set_hidden_main_widget(bool state)
 // api
 std::vector<std::string> get_linked_bt()
 {
-    std::vector<std::string> dev = {"mac1", "mac2", "mac3"};
+    std::vector<std::string> dev = {"00:1A:2B:3C:4D:5E", "00:1A:2B:3C:4D:5F", "00:1A:2B:3C:4D:5D"};
     return dev;
 }
