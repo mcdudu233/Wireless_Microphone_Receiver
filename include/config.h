@@ -44,6 +44,7 @@ namespace config
   // 全局配置
   struct ConfigValue
   {
+    uint8_t audioChannel = 2;
     uint16_t audioRate = 48000;
     uint8_t audioBit = 16;
     TransmitMode transmitProtocol = TRANSMIT_MODE_WIFI_UDP;

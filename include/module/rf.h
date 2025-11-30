@@ -3,10 +3,10 @@
 #define RF_MAX_CONNECTION 4
 // 蓝牙
 #define BLE_NAME "Microphone Transmitter"
-#define INFO_SERVICE_UUID "180a"
-#define DEVICE_CHARACTERISTIC_UUID "2a00"
-#define MODEL_CHARACTERISTIC_UUID "2a24"
-#define MANUFACTURER_CHARACTERISTIC_UUID "2a29"
+#define INFO_SERVICE_UUID 0x180A
+#define DEVICE_CHARACTERISTIC_UUID 0x2A00
+#define MODEL_CHARACTERISTIC_UUID 0x2A24
+#define MANUFACTURER_CHARACTERISTIC_UUID 0x2A29
 #define BATTERY_SERVICE_UUID 0x180F
 #define BATTERY_CHARACTERISTIC_UUID 0x2A19
 #define AUDIO_SERVICE_UUID 0x1843
@@ -27,21 +27,34 @@ enum ConfigControlMode
   AUDIO_CONTROL_MODE_WIFI_TCP = 2,
 };
 
-struct ConfigControl
+struct ConfigClientControl
+{
+  bool success = false;
+  uint32_t ip = 0x00000000;
+};
+
+struct AudioClientControl
+{
+  bool success = false;
+};
+
+struct ConfigServerControl
 {
   bool start = false;
   ConfigControlMode mode = AUDIO_CONTROL_MODE_BLE;
   char name[32] = "";
   char password[32] = "";
-  uint32_t ip;
 };
 
-struct AudioControl
+struct AudioServerControl
 {
   bool start = false;
   uint8_t channel = 2;
   uint16_t rate = 48000;
   uint8_t bit = 16;
+  bool autoVolumn = false;
+  bool peekVolumn = false;
+  uint8_t volumn = 0;
 };
 
 struct AudioPacket
@@ -78,4 +91,5 @@ struct DeviceConnection
 namespace rf
 {
   void setup();
+  void reconfigure();
 }

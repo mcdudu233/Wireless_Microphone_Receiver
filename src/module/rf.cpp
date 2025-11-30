@@ -2,6 +2,7 @@
 #include "config.h"
 #include "module/rf.h"
 #include "module/audio/decoder.h"
+#include "ui/ui_bt.h"
 
 #include "map"
 #include "iostream"
@@ -12,8 +13,8 @@
 // 接收到的音频数据包
 static AudioPacket packet;
 // 整体配置
-static ConfigControl configBasic;
-static AudioControl configAudio;
+static ConfigServerControl configBasic;
+static AudioServerControl configAudio;
 // 缓存的设备
 static std::map<std::string, DeviceConnection> devices;
 static std::map<uint16_t, DeviceConnection *> connectionToDevice;
@@ -55,7 +56,7 @@ static void socket_handle(void *arg)
       {
         logger::warnln("Socket could not get new client: %d", errno);
       }
-      // int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, MSG_DONTWAIT | MSG_PEEK);
+      // int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, MSG_DONTWAIT);
       // if (len >= 0)
       // {
       //   if (len == 0)
@@ -88,6 +89,7 @@ static bool socket_close()
   if (socketIsOpen)
   {
     socketIsOpen = false;
+    shutdown(socketNumber, 0);
     close(socketNumber);
   }
   logger::debugln("Socket is shutdown.");
@@ -188,7 +190,7 @@ static bool wifi_close()
   if (wifiIsOpen)
   {
     ESP_ERROR_CHECK(esp_wifi_stop());
-    // TODO 报错 ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, (void (*)(void *, const char *, long int, void *))wifi_event_handle));
+    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handle));
     ESP_ERROR_CHECK(esp_wifi_deinit());
     esp_netif_destroy(wifiNetIF);
     wifiNetIF = NULL;
@@ -294,15 +296,11 @@ static void ble_data_handler(DeviceConnection &device, uint8_t *data, uint16_t d
 // 接收到配置
 static void ble_config_control_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
 {
-  if (data_len == sizeof(ConfigControl))
+  if (data_len == sizeof(ConfigClientControl))
   {
-    ConfigControl *src = (ConfigControl *)data;
-    configBasic.start = src->start;
-    configBasic.mode = src->mode;
-    configBasic.ip = src->ip;
-    strcpy(configBasic.name, src->name);
-    strcpy(configBasic.password, src->password);
-    logger::debugln("BLE get indicate config.");
+    ConfigClientControl *src = (ConfigClientControl *)data;
+    // TODO
+    logger::debugln("BLE get config client control.");
   }
 }
 
@@ -310,15 +308,15 @@ static void ble_config_control_handler(DeviceConnection &device, uint8_t *data, 
 static void ble_audio_control_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
 {
   // 音频控制指示
-  if (data_len == sizeof(AudioControl))
+  if (data_len == sizeof(AudioClientControl))
   {
-    configAudio = *(AudioControl *)data;
-    logger::debugln("BLE get audio control config.");
+    AudioClientControl *src = (AudioClientControl *)data;
+    // TODO
+    logger::debugln("BLE get audio client control.");
   }
 }
 
 // GAP事件处理
-static bool ble_connect_to_device(const std::string &address);
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
   switch (event)
@@ -358,10 +356,11 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
           memcpy(devices[address].bleAddress, scan_result->scan_rst.bda, ESP_BD_ADDR_LEN);
           logger::debugln("BLE found device: %s, address: %s", name_data, address.c_str());
 
-          ble_connect_to_device(address);
-          // // 停止扫描并连接
-          // esp_ble_gap_stop_scanning();
-          // ble_scanning = false;
+          // 添加到界面
+          // ui_bt_update();
+          static device_data data;
+
+          // ble_connect_to_device(address);
         }
       }
       break;
@@ -764,6 +763,52 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
   }
 }
 
+// 发送ConfigServerControl配置数据
+static bool ble_send_config_control_to_device(const std::string &address)
+{
+  if (devices.contains(address))
+  {
+    DeviceConnection &device = devices[address];
+    // 发送配置控制数据
+    esp_err_t ret1 = esp_ble_gattc_write_char(bleGattcInterface, device.bleConnectionID, device.bleConfigControl,
+                                              sizeof(ConfigServerControl), (uint8_t *)&configBasic,
+                                              ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
+    if (ret1 == ESP_OK)
+    {
+      logger::debugln("BLE ConfigServerControl write.");
+      return true;
+    }
+    else
+    {
+      logger::warnln("BLE Failed to send ConfigServerControl write: %s.", esp_err_to_name(ret1));
+    }
+  }
+  return false;
+}
+
+// 发送AudioServerControl配置数据
+static bool ble_send_config_control_to_device(const std::string &address)
+{
+  if (devices.contains(address))
+  {
+    DeviceConnection &device = devices[address];
+    // 发送配置控制数据
+    esp_err_t ret1 = esp_ble_gattc_write_char(bleGattcInterface, device.bleConnectionID, device.bleAudioControl,
+                                              sizeof(AudioServerControl), (uint8_t *)&configAudio,
+                                              ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
+    if (ret1 == ESP_OK)
+    {
+      logger::debugln("BLE ConfigServerControl write.");
+      return true;
+    }
+    else
+    {
+      logger::warnln("BLE Failed to send ConfigServerControl write: %s.", esp_err_to_name(ret1));
+    }
+  }
+  return false;
+}
+
 // 连接设备
 static bool ble_connect_to_device(const std::string &address)
 {
@@ -793,9 +838,6 @@ static bool ble_close()
       esp_ble_gap_stop_scanning();
       bleScanning = false;
     }
-
-    // 清空设备列表
-    devices.clear();
 
     // 反注册GATTC应用
     esp_ble_gattc_app_unregister(bleGattcInterface);
@@ -908,7 +950,25 @@ static bool ble_open()
 }
 /****************************/
 
+void rf::reconfigure()
+{
+  // 刷新配置
+  // configBasic.start = false;
+  configBasic.mode = (ConfigControlMode)(config::value.transmitProtocol);
+  strcpy(configBasic.name, WIFI_NAME);
+  strcpy(configBasic.password, WIFI_PASSWORD);
+
+  // configAudio.start = false;
+  configAudio.channel = config::value.audioChannel;
+  configAudio.rate = config::value.audioRate;
+  configAudio.bit = config::value.audioBit;
+  // configAudio.autoVolumn = ;
+  // configAudio.peekVolumn = ;
+  // configAudio.volumn = ;
+}
+
 void rf::setup()
 {
+  reconfigure();
   ble_open();
 }
