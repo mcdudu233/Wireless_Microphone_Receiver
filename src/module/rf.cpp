@@ -233,7 +233,7 @@ static bool wifi_open()
 #include "esp_gatt_common_api.h"
 
 static bool bleIsOpen = false;
-static bool ble_scanning = false;
+static bool bleScanning = false;
 static const uint16_t bleGattcId = 0;
 static uint16_t bleGattcInterface = ESP_GATT_IF_NONE;
 
@@ -246,7 +246,79 @@ static std::string bleBdaToStr(esp_bd_addr_t bda)
   return std::string(bda_str);
 }
 
+// 接收到电量信息
+static void ble_battery_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
+{
+  device.battery = data[0];
+  logger::debugln("BLE battery level: %d", data[0]);
+}
+
+// 接收到音频数据包
+static void ble_data_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
+{
+  // 音频数据通知
+  if (data_len < sizeof(AudioPacket))
+  {
+    memcpy(&packet, data, data_len);
+  }
+  else
+  {
+    packet = *(AudioPacket *)data;
+  }
+
+  // static uint32_t last_time = 0;
+  // static uint32_t last_num = 0;
+  // static uint32_t packet_size = 0;
+  // static uint32_t packet_num = 0;
+
+  // packet_size += value_len;
+  // if (last_num != 0)
+  // {
+  //   packet_num += packet->num - last_num - 1;
+  // }
+  // last_num = packet->num;
+
+  // uint32_t now_time = esp_timer_get_time() / 1000;
+  // if (now_time - last_time > 1000)
+  // {
+  //   last_time = now_time;
+  //   float loss_rate = (packet_num > 0) ? (packet_num / 1000.0f * 100.0f) : 0.0f;
+  //   logger::debugln("BLE get packet for %dbytes/s and loss for %.2f%%.", packet_size, loss_rate);
+  //   packet_size = 0;
+  //   packet_num = 0;
+  // }
+
+  // audio::decoder::writeData(packet->data);
+}
+
+// 接收到配置
+static void ble_config_control_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
+{
+  if (data_len == sizeof(ConfigControl))
+  {
+    ConfigControl *src = (ConfigControl *)data;
+    configBasic.start = src->start;
+    configBasic.mode = src->mode;
+    configBasic.ip = src->ip;
+    strcpy(configBasic.name, src->name);
+    strcpy(configBasic.password, src->password);
+    logger::debugln("BLE get indicate config.");
+  }
+}
+
+// 接收到音频配置
+static void ble_audio_control_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
+{
+  // 音频控制指示
+  if (data_len == sizeof(AudioControl))
+  {
+    configAudio = *(AudioControl *)data;
+    logger::debugln("BLE get audio control config.");
+  }
+}
+
 // GAP事件处理
+static bool ble_connect_to_device(const std::string &address);
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
   switch (event)
@@ -258,22 +330,20 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     {
     case ESP_GAP_SEARCH_INQ_RES_EVT:
     {
-      std::string device_name = "";
-
       // 解析设备名称
       uint8_t name_len = 0;
       uint8_t *name_data = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv, ESP_BLE_AD_TYPE_NAME_CMPL, &name_len);
-      if (name_data == NULL)
+      if (name_data == NULL || name_len == 0)
       {
         // 如果没有完整的设备名称，尝试获取缩短的设备名称
         name_data = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv, ESP_BLE_AD_TYPE_NAME_SHORT, &name_len);
       }
-      if (name_data != NULL && name_len > 0)
+      if (name_data == NULL || name_len == 0)
       {
-        device_name = std::string((char *)name_data, name_len);
+        break;
       }
-
-      if (device_name.find(BLE_NAME) != std::string::npos)
+      // 如果解析到一样的设备名
+      if (strcmp((char *)name_data, BLE_NAME) == 0)
       {
         // 解析蓝牙地址
         std::string address = bleBdaToStr(scan_result->scan_rst.bda);
@@ -286,8 +356,9 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
                                                                     .bleDoConnect = true,
                                                                     .wifiConnected = false}));
           memcpy(devices[address].bleAddress, scan_result->scan_rst.bda, ESP_BD_ADDR_LEN);
-          logger::debugln("BLE found device: %s, address: %s", device_name.c_str(), address.c_str());
+          logger::debugln("BLE found device: %s, address: %s", name_data, address.c_str());
 
+          ble_connect_to_device(address);
           // // 停止扫描并连接
           // esp_ble_gap_stop_scanning();
           // ble_scanning = false;
@@ -307,6 +378,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 
   case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
   {
+    bleScanning = false;
     logger::debugln("BLE scan param set complete");
     break;
   }
@@ -320,7 +392,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     else
     {
       logger::debugln("BLE scan started.");
-      ble_scanning = true;
+      bleScanning = true;
     }
     break;
   }
@@ -333,24 +405,32 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 // 全局GATTC事件处理
 static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
 {
+  // 注册事件
+  if (event == ESP_GATTC_REG_EVT)
+  {
+    if (param->reg.status == ESP_GATT_OK)
+    {
+      if (param->reg.app_id == bleGattcId)
+      {
+        bleGattcInterface = gattc_if;
+        logger::debugln("BLE register app sucess, app_id %d, gattc_if %d", param->reg.app_id, gattc_if);
+      }
+      else
+      {
+        logger::warnln("BLE register app failed, app_id %d, status %d", param->reg.app_id, param->reg.status);
+      }
+    }
+    else
+    {
+      logger::warnln("BLE register app failed, app_id %d, status %d", param->reg.app_id, param->reg.status);
+    }
+    return;
+  }
+
   if (gattc_if == ESP_GATT_IF_NONE || gattc_if == bleGattcInterface)
   {
     switch (event)
     {
-    // 注册事件
-    case ESP_GATTC_REG_EVT:
-    {
-      if (param->reg.app_id == bleGattcId && param->reg.status == ESP_GATT_OK)
-      {
-        bleGattcInterface = gattc_if;
-      }
-      else
-      {
-        logger::warnln("BLE register app failed, app_id %04x, status %d", param->reg.app_id, param->reg.status);
-      }
-      break;
-    }
-
     // 连接成功事件
     case ESP_GATTC_OPEN_EVT:
     { // 查找对应的profile
@@ -408,16 +488,16 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
           {
           case BATTERY_SERVICE_UUID:
           {
-            logger::debugln("BLE found battery service.");
             device->bleBatteryStart = param->search_res.start_handle;
             device->bleBatteryEnd = param->search_res.end_handle;
+            logger::debugln("BLE found battery service, start at %d, end at %d.", param->search_res.start_handle, param->search_res.end_handle);
             break;
           }
           case AUDIO_SERVICE_UUID:
           {
-            logger::debugln("BLE found audio service.");
             device->bleAudioStart = param->search_res.start_handle;
             device->bleAudioEnd = param->search_res.end_handle;
+            logger::debugln("BLE found audio service, start at %d, end at %d.", param->search_res.start_handle, param->search_res.end_handle);
             break;
           }
           }
@@ -441,21 +521,27 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         // 1. 查询电池服务的电池特征 (0x2A19)
         if (device->bleAudioStart != 0 && device->bleBatteryEnd != 0)
         {
-          esp_bt_uuid_t battery_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = BATTERY_CHARACTERISTIC_UUID}};
-          status = esp_ble_gattc_get_char_by_uuid(gattc_if,
-                                                  param->search_cmpl.conn_id,
-                                                  device->bleAudioStart,
-                                                  device->bleBatteryEnd,
-                                                  battery_char_uuid,
-                                                  &char_elem, &count);
-          if (status == ESP_GATT_OK && count > 0)
+          if (device->bleBattery == 0)
           {
-            device->bleBattery = char_elem.char_handle;
-            logger::debugln("BLE found battery characteristic, handle: 0x%04x", char_elem.char_handle);
-          }
-          else
-          {
-            logger::warnln("BLE battery characteristic not found, status: %d", status);
+            esp_bt_uuid_t battery_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = BATTERY_CHARACTERISTIC_UUID}};
+            status = esp_ble_gattc_get_char_by_uuid(gattc_if,
+                                                    param->search_cmpl.conn_id,
+                                                    device->bleBatteryStart,
+                                                    device->bleBatteryEnd,
+                                                    battery_char_uuid,
+                                                    &char_elem, &count);
+            if (status == ESP_GATT_OK && count > 0)
+            {
+              device->bleBattery = char_elem.char_handle;
+              logger::debugln("BLE found battery characteristic, handle: 0x%d", char_elem.char_handle);
+              // 注册特征NOTIFY
+              esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleBattery);
+              logger::debugln("BLE registered for battery notifications");
+            }
+            else
+            {
+              logger::warnln("BLE battery characteristic not found, status: %d", status);
+            }
           }
         }
 
@@ -463,82 +549,74 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         if (device->bleAudioStart != 0 && device->bleAudioEnd != 0)
         {
           // 2.1 查询数据特征 (0x2B81)
-          esp_bt_uuid_t data_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = DATA_CHARACTERISTIC_UUID}};
-          status = esp_ble_gattc_get_char_by_uuid(gattc_if,
-                                                  param->search_cmpl.conn_id,
-                                                  device->bleAudioStart,
-                                                  device->bleAudioEnd,
-                                                  data_char_uuid,
-                                                  &char_elem, &count);
-          if (status == ESP_GATT_OK && count > 0)
+          if (device->bleData == 0)
           {
-            device->bleData = char_elem.char_handle;
-            logger::debugln("BLE found data characteristic, handle: 0x%04x", char_elem.char_handle);
-          }
-          else
-          {
-            logger::warnln("BLE data characteristic not found, status: %d", status);
+            esp_bt_uuid_t data_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = DATA_CHARACTERISTIC_UUID}};
+            status = esp_ble_gattc_get_char_by_uuid(gattc_if,
+                                                    param->search_cmpl.conn_id,
+                                                    device->bleAudioStart,
+                                                    device->bleAudioEnd,
+                                                    data_char_uuid,
+                                                    &char_elem, &count);
+            if (status == ESP_GATT_OK && count > 0)
+            {
+              device->bleData = char_elem.char_handle;
+              logger::debugln("BLE found data characteristic, handle: 0x%d", char_elem.char_handle);
+              esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleData);
+              logger::debugln("BLE registered for data notifications");
+            }
+            else
+            {
+              logger::warnln("BLE data characteristic not found, status: %d", status);
+            }
           }
 
           // 2.2 查询配置控制特征 (0x2B7A)
-          esp_bt_uuid_t config_control_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = CONFIG_CONTROL_CHARACTERISTIC_UUID}};
-          status = esp_ble_gattc_get_char_by_uuid(gattc_if,
-                                                  param->search_cmpl.conn_id,
-                                                  device->bleAudioStart,
-                                                  device->bleAudioEnd,
-                                                  config_control_char_uuid,
-                                                  &char_elem, &count);
-          if (status == ESP_GATT_OK && count > 0)
+          if (device->bleConfigControl == 0)
           {
-            device->bleConfigControl = char_elem.char_handle;
-            logger::debugln("BLE found config control characteristic, handle: 0x%04x", char_elem.char_handle);
-          }
-          else
-          {
-            logger::warnln("BLE config control characteristic not found, status: %d", status);
+            esp_bt_uuid_t config_control_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = CONFIG_CONTROL_CHARACTERISTIC_UUID}};
+            status = esp_ble_gattc_get_char_by_uuid(gattc_if,
+                                                    param->search_cmpl.conn_id,
+                                                    device->bleAudioStart,
+                                                    device->bleAudioEnd,
+                                                    config_control_char_uuid,
+                                                    &char_elem, &count);
+            if (status == ESP_GATT_OK && count > 0)
+            {
+              device->bleConfigControl = char_elem.char_handle;
+              logger::debugln("BLE found config control characteristic, handle: 0x%d", char_elem.char_handle);
+              esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleConfigControl);
+              logger::debugln("BLE registered for config control notifications");
+            }
+            else
+            {
+              logger::warnln("BLE config control characteristic not found, status: %d", status);
+            }
           }
 
           // 2.3 查询音频控制特征 (0x2B7B)
-          esp_bt_uuid_t audio_control_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = AUDIO_CONTROL_CHARACTERISTIC_UUID}};
-          status = esp_ble_gattc_get_char_by_uuid(gattc_if,
-                                                  param->search_cmpl.conn_id,
-                                                  device->bleAudioStart,
-                                                  device->bleAudioEnd,
-                                                  audio_control_char_uuid,
-                                                  &char_elem, &count);
-          if (status == ESP_GATT_OK && count > 0)
+          if (device->bleAudioControl == 0)
           {
-            device->bleAudioControl = char_elem.char_handle;
-            logger::debugln("BLE found audio control characteristic, handle: 0x%04x", char_elem.char_handle);
+            esp_bt_uuid_t audio_control_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = AUDIO_CONTROL_CHARACTERISTIC_UUID}};
+            status = esp_ble_gattc_get_char_by_uuid(gattc_if,
+                                                    param->search_cmpl.conn_id,
+                                                    device->bleAudioStart,
+                                                    device->bleAudioEnd,
+                                                    audio_control_char_uuid,
+                                                    &char_elem, &count);
+            if (status == ESP_GATT_OK && count > 0)
+            {
+              device->bleAudioControl = char_elem.char_handle;
+              logger::debugln("BLE found audio control characteristic, handle: 0x%d", char_elem.char_handle);
+              esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleAudioControl);
+              logger::debugln("BLE registered for audio control notifications");
+            }
+            else
+            {
+              logger::warnln("BLE audio control characteristic not found, status: %d", status);
+            }
           }
-          else
-          {
-            logger::warnln("BLE audio control characteristic not found, status: %d", status);
-          }
         }
-
-        // 为所有4个特征注册通知
-        if (device->bleBattery != 0)
-        {
-          esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleBattery);
-          logger::debugln("BLE registered for battery notifications");
-        }
-        if (device->bleData = 0)
-        {
-          esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleData);
-          logger::debugln("BLE registered for data notifications");
-        }
-        if (device->bleConfigControl != 0)
-        {
-          esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleConfigControl);
-          logger::debugln("BLE registered for config control notifications");
-        }
-        if (device->bleAudioControl != 0)
-        {
-          esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleAudioControl);
-          logger::debugln("BLE registered for audio control notifications");
-        }
-        logger::debugln("BLE all notifications registered successfully");
       }
       break;
     }
@@ -554,93 +632,90 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
       {
         logger::debugln("BLE register for notify success");
         uint16_t connection = -1;
+        uint16_t service_start = -1;
+        uint16_t service_end = -1;
         uint16_t handle = param->reg_for_notify.handle;
+        uint16_t notify_en = 0x0000;
         // 寻找对应的设备
         for (auto &pair : devices)
         {
           DeviceConnection &device = pair.second;
           if (device.bleBattery == handle)
           {
+            service_start = device.bleBatteryStart;
+            service_end = device.bleBatteryEnd;
             connection = device.bleConnectionID;
+            notify_en = 0x0001;
             break;
           }
           else if (device.bleData == handle)
           {
+            service_start = device.bleAudioStart;
+            service_end = device.bleAudioEnd;
             connection = device.bleConnectionID;
+            notify_en = 0x0001;
             break;
           }
           else if (device.bleConfigControl == handle)
           {
+            service_start = device.bleAudioStart;
+            service_end = device.bleAudioEnd;
             connection = device.bleConnectionID;
+            notify_en = 0x0002;
             break;
           }
           else if (device.bleAudioControl == handle)
           {
+            service_start = device.bleAudioStart;
+            service_end = device.bleAudioEnd;
             connection = device.bleConnectionID;
+            notify_en = 0x0002;
             break;
           }
         }
-        // 写入描述符
-        // ret_status = esp_ble_gattc_write_char_descr(gattc_if,
-        //                                             connection,
-        //                                             handle,
-        //                                             sizeof(notify_en),
-        //                                             (uint8_t *)&notify_en,
-        //                                             ESP_GATT_WRITE_TYPE_RSP,
-        //                                             ESP_GATT_AUTH_REQ_NONE);
+
         if (connection != -1)
         {
-          // 查找 CCCD 描述符
-          esp_gattc_descr_elem_t descr_elem_result[1];
-          uint16_t count = 1;
-          esp_bt_uuid_t cccd_uuid = {
-              .len = ESP_UUID_LEN_16,
-              .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG}};
+          uint16_t count = 0;
+          esp_gatt_status_t ret_status = esp_ble_gattc_get_attr_count(gattc_if, connection, ESP_GATT_DB_DESCRIPTOR,
+                                                                      service_start, service_end, handle, &count);
+          if (ret_status != ESP_GATT_OK)
+          {
+            logger::warnln("esp_ble_gattc_get_attr_count error");
+            break;
+          }
+          if (count > 0)
+          {
+            esp_gattc_descr_elem_t *descr_elem_result = (esp_gattc_descr_elem_t *)malloc(sizeof(esp_gattc_descr_elem_t) * count);
+            if (!descr_elem_result)
+            {
+              logger::warnln("malloc error, gattc no mem");
+              break;
+            }
 
-          esp_gatt_status_t status = esp_ble_gattc_get_descr_by_char_handle(gattc_if,
-                                                                            connection,
-                                                                            handle,
-                                                                            cccd_uuid, descr_elem_result, &count);
+            const esp_bt_uuid_t cccd_uuid = {
+                .len = ESP_UUID_LEN_16,
+                .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG}};
+            ret_status = esp_ble_gattc_get_descr_by_char_handle(gattc_if, connection, handle, cccd_uuid, descr_elem_result, &count);
+            if (ret_status != ESP_GATT_OK)
+            {
+              logger::warnln("esp_ble_gattc_get_descr_by_char_handle error");
+              free(descr_elem_result);
+              descr_elem_result = NULL;
+              break;
+            }
 
-          // if (status == ESP_GATT_OK && count > 0)
-          // {
-          //   uint16_t cccd_handle = descr_elem_result[0].handle;
-          //   uint16_t notify_en;
+            esp_err_t esp_status = esp_ble_gattc_write_char_descr(gattc_if, connection, descr_elem_result[0].handle,
+                                                                  sizeof(notify_en), (uint8_t *)&notify_en,
+                                                                  ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
+            if (esp_status != ESP_OK)
+            {
+              logger::warnln("esp_ble_gattc_write_char_descr error");
+            }
 
-          //   if (is_indicate)
-          //   {
-          //     notify_en = 0x0002; // 启用 Indicate
-          //     logger::debugln("Enabling INDICATE for char 0x%04x, CCCD: 0x%04x", char_handle, cccd_handle);
-          //   }
-          //   else
-          //   {
-          //     notify_en = 0x0001; // 启用 Notify
-          //     logger::debugln("Enabling NOTIFY for char 0x%04x, CCCD: 0x%04x", char_handle, cccd_handle);
-          //   }
-
-          //   // 使用您提供的写入方式
-          //   esp_err_t ret_status = esp_ble_gattc_write_char_descr(gl_profile.gattc_if,
-          //                                                         device->conn_id,
-          //                                                         descr_elem_result[0].handle,
-          //                                                         sizeof(notify_en),
-          //                                                         (uint8_t *)&notify_en,
-          //                                                         ESP_GATT_WRITE_TYPE_RSP,
-          //                                                         ESP_GATT_AUTH_REQ_NONE);
-
-          //   if (ret_status == ESP_OK)
-          //   {
-          //     device->pending_configurations++;
-          //     logger::debugln("CCCD write request sent for char 0x%04x", char_handle);
-          //   }
-          //   else
-          //   {
-          //     logger::warnln("Failed to write CCCD for char 0x%04x: %s", char_handle, esp_err_to_name(ret_status));
-          //   }
-          // }
-          // else
-          // {
-          //   logger::warnln("CCCD not found for char 0x%04x, status: %d", char_handle, status);
-          // }
+            free(descr_elem_result);
+            logger::debugln("BLE write CCCD success.");
+          }
         }
       }
       break;
@@ -658,36 +733,22 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         {
           if (handle == device.bleData)
           {
+            ble_data_handler(device, param->notify.value, param->notify.value_len);
           }
           else if (handle == device.bleBattery)
           {
-            device.battery = param->notify.value[0];
-            logger::debugln("BLE battery level: %d", param->notify.value[0]);
+            ble_battery_handler(device, param->notify.value, param->notify.value_len);
           }
         }
         else
         {
           if (handle == device.bleConfigControl)
           {
-            if (param->notify.value_len == sizeof(ConfigControl))
-            {
-
-              ConfigControl *src = (ConfigControl *)param->notify.value;
-              configBasic.start = src->start;
-              configBasic.mode = src->mode;
-              configBasic.ip = src->ip;
-              strcpy(configBasic.name, src->name);
-              strcpy(configBasic.password, src->password);
-              logger::debugln("BLE get indicate basic config.");
-              // 发送 Indicate 确认
-              // esp_gatt_rsp_t rsp;
-              // memset(&rsp, 0, sizeof(esp_gatt_rsp_t));
-              // rsp.attr_value.handle = p_data->notify.handle;
-              // esp_err_t ret = esp_ble_gattc_send_cmd(gattc_if, param->notify.conn_id, ESP_GATT_RSP_MTU, &rsp);
-            }
+            ble_config_control_handler(device, param->notify.value, param->notify.value_len);
           }
           else if (handle == device.bleAudioControl)
           {
+            ble_audio_control_handler(device, param->notify.value, param->notify.value_len);
           }
         }
       }
@@ -703,15 +764,34 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
   }
 }
 
+// 连接设备
+static bool ble_connect_to_device(const std::string &address)
+{
+  if (bleGattcInterface != ESP_GATT_IF_NONE)
+  {
+    if (devices.contains(address))
+    {
+      DeviceConnection &device = devices[address];
+      esp_ble_gattc_open(bleGattcInterface, device.bleAddress, BLE_ADDR_TYPE_PUBLIC, true);
+      logger::debugln("BLE connecting to server %s.", address.c_str());
+      return true;
+    }
+    logger::warnln("BLE connect failed, because not found address %s.", address);
+    return false;
+  }
+  logger::warnln("BLE connect failed, because not get gattc_if.");
+  return false;
+}
+
 static bool ble_close()
 {
   if (bleIsOpen)
   {
     // 停止扫描
-    if (ble_scanning)
+    if (bleScanning)
     {
       esp_ble_gap_stop_scanning();
-      ble_scanning = false;
+      bleScanning = false;
     }
 
     // 清空设备列表
@@ -769,7 +849,6 @@ static bool ble_open()
     logger::warnln("BLE controller initialize failed: %s", esp_err_to_name(ret));
     return false;
   }
-
   ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
   if (ret)
   {
@@ -783,7 +862,6 @@ static bool ble_open()
     logger::warnln("BLE bluedroid init failed: %s", esp_err_to_name(ret));
     return false;
   }
-
   ret = esp_bluedroid_enable();
   if (ret)
   {
@@ -823,7 +901,7 @@ static bool ble_open()
   bleIsOpen = true;
 
   esp_ble_gap_start_scanning(30);
-  ble_scanning = true;
+  bleScanning = true;
 
   logger::debugln("BLE is started.");
   return true;

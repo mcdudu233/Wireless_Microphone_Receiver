@@ -61,15 +61,15 @@ struct DeviceConnection
   uint8_t bleAddress[6];
   uint16_t bleConnectionID;
   // GATT服务
-  uint16_t bleBatteryStart;
-  uint16_t bleBatteryEnd;
-  uint16_t bleAudioStart;
-  uint16_t bleAudioEnd;
+  uint16_t bleBatteryStart = 0;
+  uint16_t bleBatteryEnd = 0;
+  uint16_t bleAudioStart = 0;
+  uint16_t bleAudioEnd = 0;
   // GATT特征
-  uint16_t bleBattery;
-  uint16_t bleData;
-  uint16_t bleAudioControl;
-  uint16_t bleConfigControl;
+  uint16_t bleBattery = 0;
+  uint16_t bleData = 0;
+  uint16_t bleAudioControl = 0;
+  uint16_t bleConfigControl = 0;
   // WIFI记录
   bool wifiConnected;
   uint32_t wifiConnectionIP;
