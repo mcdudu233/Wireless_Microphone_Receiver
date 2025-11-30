@@ -1,4 +1,7 @@
 #include "ui/ui_main.h"
+#include "module/screen.h"
+#include <cstring>
+#include <algorithm>
 
 static lv_style_t style_indic_h; // 横向bar样式
 static lv_style_t style_indic_v;
@@ -10,6 +13,9 @@ static lv_obj_t *download_label;
 static lv_obj_t *tabview;
 static lv_obj_t *tabs[MAX_DEVICE_COUNT];                                                                  // 最多4个                                                                              // 纵向bar样式
 static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char *icon, bool color_test); // 创建自定义card容器组件
+
+static std::vector<std::string> linked_devices;
+static std::vector<device_card_data *> cards;
 
 static void setting_widget_cb(lv_event_t *e);      // 设置按钮回调
 static void pull_data_timer_cb(lv_timer_t *timer); // 获取设备数据回调
@@ -53,7 +59,7 @@ void ui_main_init()
     char buf[13];
     int i = 0;
     lv_snprintf(buf, 13, "#0000FF %s#", LV_SYMBOL_BLUETOOTH);
-    std::vector<std::string> linked_devices = ui_get_linked_bt();
+    linked_devices = ui_bt_get_linked();
     for (std::string dev : linked_devices)
     {
         LV_LOG_USER(dev.c_str());
@@ -62,6 +68,8 @@ void ui_main_init()
         lv_obj_set_style_pad_all(tab, 0, 0);
         lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
         tabs[i] = tab;
+        device_card_data *data = (device_card_data *)lv_obj_get_user_data(card);
+        data->tab = tab;
         i++;
     }
 
@@ -237,7 +245,7 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char
     data->device_name = device_name;
 
     lv_obj_set_user_data(card, data);
-
+    cards.push_back(data);
     return card;
 }
 
@@ -246,17 +254,17 @@ static void pull_data_timer_cb(lv_timer_t *timer)
     // lv_label_set_text_fmt(upload_label, "#00FF00 %s#%s", LV_SYMBOL_UP, get_upload_speed());
     // lv_label_set_text_fmt(download_label, "#00FF00 %s#%s", LV_SYMBOL_DOWN, get_download_speed());
 
-    lv_obj_t *cur_tab = tabs[lv_tabview_get_tab_active(tabview)];
-    lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
-    device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
-    char *name = card_data->device_name;
+    // lv_obj_t *cur_tab = tabs[lv_tabview_get_tab_active(tabview)];
+    // lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
+    // device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
+    // char *name = card_data->device_name;
 
     // lv_bar_set_value(card_data->left_voice_bar, get_left_voice_per(name), LV_ANIM_ON);
     // lv_bar_set_value(card_data->right_voice_bar, get_right_voice_per(name), LV_ANIM_ON);
     // lv_bar_set_value(card_data->power_bar, get_power_per(name), LV_ANIM_ON);
     // lv_bar_set_value(card_data->signal_bar, get_signal_per(name), LV_ANIM_ON);
 
-    LV_LOG_USER("pull timer触发");
+    // LV_LOG_USER("pull timer触发");
 }
 
 void ui_free_main_widget()
@@ -282,7 +290,63 @@ void ui_set_hidden_main_widget(bool state)
 }
 
 // api
-std::vector<std::string> ui_get_linked_bt()
+
+device_card_data *ui_info_get_obj(const std::string &mac)
+{
+    int i = 0;
+    for (device_card_data *dev : cards)
+    {
+        if (strcmp(dev->device_name, mac.c_str()))
+        {
+            return dev;
+        }
+        i++;
+    }
+    return nullptr;
+}
+void ui_info_set_bar_pct(lv_obj_t *&bar, int8_t pct)
+{
+    LV_LOCK();
+    lv_bar_set_value(bar, pct, LV_ANIM_ON);
+    LV_UNLOCK();
+}
+void ui_info_set_upload(const std::string &speed)
+{
+    LV_LOCK();
+    lv_label_set_text_fmt(upload_label, "#00FF00 %s#%s", LV_SYMBOL_UP, speed.c_str());
+    LV_UNLOCK();
+}
+void ui_info_set_download(const std::string &speed)
+{
+    LV_LOCK();
+    lv_label_set_text_fmt(download_label, "#00FF00 %s#%s", LV_SYMBOL_DOWN, speed.c_str());
+    LV_UNLOCK();
+}
+void ui_info_del_card(const std::string &mac)
+{
+
+    int i = 0;
+    for (device_card_data *card : cards)
+    {
+        if (strcmp(card->device_name, mac.c_str()) == 0)
+        {
+            LV_LOCK();
+            lv_obj_del(card->tab);
+            lv_free(card);
+            cards.erase(cards.begin() + i);
+            LV_UNLOCK();
+            break;
+        }
+        i++;
+    }
+}
+void ui_info_del_card(device_card_data *&card)
+{
+    ui_info_del_card(std::string(card->device_name));
+}
+
+// 定义
+std::vector<std::string> ui_bt_get_linked()
 {
     std::vector<std::string> dev = {"00:1A:2B:3C:4D:5E", "00:1A:2B:3C:4D:5F", "00:1A:2B:3C:4D:5D"};
     return dev;

@@ -2,12 +2,6 @@
 
 #include "ui/ui.h"
 
-struct device_data
-{
-    std::string name;
-    bool is_link = false;
-};
-
 #define BT_LINKED ((void *)1)
 #define BT_UNLINKED ((void *)0)
 
@@ -15,10 +9,12 @@ struct device_data
 #define COLOR_SELECTED lv_palette_main(LV_PALETTE_RED)
 #define COLOR_NONE std::nullopt
 
-#define EVENT_UPDATE (lv_event_code_t)(LV_EVENT_LAST + 1)
-
 // api
-bool ui_bt_unlink(const char *device_name);
-bool ui_bt_link(const char *device_name);
+
+void ui_bt_update(const std::string mac, std::optional<bool> is_link = std::nullopt);
+
+// 定义
+bool ui_bt_unlink(const std::string &mac);
+bool ui_bt_link(const std::string &mac);
 void ui_bt_search();
-void ui_bt_update(device_data dev); // 调用
+void ui_bt_pause_search();

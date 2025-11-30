@@ -1,4 +1,5 @@
 #include "ui/ui_bt.h"
+#include "module/screen.h"
 #include <vector>
 // static bool in_select_mode = false;
 static lv_obj_t *bt_list;
@@ -66,7 +67,6 @@ void ui_bt_init()
     lv_obj_add_flag(bt_list, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     lv_group_focus_obj(bt_list);
     lv_obj_add_event_cb(bt_list, bt_list_click_event_cb, LV_EVENT_CLICKED, NULL); // click回调使内层group作用到编码器上
-    lv_obj_add_event_cb(bt_list, bt_list_update_event_cb, EVENT_UPDATE, NULL);
     ui_bind_group_to_all_encoders(g1);
 
     ui_bt_search();
@@ -104,6 +104,7 @@ static void link_cb(lv_event_t *e)
 static void main_widget_cb(lv_event_t *e)
 {
     ui_main_init();
+    ui_bt_pause_search();
     lv_obj_delete(bt_widget);
 }
 
@@ -157,13 +158,14 @@ static void bt_list_click_event_cb(lv_event_t *e)
         lv_group_focus_obj(list);
 }
 
-static void bt_list_update_event_cb(lv_event_t *e)
+// 添加蓝牙/更新蓝牙状态
+void ui_bt_update(const std::string &mac, std::optional<bool> is_link)
 {
+    LV_LOCK();
     lv_obj_t *btn;
     lv_obj_t *label;
     std::string bt_name;
 
-    device_data *dev = (device_data *)lv_event_get_param(e);
     int32_t cnt = lv_obj_get_child_count_by_type(bt_list, &lv_list_button_class);
     bool is_exist = false;
 
@@ -172,7 +174,7 @@ static void bt_list_update_event_cb(lv_event_t *e)
         btn = lv_obj_get_child_by_type(bt_list, j, &lv_list_button_class);
         label = lv_obj_get_child(btn, 0);
         bt_name = lv_label_get_text(label); // 蓝牙mac
-        if (bt_name == dev->name)           // 链接成功
+        if (bt_name == mac)                 // 链接成功
         {
             is_exist = true;
             break;
@@ -180,64 +182,41 @@ static void bt_list_update_event_cb(lv_event_t *e)
     }
     if (!is_exist)
     {
-        btn = ui_add_list_obj(bt_list, dev->name, list_event_handler, NULL, COLOR_NONE);
+        btn = ui_add_list_obj(bt_list, mac, list_event_handler, NULL, COLOR_NONE);
         lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
         lv_group_add_obj(g2, btn);
     }
-    if (dev->is_link)
+    if (is_link)
     {
         lv_obj_set_style_bg_color(btn, COLOR_LINKED, LV_STATE_CHECKED); // 设置连接状态
         lv_obj_set_user_data(btn, BT_LINKED);
         lv_obj_add_state(btn, LV_STATE_CHECKED);
-        LV_LOG_USER("已连接:%s", dev->name.c_str());
+        LV_LOG_USER("设置蓝牙:%s 已连接状态", mac.c_str());
     }
     else
     {
         lv_obj_set_style_bg_color(btn, COLOR_SELECTED, LV_STATE_CHECKED);
         lv_obj_set_user_data(btn, BT_UNLINKED);
         lv_obj_remove_state(btn, (lv_state_t)(LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY));
-        LV_LOG_USER("已连接:%s", dev->name.c_str());
+        LV_LOG_USER("设置蓝牙:%s 未连接状态", mac.c_str());
     }
-}
-
-// 添加蓝牙/更新蓝牙状态
-void ui_bt_update(device_data *dev)
-{
-    if (bt_list && lv_obj_is_valid(bt_list))
-        lv_obj_send_event(bt_list, EVENT_UPDATE, dev);
+    LV_UNLOCK();
 }
 
 // 连接蓝牙设备
-bool ui_bt_link(const char *device_name)
+bool ui_bt_link(const std::string &mac)
 {
     return true; // 返回连接状态
 }
 // 断开蓝牙设备
-bool ui_bt_unlink(const char *device_name)
+bool ui_bt_unlink(const std::string &mac)
 {
     return true; // 返回连接状态
 }
+// 需要update已连接和未连接的蓝牙
 void ui_bt_search()
 {
-    // 模拟搜索
-    // 注意: 这些数据会被定时器回调异步访问，必须保证其生命周期
-    // 使用 static 保证在进程生命周期内有效，避免悬垂指针导致未定义行为
-    static device_data dev1 = {"00:1A:2B:3C:4D:5E", false};
-    static device_data dev2 = {"00:1A:2B:3C:4D:5F", false};
-    static device_data dev3 = {"00:1A:2B:3C:4D:5D", false};
-    lv_timer_create([](lv_timer_t *timer)
-                    {
-        device_data* dev = (device_data*)lv_timer_get_user_data(timer);
-        ui_bt_update(dev);
-        lv_timer_delete(timer); }, 2000, &dev1); // 2000ms=2秒，无用户数据
-    lv_timer_create([](lv_timer_t *timer)
-                    {
-        device_data* dev = (device_data*)lv_timer_get_user_data(timer);
-        ui_bt_update(dev);
-        lv_timer_delete(timer); }, 4000, &dev2); // 2000ms=2秒，无用户数据
-    lv_timer_create([](lv_timer_t *timer)
-                    {
-        device_data* dev = (device_data*)lv_timer_get_user_data(timer);
-        ui_bt_update(dev);
-        lv_timer_delete(timer); }, 6000, &dev3); // 2000ms=2秒，无用户数据
+}
+void ui_bt_pause_search()
+{
 }
