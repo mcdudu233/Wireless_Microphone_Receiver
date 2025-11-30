@@ -3,7 +3,7 @@
 
 static lv_obj_t *loading_widget;
 static lv_obj_t *bar;
-static lv_obj_t *pct; // 标签
+static lv_obj_t *pct;       // 标签
 static uint8_t percent = 0; // 加载百分比
 
 void ui_loading_set_percent(uint8_t p)

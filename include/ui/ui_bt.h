@@ -8,15 +8,6 @@ struct device_data
     bool is_link = false;
 };
 
-static lv_obj_t *bt_list;
-static lv_obj_t *bt_widget;
-static lv_group_t *g1; // list 俩个按钮
-static lv_group_t *g2; // list内部设备选项
-
-static void bt_list_click_event_cb(lv_event_t *e); // bt_list 被点击
-static void list_event_handler(lv_event_t *e);     // bt_list 项被点击
-static void bt_list_update_event_cb(lv_event_t *e);
-
 #define BT_LINKED ((void *)1)
 #define BT_UNLINKED ((void *)0)
 
@@ -26,11 +17,8 @@ static void bt_list_update_event_cb(lv_event_t *e);
 
 #define EVENT_UPDATE (lv_event_code_t)(LV_EVENT_LAST + 1)
 
-
-
-bool unlink_bt(const char *device_name);
-bool link_bt(const char *device_name);
-static void search_bt();
-
 // api
-void update_bt(device_data dev);
+bool ui_unlink_bt(const char *device_name);
+bool ui_link_bt(const char *device_name);
+void ui_search_bt();
+void ui_update_bt(device_data dev); // 调用

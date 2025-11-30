@@ -1,7 +1,7 @@
 #include "ui/ui.h"
 
 // 创建一个基础控件容器
-lv_obj_t *add_win()
+lv_obj_t *ui_add_win()
 {
     lv_obj_t *widget = lv_obj_create(lv_screen_active());
     lv_obj_set_size(widget, WIDGET_H, WIDGET_V);
@@ -9,7 +9,7 @@ lv_obj_t *add_win()
     return widget;
 }
 // 添加带标题按钮
-lv_obj_t *add_button(lv_obj_t *parent, std::string title, int32_t w, int32_t h, const lv_font_t *font)
+lv_obj_t *ui_add_button(lv_obj_t *parent, std::string title, int32_t w, int32_t h, const lv_font_t *font)
 {
     lv_obj_t *btn = lv_button_create(parent);
     lv_obj_t *label = lv_label_create(btn);
@@ -25,7 +25,7 @@ lv_obj_t *add_button(lv_obj_t *parent, std::string title, int32_t w, int32_t h, 
 }
 
 // 添加列表按钮
-lv_obj_t *add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb, const lv_font_t *font, std::optional<lv_color_t> bg_color)
+lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb, const lv_font_t *font, std::optional<lv_color_t> bg_color)
 {
     lv_obj_t *btn = lv_list_add_button(list, NULL, content.c_str());
     // lv_obj_set_style_pad_all(btn, 1, 0);
@@ -44,7 +44,7 @@ lv_obj_t *add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb, co
 }
 
 // 将指定分组绑定到所有编码器输入设备
-void bind_group_to_all_encoders(lv_group_t *g)
+void ui_bind_group_to_all_encoders(lv_group_t *g)
 {
     lv_indev_t *indev = NULL;
     while ((indev = lv_indev_get_next(indev)) != NULL)
@@ -56,7 +56,7 @@ void bind_group_to_all_encoders(lv_group_t *g)
     }
 }
 
-void info_msgbox(std::string title, std::string content)
+void ui_info_msgbox(std::string title, std::string content)
 {
     lv_obj_t *btn;
     lv_obj_t *mbox = lv_msgbox_create(NULL);
@@ -71,4 +71,8 @@ void info_msgbox(std::string title, std::string content)
                         {
         lv_obj_t* mbox = (lv_obj_t*)lv_event_get_user_data(e);
         lv_msgbox_close(mbox); }, LV_EVENT_CLICKED, mbox);
+}
+void ui_set_bar_val(void *bar, int32_t val)
+{
+    lv_bar_set_value((lv_obj_t *)bar, val, LV_ANIM_ON);
 }

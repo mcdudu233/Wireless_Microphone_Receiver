@@ -35,7 +35,7 @@ void ui_main_init()
     lv_obj_t *label;
     lv_obj_t *last;
 
-    main_widget = add_win();
+    main_widget = ui_add_win();
 
     info_widget = lv_obj_create(main_widget);
     lv_obj_set_style_bg_opa(info_widget, LV_OPA_TRANSP, 0);
@@ -53,7 +53,7 @@ void ui_main_init()
     char buf[13];
     int i = 0;
     lv_snprintf(buf, 13, "#0000FF %s#", LV_SYMBOL_BLUETOOTH);
-    std::vector<std::string> linked_devices = get_linked_bt();
+    std::vector<std::string> linked_devices = ui_get_linked_bt();
     for (std::string dev : linked_devices)
     {
         LV_LOG_USER(dev.c_str());
@@ -92,7 +92,7 @@ void ui_main_init()
     lv_obj_set_style_text_font(download_label, &lv_font_harmonyos_12, 0);
     lv_obj_align_to(download_label, upload_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 0);
 
-    btn = add_button(main_widget, "设置", 160 * 0.3, 25, NULL);
+    btn = ui_add_button(main_widget, "设置", 160 * 0.3, 25, NULL);
     lv_obj_align_to(btn, info_widget, LV_ALIGN_OUT_RIGHT_MID, 3, 20);
     lv_obj_add_event_cb(btn, setting_widget_cb, LV_EVENT_CLICKED, main_widget); // 切换窗体并隐藏
 
@@ -123,7 +123,7 @@ void ui_main_init()
     lv_obj_set_style_text_color(img, lv_palette_main(LV_PALETTE_BLUE), 0);
     lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
 
-    bind_group_to_all_encoders(lv_group_get_default());
+    ui_bind_group_to_all_encoders(lv_group_get_default());
 
     // 注册timer
     pull_data_timer = lv_timer_create(pull_data_timer_cb, DEVICE_DATA_REFLUSH_TIME, NULL);
@@ -191,7 +191,7 @@ static lv_obj_t *create_device_card(lv_obj_t *parent, char *device_name, char *i
         // 颜色测试
         lv_anim_t a;
         lv_anim_init(&a);
-        lv_anim_set_exec_cb(&a, set_bar_val);
+        lv_anim_set_exec_cb(&a, ui_set_bar_val);
         lv_anim_set_duration(&a, 3000);
         lv_anim_set_reverse_duration(&a, 3000);
         lv_anim_set_var(&a, left_bar_1);
@@ -201,7 +201,7 @@ static lv_obj_t *create_device_card(lv_obj_t *parent, char *device_name, char *i
 
         lv_anim_t b;
         lv_anim_init(&b);
-        lv_anim_set_exec_cb(&b, set_bar_val);
+        lv_anim_set_exec_cb(&b, ui_set_bar_val);
         lv_anim_set_duration(&b, 2000);
         // lv_anim_set_reverse_duration(&a, 3000);
         lv_anim_set_var(&b, right_bar_1);
@@ -211,7 +211,7 @@ static lv_obj_t *create_device_card(lv_obj_t *parent, char *device_name, char *i
 
         lv_anim_t c;
         lv_anim_init(&c);
-        lv_anim_set_exec_cb(&c, set_bar_val);
+        lv_anim_set_exec_cb(&c, ui_set_bar_val);
         lv_anim_set_duration(&c, 2000);
         lv_anim_set_reverse_duration(&c, 2000);
         lv_anim_set_var(&c, power_bar_1);
@@ -221,7 +221,7 @@ static lv_obj_t *create_device_card(lv_obj_t *parent, char *device_name, char *i
 
         lv_anim_t d;
         lv_anim_init(&d);
-        lv_anim_set_exec_cb(&d, set_bar_val);
+        lv_anim_set_exec_cb(&d, ui_set_bar_val);
         lv_anim_set_duration(&d, 2000);
         lv_anim_set_reverse_duration(&d, 2000);
         lv_anim_set_var(&d, signal_bar_1);
@@ -261,7 +261,7 @@ static void pull_data_timer_cb(lv_timer_t *timer)
     LV_LOG_USER("pull timer触发");
 }
 
-void free_main_widget()
+void ui_free_main_widget()
 {
     for (int i = 0; i < MAX_DEVICE_COUNT; i++)
     {
@@ -278,13 +278,13 @@ void free_main_widget()
     lv_obj_delete(main_widget);
 }
 
-void set_hidden_main_widget(bool state)
+void ui_set_hidden_main_widget(bool state)
 {
     lv_obj_set_flag(main_widget, LV_OBJ_FLAG_HIDDEN, state);
 }
 
 // api
-std::vector<std::string> get_linked_bt()
+std::vector<std::string> ui_get_linked_bt()
 {
     std::vector<std::string> dev = {"00:1A:2B:3C:4D:5E", "00:1A:2B:3C:4D:5F", "00:1A:2B:3C:4D:5D"};
     return dev;

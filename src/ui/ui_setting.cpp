@@ -23,8 +23,8 @@ void ui_setting_init()
 {
     lv_obj_t *btn;
 
-    set_hidden_main_widget(true);
-    setting_widget = add_win();
+    ui_set_hidden_main_widget(true);
+    setting_widget = ui_add_win();
     menu = lv_menu_create(setting_widget);
     lv_color_t bg_color = lv_obj_get_style_bg_color(menu, LV_PART_MAIN);
     if (lv_color_brightness(bg_color) > 127)
@@ -158,7 +158,7 @@ static void back_cb(lv_event_t *e)
     lv_obj_t *obj = lv_event_get_target_obj(e);
     if (lv_menu_back_button_is_root(menu, obj))
     {
-        set_hidden_main_widget(false);
+        ui_set_hidden_main_widget(false);
         lv_obj_del(setting_widget);
     }
     else
@@ -175,7 +175,7 @@ static void back_cb(lv_event_t *e)
 static void relink_bt_cb(lv_event_t *e)
 {
     lv_obj_del(setting_widget);
-    free_main_widget();
+    ui_free_main_widget();
     ui_bt_init();
 }
 
