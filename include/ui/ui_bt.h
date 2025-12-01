@@ -11,7 +11,7 @@
 
 // api
 
-void ui_bt_update(const std::string mac, std::optional<bool> is_link = std::nullopt);
+void ui_bt_update(const std::string &mac, std::optional<bool> is_link = std::nullopt);
 
 // 定义
 bool ui_bt_unlink(const std::string &mac);
