@@ -41,9 +41,12 @@ struct AudioClientControl
 struct ConfigServerControl
 {
   bool start = false;
+  bool startWiFi = false;
+  bool startBLE = true;
   ConfigControlMode mode = AUDIO_CONTROL_MODE_BLE;
   char name[32] = "";
   char password[32] = "";
+  uint16_t port = 3333;
 };
 
 struct AudioServerControl
@@ -57,10 +60,25 @@ struct AudioServerControl
   uint8_t volumn = 0;
 };
 
-struct AudioPacket
+// TCP音频包
+struct AudioPacketTCP
 {
   uint32_t num;
   uint8_t data[1536];
+};
+
+// UDP音频包
+struct AudioPacketUDP
+{
+  uint32_t num;
+  uint8_t data[1536];
+};
+
+// BLE音频包
+struct AudioPacketBLE
+{
+  uint32_t num;
+  uint8_t data[384];
 };
 
 // 设备信息结构体

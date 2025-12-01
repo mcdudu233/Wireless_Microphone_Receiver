@@ -93,8 +93,7 @@ static void link_cb(lv_event_t *e)
             bool state = ui_bt_link(bt_name);
             if (state) // 链接成功
             {
-                lv_obj_set_style_bg_color(btn, COLOR_LINKED, LV_STATE_CHECKED); // 设置连接状态
-                lv_obj_set_user_data(btn, BT_LINKED);
+                lv_obj_set_style_bg_color(btn, COLOR_LINKING, LV_STATE_CHECKED); // 设置连接状态
             }
         }
     }
@@ -201,22 +200,4 @@ void ui_bt_update(const std::string &mac, std::optional<bool> is_link)
         LV_LOG_USER("设置蓝牙:%s 未连接状态", mac.c_str());
     }
     LV_UNLOCK();
-}
-
-// 连接蓝牙设备
-bool ui_bt_link(const std::string &mac)
-{
-    return true; // 返回连接状态
-}
-// 断开蓝牙设备
-bool ui_bt_unlink(const std::string &mac)
-{
-    return true; // 返回连接状态
-}
-// 需要update已连接和未连接的蓝牙
-void ui_bt_search()
-{
-}
-void ui_bt_pause_search()
-{
 }

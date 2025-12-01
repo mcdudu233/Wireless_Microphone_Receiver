@@ -11,7 +11,7 @@
 #include "algorithm"
 
 // 接收到的音频数据包
-static AudioPacket packet;
+static AudioPacketUDP packet;
 // 整体配置
 static ConfigServerControl configBasic;
 static AudioServerControl configAudio;
@@ -70,7 +70,7 @@ static void socket_handle(void *arg)
     {
       struct sockaddr_storage source_addr;
       socklen_t source_addr_len = sizeof(source_addr);
-      int len = recvfrom(socketNumber, &packet, sizeof(AudioPacket), MSG_DONTWAIT, (struct sockaddr *)&source_addr, &source_addr_len);
+      int len = recvfrom(socketNumber, &packet, sizeof(AudioPacketUDP), MSG_DONTWAIT, (struct sockaddr *)&source_addr, &source_addr_len);
       if (len >= 0)
       {
         audio::decoder::writeData(packet.data);
@@ -155,6 +155,7 @@ static bool socket_open(bool isTCP)
 #include "esp_event.h"
 static bool wifiIsOpen = false;
 static esp_netif_t *wifiNetIF;
+static esp_event_handler_instance_t wifiHandlerInstance;
 static const wifi_init_config_t wifiInitConfig = WIFI_INIT_CONFIG_DEFAULT();
 static wifi_config_t wifiConfig = {
     .ap = {
@@ -190,7 +191,7 @@ static bool wifi_close()
   if (wifiIsOpen)
   {
     ESP_ERROR_CHECK(esp_wifi_stop());
-    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handle));
+    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifiHandlerInstance));
     ESP_ERROR_CHECK(esp_wifi_deinit());
     esp_netif_destroy(wifiNetIF);
     wifiNetIF = NULL;
@@ -212,7 +213,7 @@ static bool wifi_open()
   wifiNetIF = esp_netif_create_default_wifi_ap();
 
   ESP_ERROR_CHECK(esp_wifi_init(&wifiInitConfig));
-  ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handle, NULL, NULL));
+  ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handle, NULL, &wifiHandlerInstance));
 
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifiConfig));
@@ -259,14 +260,14 @@ static void ble_battery_handler(DeviceConnection &device, uint8_t *data, uint16_
 static void ble_data_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
 {
   // 音频数据通知
-  if (data_len < sizeof(AudioPacket))
-  {
-    memcpy(&packet, data, data_len);
-  }
-  else
-  {
-    packet = *(AudioPacket *)data;
-  }
+  // if (data_len < sizeof(AudioPacket))
+  // {
+  //   memcpy(&packet, data, data_len);
+  // }
+  // else
+  // {
+  //   packet = *(AudioPacket *)data;
+  // }
 
   // static uint32_t last_time = 0;
   // static uint32_t last_num = 0;
@@ -357,8 +358,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
           logger::debugln("BLE found device: %s, address: %s", name_data, address.c_str());
 
           // 添加到界面
-          // ui_bt_update();
-          static device_data data;
+          ui_bt_update(address);
 
           // ble_connect_to_device(address);
         }
@@ -436,16 +436,15 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
       std::string address = bleBdaToStr(param->open.remote_bda);
       if (param->open.status != ESP_GATT_OK)
       {
-        logger::warnln("BLE %s connect failed.", address);
         if (devices.contains(address))
         {
           devices[address].bleConnected = false;
           devices[address].bleDoConnect = false; // TODO: 连接失败
         }
+        logger::warnln("BLE %s connect failed.", address);
       }
       else
       {
-        logger::debugln("BLE %s connected to server. MTU is %d.", address, param->open.mtu);
         if (devices.contains(address))
         {
           devices[address].bleConnected = true;
@@ -454,6 +453,8 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
           // 开始搜索服务
           esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
         }
+        ui_bt_update(address, true);
+        logger::debugln("BLE %s connected to server. MTU is %d.", address, param->open.mtu);
       }
       break;
     }
@@ -540,6 +541,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             else
             {
               logger::warnln("BLE battery characteristic not found, status: %d", status);
+              esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
             }
           }
         }
@@ -567,6 +569,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             else
             {
               logger::warnln("BLE data characteristic not found, status: %d", status);
+              esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
             }
           }
 
@@ -590,6 +593,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             else
             {
               logger::warnln("BLE config control characteristic not found, status: %d", status);
+              esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
             }
           }
 
@@ -613,6 +617,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             else
             {
               logger::warnln("BLE audio control characteristic not found, status: %d", status);
+              esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
             }
           }
         }
@@ -787,7 +792,7 @@ static bool ble_send_config_control_to_device(const std::string &address)
 }
 
 // 发送AudioServerControl配置数据
-static bool ble_send_config_control_to_device(const std::string &address)
+static bool ble_send_audio_control_to_device(const std::string &address)
 {
   if (devices.contains(address))
   {
@@ -826,6 +831,44 @@ static bool ble_connect_to_device(const std::string &address)
   }
   logger::warnln("BLE connect failed, because not get gattc_if.");
   return false;
+}
+
+// 断开连接设备
+static bool ble_disconnect_to_device(const std::string &address)
+{
+  if (bleGattcInterface != ESP_GATT_IF_NONE)
+  {
+    if (devices.contains(address))
+    {
+      DeviceConnection &device = devices[address];
+      esp_ble_gattc_close(bleGattcInterface, device.bleConnectionID);
+      devices.erase(address);
+      logger::debugln("BLE disconnecting to server %s.", address.c_str());
+      return true;
+    }
+    logger::warnln("BLE disconnect failed, because not found address %s.", address);
+    return false;
+  }
+  logger::warnln("BLE disconnect failed, because not get gattc_if.");
+  return false;
+}
+
+static void ble_start_scanning()
+{
+  if (!bleScanning)
+  {
+    esp_ble_gap_start_scanning(0);
+    bleScanning = true;
+  }
+}
+
+static void ble_stop_scanning()
+{
+  if (bleScanning)
+  {
+    esp_ble_gap_stop_scanning();
+    bleScanning = false;
+  }
 }
 
 static bool ble_close()
@@ -934,19 +977,59 @@ static bool ble_open()
     return false;
   }
 
-  esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(517);
-  if (local_mtu_ret)
+  ret = esp_ble_gatt_set_local_mtu(517);
+  if (ret)
   {
-    logger::warnln("BLE set local  MTU failed, error code = %x", local_mtu_ret);
+    logger::warnln("BLE set local  MTU failed, error code = %x", ret);
   }
 
   bleIsOpen = true;
-
-  esp_ble_gap_start_scanning(30);
-  bleScanning = true;
-
   logger::debugln("BLE is started.");
   return true;
+}
+/****************************/
+
+/*****************************
+          界面操作
+*****************************/
+// 连接蓝牙设备
+bool ui_bt_link(const std::string &mac)
+{
+  if (ble_connect_to_device(mac))
+  {
+    return true; // 返回连接状态
+  }
+  return false;
+}
+// 断开蓝牙设备
+bool ui_bt_unlink(const std::string &mac)
+{
+  if (ble_disconnect_to_device(mac))
+  {
+    return true; // 返回连接状态
+  }
+  return false;
+}
+// 需要update已连接和未连接的蓝牙
+void ui_bt_search()
+{
+  ble_start_scanning();
+}
+void ui_bt_pause_search()
+{
+  ble_stop_scanning();
+  for (auto &device : devices)
+  {
+    const std::string &address = device.first;
+    configAudio.channel = 2;
+    configAudio.rate = 48000;
+    configAudio.bit = 32;
+    configAudio.start = true;
+    ble_send_audio_control_to_device(address);
+    configBasic.startWiFi = true;
+    configBasic.start = true;
+    ble_send_config_control_to_device(address);
+  }
 }
 /****************************/
 
@@ -957,6 +1040,7 @@ void rf::reconfigure()
   configBasic.mode = (ConfigControlMode)(config::value.transmitProtocol);
   strcpy(configBasic.name, WIFI_NAME);
   strcpy(configBasic.password, WIFI_PASSWORD);
+  configBasic.port = SOCKET_PORT;
 
   // configAudio.start = false;
   configAudio.channel = config::value.audioChannel;
