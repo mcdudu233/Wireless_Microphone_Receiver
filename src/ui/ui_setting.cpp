@@ -6,6 +6,7 @@
 static lv_obj_t *menu;
 static lv_obj_t *setting_widget;
 static lv_obj_t *last_enter_btn = NULL; // 记录进入子页面所用的条目
+static lv_timer_t *sys_info_timer;
 
 static lv_obj_t *cpu1;
 static lv_obj_t *cpu2;
@@ -18,7 +19,7 @@ static void relink_bt_cb(lv_event_t *e);     // 重新链接蓝牙回调
 static void enter_subpage_cb(lv_event_t *e); // 记录进入子页的来源条目
 static void focus_async_cb(void *obj_p);     // 异步将焦点移回来源条目
 static void choose_cb(lv_event_t *e);        // 下拉菜单选中回调
-static void sys_info_timer(lv_timer_t *);    // 系统信息更新timer
+static void sys_info_timer_cb(lv_timer_t *); // 系统信息更新timer
 
 static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt,
                                 lv_menu_builder_variant_t builder_variant, std::optional<lv_obj_t **> label_o = std::nullopt, std::optional<bool> is_from_svg = std::nullopt);
@@ -239,7 +240,7 @@ void ui_setting_init()
     // lv_obj_send_event(lv_obj_get_child(lv_obj_get_child(lv_menu_get_cur_sidebar_page(menu), 0), 0), LV_EVENT_CLICKED,
     //                   NULL);
     lv_menu_set_page(menu, root_page);
-    lv_timer_create(sys_info_timer, SYSTEM_INFO_REFLUSH_TIME, NULL);
+    sys_info_timer = lv_timer_create(sys_info_timer_cb, SYSTEM_INFO_REFLUSH_TIME, NULL);
 }
 
 // 设置页面back按钮回调
@@ -249,6 +250,7 @@ static void back_cb(lv_event_t *e)
     if (lv_menu_back_button_is_root(menu, obj))
     {
         ui_set_hidden_main_widget(false);
+        lv_timer_delete(sys_info_timer);
         lv_obj_del(setting_widget);
     }
     else
@@ -424,7 +426,7 @@ static void choose_cb(lv_event_t *e)
         break;
     }
 }
-static void sys_info_timer(lv_timer_t *)
+static void sys_info_timer_cb(lv_timer_t *)
 {
     lv_label_set_text_fmt(cpu1, "CPU1   #626367 %d%#", SystemInfo::cpu1);
     lv_label_set_text_fmt(cpu2, "CPU2   #626367 %d%#", SystemInfo::cpu2);
@@ -434,22 +436,22 @@ static void sys_info_timer(lv_timer_t *)
 }
 
 // 传输模式 0:音频转换 1:usb
-void ui_set_transmit_mode(uint32_t choice)
+void ui_set_transmit_mode(const uint32_t &choice)
 {
 }
 // 采样率 0:48000 1:96000 2:192000
-void ui_set_sample_freq(uint32_t freq)
+void ui_set_sample_freq(const uint32_t &choice)
 {
 }
 // 位深度 0:16 1:24 2:32
-void ui_set_bit(uint32_t b)
+void ui_set_bit(const uint32_t &choice)
 {
 }
 // 通道数 0:单通道 1:立体声
-void ui_set_channel(uint32_t choice)
+void ui_set_channel(const uint32_t &choice)
 {
 }
 // 传输协议 0:BLE 1:UDP 2:TCP
-void ui_set_transmit_protocol(uint32_t choice)
+void ui_set_transmit_protocol(const uint32_t &choice)
 {
 }

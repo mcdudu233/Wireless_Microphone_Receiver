@@ -5,7 +5,7 @@ static lv_obj_t *loading_widget;
 static lv_obj_t *bar;
 static lv_obj_t *pct;       // 标签
 static uint8_t percent = 0; // 加载百分比
-static const char *loading_part = "";
+static std::string loading_part = "";
 
 void ui_loading_set_percent(uint8_t p)
 {
@@ -13,7 +13,7 @@ void ui_loading_set_percent(uint8_t p)
 }
 
 // 设置当前加载部分的名字
-void ui_loading_set_part(const char *part)
+void ui_loading_set_part(const std::string &part)
 {
     loading_part = part;
 }
@@ -22,7 +22,7 @@ void ui_loading_set_part(const char *part)
 static void loding_timer_cb(lv_timer_t *timer)
 {
     uint32_t val = lv_bar_get_value(bar);
-    lv_label_set_text_fmt(pct, "正在加载:%s", loading_part);
+    lv_label_set_text_fmt(pct, "正在加载:%s", loading_part.c_str());
     if (percent > val)
     {
         val++;
