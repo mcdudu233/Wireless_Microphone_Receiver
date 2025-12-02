@@ -12,14 +12,19 @@ void setup()
   logger::setup();
   config::setup();
   screen::setup();
+  ui_loading_set_part("屏幕");
   ui_loading_set_percent(25);
   button::setup();
+  ui_loading_set_part("按钮");
   ui_loading_set_percent(30);
   audio::decoder::setup();
+  ui_loading_set_part("音频解码器");
   ui_loading_set_percent(50);
   rf::setup();
+  ui_loading_set_part("蓝牙");
   ui_loading_set_percent(80);
   tf::setup();
+  ui_loading_set_part("TF卡");
   ui_loading_set_percent(100);
   logger::infoln("All modules are started now!");
 

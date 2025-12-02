@@ -74,7 +74,6 @@ static void socket_handle(void *arg)
       if (len >= 0)
       {
         audio::decoder::writeData(packet.data);
-        // logger::debugln("Socket get new packet, length is %d.", len);
       }
       else if (errno != EWOULDBLOCK)
       {
@@ -450,6 +449,15 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
           devices[address].bleConnected = true;
           devices[address].bleConnectionID = param->open.conn_id;
           connectionToDevice[param->open.conn_id] = &devices[address];
+
+          // 发送MTU请求
+          logger::debugln("BLE MTU exchange requested for %s", address.c_str());
+          esp_err_t ret = esp_ble_gattc_send_mtu_req(gattc_if, param->open.conn_id);
+          if (ret != ESP_OK)
+          {
+            logger::warnln("BLE failed to send MTU request: %s", esp_err_to_name(ret));
+          }
+
           // 开始搜索服务
           esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
         }
@@ -803,12 +811,12 @@ static bool ble_send_audio_control_to_device(const std::string &address)
                                               ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
     if (ret1 == ESP_OK)
     {
-      logger::debugln("BLE ConfigServerControl write.");
+      logger::debugln("BLE AudioServerControl write.");
       return true;
     }
     else
     {
-      logger::warnln("BLE Failed to send ConfigServerControl write: %s.", esp_err_to_name(ret1));
+      logger::warnln("BLE Failed to send AudioServerControl write: %s.", esp_err_to_name(ret1));
     }
   }
   return false;
@@ -1020,6 +1028,8 @@ void ui_bt_pause_search()
   ble_stop_scanning();
   for (auto &device : devices)
   {
+    wifi_open();
+    socket_open(false);
     const std::string &address = device.first;
     configAudio.channel = 2;
     configAudio.rate = 48000;
