@@ -5,10 +5,7 @@
 #include "ui/ui_bt.h"
 
 #include "map"
-#include "iostream"
-#include "random"
 #include "string"
-#include "algorithm"
 
 // 接收到的音频数据包
 static AudioPacketUDP packet;
