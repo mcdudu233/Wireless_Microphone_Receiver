@@ -45,6 +45,7 @@ void ui_loading_init()
     // 设置屏幕背景色为白色
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_scrollbar_mode(lv_screen_active(), LV_SCROLLBAR_MODE_OFF);
 
     loading_widget = lv_obj_create(lv_screen_active());
     lv_obj_set_size(loading_widget, 160, 80);

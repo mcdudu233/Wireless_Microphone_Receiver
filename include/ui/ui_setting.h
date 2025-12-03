@@ -9,9 +9,7 @@ typedef enum
 // 系统信息刷新周期 ms
 #define SYSTEM_INFO_REFLUSH_TIME 1000
 
-// 固件版本
-#define VERSION "0.0.1"
-#define EXTERNAL_LINK "https://www.github.com/"
+#define ABOUT_INFO "固件版本: 0.0.1\n作者: awa\n外部链接: https://www.github.com/"
 
 // api
 namespace SystemInfo

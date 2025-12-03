@@ -7,6 +7,8 @@ static lv_obj_t *menu;
 static lv_obj_t *setting_widget;
 static lv_obj_t *last_enter_btn = NULL; // 记录进入子页面所用的条目
 static lv_timer_t *sys_info_timer;
+static lv_style_t scroll_style;
+static bool enter_bottom = false;
 
 static lv_obj_t *cpu1;
 static lv_obj_t *cpu2;
@@ -27,7 +29,7 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const char *icon, const char
                                   int32_t val);
 static lv_obj_t *ui_create_switch(lv_obj_t *parent, const char *icon, const char *txt, bool chk);
 static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const char *txt, const char *options, std::optional<lv_obj_t **> dd_o = std::nullopt);
-static lv_obj_t *ui_create_sub_page(lv_obj_t *parent, const char *title); // 新建子页面
+static lv_obj_t *ui_create_sub_page(lv_obj_t *parent, const char *title, bool display_scroll = true); // 新建子页面
 
 namespace SystemInfo
 {
@@ -41,6 +43,8 @@ namespace SystemInfo
 void ui_setting_init()
 {
     lv_obj_t *btn;
+    lv_style_init(&scroll_style);
+    lv_style_set_pad_right(&scroll_style, 0);
 
     ui_set_hidden_main_widget(true);
     setting_widget = ui_add_win();
@@ -65,7 +69,7 @@ void ui_setting_init()
     lv_obj_t *dd;
 
     /*Create sub pages*/
-    lv_obj_t *sub_about_page = ui_create_sub_page(menu, "关于");
+    lv_obj_t *sub_about_page = ui_create_sub_page(menu, "关于", false);
     lv_obj_t *sub_usb_page = ui_create_sub_page(menu, "USB传输设置");
     lv_obj_t *sub_system_page = ui_create_sub_page(menu, "系统信息");
     lv_obj_t *sub_audio_page = ui_create_sub_page(menu, "音频设置");
@@ -76,7 +80,7 @@ void ui_setting_init()
     // 放入一个可滚动容器，使其显示滚动条，并可被编码器聚焦控制
     lv_obj_t *scroller = lv_obj_create(section);
     lv_obj_set_width(scroller, lv_pct(100));
-    lv_obj_set_height(scroller, lv_dpx(100));
+    lv_obj_set_height(scroller, LV_SIZE_CONTENT);
     lv_obj_set_scroll_dir(scroller, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(scroller, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_add_flag(scroller, LV_OBJ_FLAG_SCROLLABLE);
@@ -84,7 +88,9 @@ void ui_setting_init()
     lv_group_add_obj(lv_group_get_default(), scroller);
     lv_obj_set_style_bg_opa(scroller, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(scroller, 0, 0);
-
+    lv_obj_set_style_pad_all(scroller, 0, 0);
+    lv_obj_set_style_pad_all(sub_about_page, 0, 0);
+    lv_obj_add_style(scroller, &scroll_style, LV_PART_SCROLLBAR);
     lv_obj_add_event_cb(scroller, [](lv_event_t *e)
                         {
         lv_obj_t *obj = lv_event_get_target_obj(e);
@@ -97,41 +103,44 @@ void ui_setting_init()
         lv_point_t end;
         lv_obj_get_scroll_end(obj, &end);
         int32_t bottom = lv_obj_get_scroll_bottom(obj);
-        if(end.y >= bottom+60) {
-            lv_obj_scroll_to_y(obj, 0, LV_ANIM_ON);
-            lv_obj_t *header = lv_menu_get_main_header(menu);
-            if(header) {
-                lv_obj_t *back_btn = lv_obj_get_child(header, 0);
-                if(back_btn) lv_group_focus_obj(back_btn);
-                lv_group_t *g = lv_obj_get_group(obj);
-                if(g) lv_group_set_editing(g, false);
-            }
-        } }, LV_EVENT_SCROLL_END, NULL);
+        if(end.y >= bottom) {
+            if(enter_bottom)
+            {
+                lv_obj_scroll_to_y(obj, 0, LV_ANIM_ON);
+                lv_obj_t *header = lv_menu_get_main_header(menu);
+                if(header) {
+                    lv_obj_t *back_btn = lv_obj_get_child(header, 0);
+                    if(back_btn) lv_group_focus_obj(back_btn);
+                    lv_group_t *g = lv_obj_get_group(obj);
+                    if(g) lv_group_set_editing(g, false);
+                }
+                enter_bottom = false;
+            }else
+                enter_bottom = true;
+            
+        } }, LV_EVENT_SCROLL, NULL);
 
     lv_obj_t *spans = lv_spangroup_create(scroller);
     // 让文本按容器宽度自动换行，高度由内容决定
     lv_obj_set_width(spans, lv_pct(100));
     lv_obj_set_height(spans, LV_SIZE_CONTENT);
     lv_spangroup_set_align(spans, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_height(scroller, 40);
-    lv_span_t *span = lv_spangroup_add_span(spans);
-    lv_span_set_text(span, "无线麦克风\n");
-    lv_style_set_text_align(lv_span_get_style(span), LV_TEXT_ALIGN_CENTER);
-    lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x609a45));
-    lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_16);
+    lv_obj_set_height(scroller, 53);
+
+    lv_span_t *span;
 
     span = lv_spangroup_add_span(spans);
-    lv_span_set_text_fmt(span, "固件版本:%s\n", VERSION);
+    lv_span_set_text(span, ABOUT_INFO);
     lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
     lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
-    span = lv_spangroup_add_span(spans);
-    lv_span_set_text(span, "作者: awa\n");
-    lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
-    lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
-    span = lv_spangroup_add_span(spans);
-    lv_span_set_text_fmt(span, "外部链接:%s", EXTERNAL_LINK);
-    lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
-    lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
+    // span = lv_spangroup_add_span(spans);
+    // lv_span_set_text(span, "作者: awa\n");
+    // lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
+    // lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
+    // span = lv_spangroup_add_span(spans);
+    // lv_span_set_text_fmt(span, "外部链接:%s", EXTERNAL_LINK);
+    // lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
+    // lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
     lv_spangroup_refresh(spans);
 
     // create_text(section, NULL, "无线麦克风", LV_MENU_ITEM_BUILDER_VARIANT_1);
@@ -198,7 +207,8 @@ void ui_setting_init()
     // create_slider(section, LV_SYMBOL_SETTINGS, "Weight limit", 0, 150, 80);
     /*Create a root page*/
     lv_obj_t *root_page = lv_menu_page_create(menu, "设置");
-    lv_obj_set_style_pad_hor(root_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), LV_PART_MAIN), 0);
+    lv_obj_add_style(root_page, &scroll_style, LV_PART_SCROLLBAR);
+    // lv_obj_set_style_pad_hor(root_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), LV_PART_MAIN), 0);
     section = lv_menu_section_create(root_page);
     // cont = create_text(section, NULL, "Mechanics", LV_MENU_ITEM_BUILDER_VARIANT_1);
     // lv_group_add_obj(lv_group_get_default(), cont);
@@ -294,7 +304,7 @@ static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *
         label = lv_label_create(obj);
         lv_label_set_text(label, txt);
         // lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-        lv_obj_set_flex_grow(label, 1);
+        // lv_obj_set_flex_grow(label, 1);
     }
 
     if (builder_variant == LV_MENU_ITEM_BUILDER_VARIANT_2 && icon && txt)
@@ -355,10 +365,11 @@ static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const ch
     lv_group_remove_obj(obj);
 
     lv_obj_t *dd = lv_dropdown_create(obj);
+    lv_obj_add_style(dd, &scroll_style, LV_PART_SCROLLBAR);
     lv_dropdown_set_options(dd, options);
-    lv_obj_set_size(dd, 100, 20);
-    lv_obj_add_flag(dd, LV_OBJ_FLAG_FLEX_IN_NEW_TRACK);
+    lv_obj_set_size(dd, 85, 20);
     lv_obj_add_flag(dd, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_align_to(dd, label, LV_ALIGN_OUT_RIGHT_MID, 0, 0);
     lv_group_add_obj(lv_group_get_default(), dd);
     lv_obj_add_event_cb(dd, [](lv_event_t *e)
                         {
@@ -374,11 +385,17 @@ static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const ch
     }
     return obj;
 }
-static lv_obj_t *ui_create_sub_page(lv_obj_t *parent, const char *title)
+static lv_obj_t *ui_create_sub_page(lv_obj_t *parent, const char *title, bool display_scroll)
 {
     lv_obj_t *sub_page = lv_menu_page_create(parent, title);
-    lv_obj_set_style_pad_hor(sub_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(parent), LV_PART_MAIN), 0);
-    lv_menu_separator_create(sub_page);
+    // lv_obj_set_style_pad_hor(sub_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(parent), LV_PART_MAIN), 0);
+    // lv_menu_separator_create(sub_page);
+    lv_obj_set_scroll_dir(sub_page, LV_DIR_VER);
+    lv_obj_add_style(sub_page, &scroll_style, LV_PART_SCROLLBAR);
+    if (display_scroll)
+        lv_obj_set_scrollbar_mode(sub_page, LV_SCROLLBAR_MODE_AUTO);
+    else
+        lv_obj_set_scrollbar_mode(sub_page, LV_SCROLLBAR_MODE_OFF);
     return sub_page;
 }
 
