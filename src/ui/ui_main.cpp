@@ -5,7 +5,7 @@
 
 static lv_style_t style_indic_h; // 横向bar样式
 static lv_style_t style_indic_v;
-static lv_timer_t *pull_data_timer;
+// static lv_timer_t *pull_data_timer;
 static lv_obj_t *info_widget;
 static lv_obj_t *main_widget;
 static lv_obj_t *upload_label;
@@ -17,8 +17,8 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char
 static std::vector<std::string> linked_devices;
 static std::vector<device_card_data *> cards;
 
-static void setting_widget_cb(lv_event_t *e);      // 设置按钮回调
-static void pull_data_timer_cb(lv_timer_t *timer); // 获取设备数据回调
+static void setting_widget_cb(lv_event_t *e); // 设置按钮回调
+// static void pull_data_timer_cb(lv_timer_t *timer); // 获取设备数据回调
 
 void ui_main_init()
 {
@@ -128,7 +128,7 @@ void ui_main_init()
     ui_bind_group_to_all_encoders(lv_group_get_default());
 
     // 注册timer
-    pull_data_timer = lv_timer_create(pull_data_timer_cb, DEVICE_DATA_REFLUSH_TIME, NULL);
+    // pull_data_timer = lv_timer_create(pull_data_timer_cb, DEVICE_DATA_REFLUSH_TIME, NULL);
 }
 
 // 设置按钮回调 -> 进入设置界面
@@ -219,23 +219,23 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char
     return card;
 }
 
-static void pull_data_timer_cb(lv_timer_t *timer)
-{
-    // lv_label_set_text_fmt(upload_label, "#00FF00 %s#%s", LV_SYMBOL_UP, get_upload_speed());
-    // lv_label_set_text_fmt(download_label, "#00FF00 %s#%s", LV_SYMBOL_DOWN, get_download_speed());
+// static void pull_data_timer_cb(lv_timer_t *timer)
+// {
+//     lv_label_set_text_fmt(upload_label, "#00FF00 %s#%s", LV_SYMBOL_UP, get_upload_speed());
+//     lv_label_set_text_fmt(download_label, "#00FF00 %s#%s", LV_SYMBOL_DOWN, get_download_speed());
 
-    // lv_obj_t *cur_tab = tabs[lv_tabview_get_tab_active(tabview)];
-    // lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
-    // device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
-    // char *name = card_data->device_name;
+//     lv_obj_t *cur_tab = tabs[lv_tabview_get_tab_active(tabview)];
+//     lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
+//     device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
+//     char *name = card_data->device_name;
 
-    // lv_bar_set_value(card_data->left_voice_bar, get_left_voice_per(name), LV_ANIM_ON);
-    // lv_bar_set_value(card_data->right_voice_bar, get_right_voice_per(name), LV_ANIM_ON);
-    // lv_bar_set_value(card_data->power_bar, get_power_per(name), LV_ANIM_ON);
-    // lv_bar_set_value(card_data->signal_bar, get_signal_per(name), LV_ANIM_ON);
+//     lv_bar_set_value(card_data->left_voice_bar, get_left_voice_per(name), LV_ANIM_ON);
+//     lv_bar_set_value(card_data->right_voice_bar, get_right_voice_per(name), LV_ANIM_ON);
+//     lv_bar_set_value(card_data->power_bar, get_power_per(name), LV_ANIM_ON);
+//     lv_bar_set_value(card_data->signal_bar, get_signal_per(name), LV_ANIM_ON);
 
-    // LV_LOG_USER("pull timer触发");
-}
+//     LV_LOG_USER("pull timer触发");
+// }
 
 void ui_free_main_widget()
 {
@@ -250,7 +250,7 @@ void ui_free_main_widget()
         device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
         lv_free(card_data);
     }
-    lv_timer_delete(pull_data_timer);
+    // lv_timer_delete(pull_data_timer);
     lv_obj_delete(main_widget);
 }
 
