@@ -27,15 +27,9 @@ void ui_main_init()
 
     lv_style_init(&style_indic_h);
     lv_style_set_bg_opa(&style_indic_h, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_indic_h, lv_palette_main(LV_PALETTE_BLUE));
+    lv_style_set_bg_color(&style_indic_h, lv_palette_main(LV_PALETTE_GREEN));
     lv_style_set_bg_grad_color(&style_indic_h, lv_palette_main(LV_PALETTE_RED));
     lv_style_set_bg_grad_dir(&style_indic_h, LV_GRAD_DIR_HOR);
-
-    lv_style_init(&style_indic_v);
-    lv_style_set_bg_opa(&style_indic_v, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_indic_v, lv_palette_main(LV_PALETTE_RED));
-    lv_style_set_bg_grad_color(&style_indic_v, lv_palette_main(LV_PALETTE_GREEN));
-    lv_style_set_bg_grad_dir(&style_indic_v, LV_GRAD_DIR_VER);
 
     lv_obj_t *btn;
     lv_obj_t *label;
@@ -147,6 +141,9 @@ static void setting_widget_cb(lv_event_t *e)
 // 创建设备卡片
 static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char *icon, bool color_test)
 {
+    device_card_data *data = (device_card_data *)lv_malloc(sizeof(device_card_data));
+    LV_ASSERT_MALLOC(data);
+
     lv_obj_t *card = lv_obj_create(parent);
 
     // lv_obj_set_style_border_width(card, 0, 0); // 去除边框
@@ -160,37 +157,36 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char
     // lv_label_set_text(symbol, icon);                              // 使用内置的蓝牙符号
     // lv_obj_set_style_text_font(symbol, &lv_font_harmonyos_12, 0); // 设置合适的字体大小
     // lv_obj_align(symbol, LV_ALIGN_LEFT_MID, 4, 5);
-    lv_obj_t *label;
-    label = lv_label_create(card);
-    lv_label_set_text(label, "L");
-    lv_obj_align(label, LV_ALIGN_CENTER, -40, -5);
-    label = lv_label_create(card);
-    lv_label_set_text(label, "R");
-    lv_obj_align(label, LV_ALIGN_CENTER, -40, 15);
+    lv_obj_t *left_label = lv_label_create(card);
+    lv_label_set_text(left_label, "L");
+    lv_obj_align(left_label, LV_ALIGN_CENTER, -40, -15);
+    lv_obj_set_style_text_font(left_label, &lv_font_harmonyos_12, 0);
+    lv_obj_t *right_label = lv_label_create(card);
+    lv_label_set_text(right_label, "R");
+    lv_obj_align(right_label, LV_ALIGN_CENTER, -40, 0);
+    lv_obj_set_style_text_font(right_label, &lv_font_harmonyos_12, 0);
 
-    lv_obj_t *left_bar_1 = lv_bar_create(card);
-    lv_obj_add_style(left_bar_1, &style_indic_h, LV_PART_INDICATOR);
-    lv_obj_set_size(left_bar_1, 160 * 0.6 - 15 - 10 - 12 - 10, 10);
-    lv_obj_align(left_bar_1, LV_ALIGN_CENTER, -10, -5);
-    lv_bar_set_range(left_bar_1, 0, 100);
+    data->left_voice_bar = lv_bar_create(card);
+    lv_obj_add_style(data->left_voice_bar, &style_indic_h, LV_PART_INDICATOR);
+    lv_obj_set_size(data->left_voice_bar, 160 * 0.6 - 15, 10);
+    lv_obj_align_to(data->left_voice_bar, left_label, LV_ALIGN_OUT_BOTTOM_RIGHT, 95, 0);
+    lv_bar_set_range(data->left_voice_bar, 0, 100);
 
-    lv_obj_t *right_bar_1 = lv_bar_create(card);
-    lv_obj_add_style(right_bar_1, &style_indic_h, LV_PART_INDICATOR);
-    lv_obj_set_size(right_bar_1, 160 * 0.6 - 15 - 10 - 12 - 10, 10);
-    lv_obj_align(right_bar_1, LV_ALIGN_CENTER, -10, 15);
-    lv_bar_set_range(right_bar_1, 0, 100);
+    data->right_voice_bar = lv_bar_create(card);
+    lv_obj_add_style(data->right_voice_bar, &style_indic_h, LV_PART_INDICATOR);
+    lv_obj_set_size(data->right_voice_bar, 160 * 0.6 - 15, 10);
+    lv_obj_align_to(data->right_voice_bar, right_label, LV_ALIGN_OUT_BOTTOM_RIGHT, 95, 0);
+    lv_bar_set_range(data->right_voice_bar, 0, 100);
 
-    lv_obj_t *power_bar_1 = lv_bar_create(card);
-    lv_obj_add_style(power_bar_1, &style_indic_v, LV_PART_INDICATOR);
-    lv_obj_set_size(power_bar_1, 10, 30);
-    lv_obj_align_to(power_bar_1, right_bar_1, LV_ALIGN_OUT_RIGHT_TOP, 15, -7);
-    lv_bar_set_range(power_bar_1, 0, 100);
+    data->power_label = lv_label_create(card);
+    lv_obj_align(data->power_label, LV_ALIGN_BOTTOM_LEFT, 0, -1);
+    lv_obj_set_style_text_font(data->power_label, &lv_font_harmonyos_12, 0);
+    lv_label_set_text_fmt(data->power_label, "电量%d", 100);
 
-    lv_obj_t *signal_bar_1 = lv_bar_create(card);
-    lv_obj_add_style(signal_bar_1, &style_indic_v, LV_PART_INDICATOR);
-    lv_obj_set_size(signal_bar_1, 10, 30);
-    lv_obj_align_to(signal_bar_1, power_bar_1, LV_ALIGN_OUT_RIGHT_TOP, 5, 0);
-    lv_bar_set_range(signal_bar_1, 0, 100);
+    data->signal_label = lv_label_create(card);
+    lv_obj_align(data->signal_label, LV_ALIGN_BOTTOM_RIGHT, 0, -1);
+    lv_obj_set_style_text_font(data->signal_label, &lv_font_harmonyos_12, 0);
+    lv_label_set_text_fmt(data->signal_label, "信号%d", 100);
 
     if (color_test)
     {
@@ -200,7 +196,7 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char
         lv_anim_set_exec_cb(&a, ui_set_bar_val);
         lv_anim_set_duration(&a, 3000);
         lv_anim_set_reverse_duration(&a, 3000);
-        lv_anim_set_var(&a, left_bar_1);
+        lv_anim_set_var(&a, data->left_voice_bar);
         lv_anim_set_values(&a, 0, 100);
         lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
         lv_anim_start(&a);
@@ -210,38 +206,12 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char
         lv_anim_set_exec_cb(&b, ui_set_bar_val);
         lv_anim_set_duration(&b, 2000);
         // lv_anim_set_reverse_duration(&a, 3000);
-        lv_anim_set_var(&b, right_bar_1);
+        lv_anim_set_var(&b, data->right_voice_bar);
         lv_anim_set_values(&b, 0, 100);
         lv_anim_set_repeat_count(&b, LV_ANIM_REPEAT_INFINITE);
         lv_anim_start(&b);
-
-        lv_anim_t c;
-        lv_anim_init(&c);
-        lv_anim_set_exec_cb(&c, ui_set_bar_val);
-        lv_anim_set_duration(&c, 2000);
-        lv_anim_set_reverse_duration(&c, 2000);
-        lv_anim_set_var(&c, power_bar_1);
-        lv_anim_set_values(&c, 0, 100);
-        lv_anim_set_repeat_count(&c, LV_ANIM_REPEAT_INFINITE);
-        lv_anim_start(&c);
-
-        lv_anim_t d;
-        lv_anim_init(&d);
-        lv_anim_set_exec_cb(&d, ui_set_bar_val);
-        lv_anim_set_duration(&d, 2000);
-        lv_anim_set_reverse_duration(&d, 2000);
-        lv_anim_set_var(&d, signal_bar_1);
-        lv_anim_set_values(&d, 0, 100);
-        lv_anim_set_repeat_count(&d, LV_ANIM_REPEAT_INFINITE);
-        lv_anim_start(&d);
     }
 
-    device_card_data *data = (device_card_data *)lv_malloc(sizeof(device_card_data));
-    LV_ASSERT_MALLOC(data);
-    data->left_voice_bar = left_bar_1; // 通过获取obj的userdata可以直接操作内部控件数值
-    data->right_voice_bar = right_bar_1;
-    data->power_bar = power_bar_1;
-    data->signal_bar = signal_bar_1;
     data->device_name = device_name;
 
     lv_obj_set_user_data(card, data);
@@ -304,7 +274,7 @@ device_card_data *ui_info_get_obj(const std::string &mac)
     }
     return nullptr;
 }
-void ui_info_set_bar_pct(lv_obj_t *&bar, int8_t pct)
+void ui_info_set_bar_pct(lv_obj_t *bar, int8_t pct)
 {
     LV_LOCK();
     lv_bar_set_value(bar, pct, LV_ANIM_ON);
@@ -340,11 +310,48 @@ void ui_info_del_card(const std::string &mac)
         i++;
     }
 }
-void ui_info_del_card(device_card_data *&card)
+void ui_info_del_card(device_card_data *card)
 {
     ui_info_del_card(std::string(card->device_name));
 }
-
+void ui_info_set_power(const std::string &mac, int8_t pct)
+{
+    device_card_data *card = ui_info_get_obj(mac);
+    if (card != nullptr)
+    {
+        LV_LOCK();
+        lv_label_set_text_fmt(card->power_label, "电量%d", pct);
+        LV_UNLOCK();
+    }
+}
+void ui_info_set_power(device_card_data *card, int8_t pct)
+{
+    if (card != nullptr)
+    {
+        LV_LOCK();
+        lv_label_set_text_fmt(card->power_label, "电量%d", pct);
+        LV_UNLOCK();
+    }
+}
+void ui_info_set_signal(const std::string &mac, int8_t pct)
+{
+    device_card_data *card = ui_info_get_obj(mac);
+    if (card != nullptr)
+    {
+        LV_LOCK();
+        lv_label_set_text_fmt(card->signal_label, "信号%d", pct);
+        LV_UNLOCK();
+    }
+}
+void ui_info_set_signal(device_card_data *card, int8_t pct)
+{
+    if (card != nullptr)
+    {
+        LV_LOCK();
+        lv_label_set_text_fmt(card->power_label, "信号%d", pct);
+        LV_UNLOCK();
+    }
+}
 // 定义
 std::vector<std::string> ui_bt_get_linked()
 {
