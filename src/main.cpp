@@ -6,6 +6,7 @@
 #include "module/rf.h"
 #include "module/tf.h"
 #include "module/button.h"
+#include "module/audio/buffer.h"
 #include "module/audio/decoder.h"
 
 extern "C" void app_main()
@@ -21,6 +22,7 @@ extern "C" void app_main()
   button::setup();
   ui_loading_set_part("按钮");
   ui_loading_set_percent(40);
+  audio::buffer::setup();
   audio::decoder::setup();
   ui_loading_set_part("音频解码器");
   ui_loading_set_percent(50);
@@ -31,6 +33,4 @@ extern "C" void app_main()
   ui_loading_set_part("TF卡");
   ui_loading_set_percent(100);
   logger::infoln("All modules are started now!");
-
-  audio::decoder::on(48000, 32);
 }

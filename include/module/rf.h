@@ -3,6 +3,7 @@
 #define RF_MAX_CONNECTION 4
 // 蓝牙
 #define BLE_NAME "Microphone Transmitter"
+#define BLE_CHARACTERISTIC_NUM 4
 #define INFO_SERVICE_UUID 0x180A
 #define DEVICE_CHARACTERISTIC_UUID 0x2A00
 #define MODEL_CHARACTERISTIC_UUID 0x2A24
@@ -17,14 +18,14 @@
 #define WIFI_NAME "Microphone Receiver"
 #define WIFI_PASSWORD "Cx^9Xbg5wih3"
 #define WIFI_CHANNEL 8
-// SOCKET
-#define SOCKET_PORT 3333
+#define WIFI_IP_PROTOCOL 0xE9
+#define WIFI_NO_PORT 0
+#define WIFI_IP_HEAD_LEN 20
 
 enum ConfigControlMode
 {
   AUDIO_CONTROL_MODE_BLE = 0,
-  AUDIO_CONTROL_MODE_WIFI_UDP = 1,
-  AUDIO_CONTROL_MODE_WIFI_TCP = 2,
+  AUDIO_CONTROL_MODE_WIFI = 1,
 };
 
 struct ConfigClientControl
@@ -46,7 +47,6 @@ struct ConfigServerControl
   ConfigControlMode mode = AUDIO_CONTROL_MODE_BLE;
   char name[32] = "";
   char password[32] = "";
-  uint16_t port = 3333;
 };
 
 struct AudioServerControl
@@ -60,25 +60,32 @@ struct AudioServerControl
   uint8_t volumn = 0;
 };
 
-// TCP音频包
-struct AudioPacketTCP
+// WIFI音频包
+#define WIFI_PACKET_HEAD_SIZE (sizeof(AudioPacketWIFI) - WIFI_PACKET_DATA_MAX_SIZE)
+#define WIFI_PACKET_DATA_MAX_SIZE 1420
+enum AudioPacketWIFIType
 {
-  uint32_t num;
-  uint8_t data[1536];
+  AUDIO_PACKET_WIFI_TYPE_DATA = 0,
+  AUDIO_PACKET_WIFI_TYPE_CONTROL = 1,
 };
-
-// UDP音频包
-struct AudioPacketUDP
+struct __attribute__((packed)) AudioPacketWIFI
 {
-  uint32_t num;
-  uint8_t data[1536];
+  uint8_t type; // 包类型
+  uint16_t size;
+  uint32_t number;
+  uint8_t part;
+  uint8_t data[WIFI_PACKET_DATA_MAX_SIZE];
 };
 
 // BLE音频包
-struct AudioPacketBLE
+#define BLE_PACKET_HEAD_SIZE (sizeof(AudioPacketBLE) - BLE_PACKET_DATA_MAX_SIZE)
+#define BLE_PACKET_DATA_MAX_SIZE 384
+struct __attribute__((packed)) AudioPacketBLE
 {
-  uint32_t num;
-  uint8_t data[384];
+  uint16_t size;
+  uint32_t number;
+  uint8_t part;
+  uint8_t data[BLE_PACKET_DATA_MAX_SIZE];
 };
 
 // 设备信息结构体
@@ -101,6 +108,8 @@ struct DeviceConnection
   uint16_t bleData = 0;
   uint16_t bleAudioControl = 0;
   uint16_t bleConfigControl = 0;
+  // 连接的特征数
+  uint8_t bleCharNum = 0;
   // WIFI记录
   bool wifiConnected;
   uint32_t wifiConnectionIP;

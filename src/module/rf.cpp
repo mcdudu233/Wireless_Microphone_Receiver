@@ -1,14 +1,13 @@
 #include "logger.h"
 #include "config.h"
 #include "module/rf.h"
+#include "module/audio/buffer.h"
 #include "module/audio/decoder.h"
 #include "ui/ui_bt.h"
 
 #include "map"
 #include "string"
 
-// 接收到的音频数据包
-static AudioPacketUDP packet;
 // 整体配置
 static ConfigServerControl configBasic;
 static AudioServerControl configAudio;
@@ -16,21 +15,23 @@ static AudioServerControl configAudio;
 static std::map<std::string, DeviceConnection> devices;
 static std::map<uint16_t, DeviceConnection *> connectionToDevice;
 
+// 计算音频传输速度
+static uint32_t speed = 0;
+static uint32_t speedData = 0;
+static unsigned long speedLastTime = millis();
+
 /*****************************
           传输层协议
-         TCP 和 UDP
 *****************************/
 #include "lwip/err.h"
-#include "lwip/sockets.h"
-#include "lwip/sys.h"
-#include "lwip/netdb.h"
-// TCP和UDP不能同时启用
+#include "lwip/api.h"
 static bool socketIsOpen = false;
-static bool socketIsTCP;
-static int socketNumber;
+static netconn *socketInstance;
 
 static void socket_handle(void *arg)
 {
+  struct netbuf *buf = NULL;
+  ip_addr_t src_addr;
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(TASK_SOCKET_PERIOD);
   while (true)
@@ -40,41 +41,31 @@ static void socket_handle(void *arg)
     {
       vTaskDelete(NULL);
     }
-    if (socketIsTCP)
+    if (socketInstance != NULL)
     {
-      struct sockaddr_storage source_addr;
-      socklen_t source_addr_len = sizeof(source_addr);
-      int sock = accept(socketNumber, (struct sockaddr *)&source_addr, &source_addr_len);
-      if (sock >= 0)
+      // 接收数据
+      err_t err = netconn_recv(socketInstance, &buf);
+      if (err == ERR_OK)
       {
-        logger::debugln("Socket get new client.");
+        uint32_t address = buf->addr.addr;
+
+        // 处理音频数据包
+        AudioPacketWIFI *packet = (AudioPacketWIFI *)((uint8_t *)buf->ptr->payload + WIFI_IP_HEAD_LEN);
+        audio::buffer::writeWiFiPacket(packet);
+        speedData += packet->size;
+        // logger::debugln("Socket get data, size=%d", packet->size);
+
+        netbuf_delete(buf);
       }
-      else if (errno != EWOULDBLOCK)
+
+      // 计算速度
+      unsigned long speedNowTime = millis();
+      if (speedNowTime - speedLastTime > 1000)
       {
-        logger::warnln("Socket could not get new client: %d", errno);
-      }
-      // int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, MSG_DONTWAIT);
-      // if (len >= 0)
-      // {
-      //   if (len == 0)
-      //   {
-      //     logger::debugln( "Socket connection closed.");
-      //   }
-      //   ESP_LOGE(TAG, "Error occurred during receiving: errno %d", errno);
-      // }
-    }
-    else
-    {
-      struct sockaddr_storage source_addr;
-      socklen_t source_addr_len = sizeof(source_addr);
-      int len = recvfrom(socketNumber, &packet, sizeof(AudioPacketUDP), MSG_DONTWAIT, (struct sockaddr *)&source_addr, &source_addr_len);
-      if (len >= 0)
-      {
-        audio::decoder::writeData(packet.data);
-      }
-      else if (errno != EWOULDBLOCK)
-      {
-        logger::warnln("Socket could not receive data: %d", errno);
+        speed = speedData;
+        speedData = 0;
+        speedLastTime = speedNowTime;
+        logger::debugln("Socket data speed %dKB/s", speed / 1024);
       }
     }
   }
@@ -85,56 +76,40 @@ static bool socket_close()
   if (socketIsOpen)
   {
     socketIsOpen = false;
-    shutdown(socketNumber, 0);
-    close(socketNumber);
+    netconn_delete(socketInstance);
+    socketInstance = NULL;
   }
   logger::debugln("Socket is shutdown.");
   return true;
 }
 
-static bool socket_open(bool isTCP)
+static bool socket_open()
 {
   if (socketIsOpen)
   {
     socket_close();
   }
 
-  socketIsTCP = isTCP;
-  if (isTCP)
+  // 创建
+  socketInstance = netconn_new_with_proto_and_callback(NETCONN_RAW, WIFI_IP_PROTOCOL, NULL);
+  if (socketInstance == NULL)
   {
-    socketNumber = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-  }
-  else
-  {
-    socketNumber = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-  }
-  struct sockaddr_in server;
-  server.sin_addr.s_addr = htonl(INADDR_ANY);
-  server.sin_family = AF_INET;
-  server.sin_port = htons(SOCKET_PORT);
-  int opt = 1;
-  setsockopt(socketNumber, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-  int err = bind(socketNumber, (struct sockaddr *)&server, sizeof(server));
-  if (err != 0)
-  {
-    close(socketNumber);
-    logger::debugln("Socket unable to bind: errno %d", errno);
+    logger::warnln("Socket unable to create:!");
     return false;
   }
-  fcntl(socketNumber, F_SETFL, O_NONBLOCK); // 不阻塞
 
-  // 监听 TCP
-  if (isTCP)
+  // 绑定到所有地址
+  err_t ret = netconn_bind(socketInstance, IP_ADDR_ANY, WIFI_NO_PORT);
+  if (ret != ERR_OK)
   {
-    // TCP
-    err = listen(socketNumber, RF_MAX_CONNECTION);
-    if (err != 0)
-    {
-      close(socketNumber);
-      logger::debugln("Socket unable to listen: errno %d", errno);
-      return false;
-    }
+    logger::warnln("Socket netconn bind failed: %d", ret);
+    netconn_delete(socketInstance);
+    socketInstance = NULL;
+    return false;
   }
+
+  // 阻塞模式
+  // netconn_set_recvtimeout(socketInstance, 0);
 
   socketIsOpen = true;
   xTaskCreatePinnedToCore(socket_handle, "socket_handle", TASK_SOCKET_STACK, NULL, TASK_SOCKET_PRIORITY, NULL, TASK_SOCKET_CORE);
@@ -186,6 +161,7 @@ static bool wifi_close()
 {
   if (wifiIsOpen)
   {
+    socket_close();
     ESP_ERROR_CHECK(esp_wifi_stop());
     ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifiHandlerInstance));
     ESP_ERROR_CHECK(esp_wifi_deinit());
@@ -217,6 +193,7 @@ static bool wifi_open()
 
   wifiIsOpen = true;
   logger::debugln("WiFi is started.");
+  socket_open();
   return true;
 }
 /****************************/
@@ -458,7 +435,6 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
           // 开始搜索服务
           esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
         }
-        ui_bt_update(address, true);
         logger::debugln("BLE %s connected to server. MTU is %d.", address, param->open.mtu);
       }
       break;
@@ -542,6 +518,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
               // 注册特征NOTIFY
               esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleBattery);
               logger::debugln("BLE registered for battery notifications");
+              device->bleCharNum++;
             }
             else
             {
@@ -570,6 +547,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
               logger::debugln("BLE found data characteristic, handle: 0x%d", char_elem.char_handle);
               esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleData);
               logger::debugln("BLE registered for data notifications");
+              device->bleCharNum++;
             }
             else
             {
@@ -594,6 +572,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
               logger::debugln("BLE found config control characteristic, handle: 0x%d", char_elem.char_handle);
               esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleConfigControl);
               logger::debugln("BLE registered for config control notifications");
+              device->bleCharNum++;
             }
             else
             {
@@ -618,6 +597,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
               logger::debugln("BLE found audio control characteristic, handle: 0x%d", char_elem.char_handle);
               esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleAudioControl);
               logger::debugln("BLE registered for audio control notifications");
+              device->bleCharNum++;
             }
             else
             {
@@ -625,6 +605,12 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
               esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
             }
           }
+        }
+
+        // 如果特征全部找齐
+        if (device->bleCharNum == BLE_CHARACTERISTIC_NUM)
+        {
+          ui_bt_update(bleBdaToStr(device->bleAddress), true);
         }
       }
       break;
@@ -1022,15 +1008,18 @@ void ui_bt_search()
 }
 void ui_bt_pause_search()
 {
+  audio::decoder::on(48000, 32);
   ble_stop_scanning();
   for (auto &device : devices)
   {
     wifi_open();
-    socket_open(false);
     const std::string &address = device.first;
     configAudio.channel = 2;
     configAudio.rate = 48000;
     configAudio.bit = 32;
+    configAudio.autoVolumn = false;
+    configAudio.peekVolumn = false;
+    configAudio.volumn = 40;
     configAudio.start = true;
     ble_send_audio_control_to_device(address);
     configBasic.startWiFi = true;
@@ -1047,7 +1036,6 @@ void rf::reconfigure()
   configBasic.mode = (ConfigControlMode)(config::value.transmitProtocol);
   strcpy(configBasic.name, WIFI_NAME);
   strcpy(configBasic.password, WIFI_PASSWORD);
-  configBasic.port = SOCKET_PORT;
 
   // configAudio.start = false;
   configAudio.channel = config::value.audioChannel;

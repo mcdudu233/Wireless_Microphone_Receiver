@@ -12,6 +12,8 @@ void config::setup()
   logger::debugln("Config is starting...");
 
   prefs.begin(CONFIG_NAME);
+  // TODO:
+  prefs.clear();
   if (prefs.isKey(CONFIG_VALUE_NAME))
   {
     prefs.getBytes(CONFIG_VALUE_NAME, &value, sizeof(ConfigValue));
