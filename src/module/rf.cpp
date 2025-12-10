@@ -9,11 +9,39 @@
 #include "string"
 
 // 整体配置
-static ConfigServerControl configBasic;
-static AudioServerControl configAudio;
+static struct
+{
+  uint8_t type = PACKET_TYPE_SERVER_CONTROL_DEVICE;
+  ServerControlDevicePacket packet;
+} configDevice;
+static struct
+{
+  uint8_t type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+  ServerControlAudioPacket packet;
+} configAudio;
 // 缓存的设备
+#include "nimble/nimble_port.h"
+#include "nimble/nimble_port_freertos.h"
+#include "host/ble_hs.h"
+#include "host/util/util.h"
+#include "services/gap/ble_svc_gap.h"
+struct DeviceConnection
+{
+#include "host/ble_hs.h"
+  // 设备信息
+  uint8_t battery;
+  // 蓝牙记录
+  bool bleConnected;
+  bool bleDoConnect;
+  ble_addr_t bleAddress;
+  uint16_t bleConnectionHandle;
+  ble_l2cap_chan *bleChannel;
+  // WIFI记录
+  bool wifiConnected;
+  uint32_t wifiConnectionIP;
+};
 static std::map<std::string, DeviceConnection> devices;
-static std::map<uint16_t, DeviceConnection *> connectionToDevice;
+// static std::map<uint16_t, DeviceConnection *> connectionToDevice;
 
 // 计算音频传输速度
 static uint32_t speed = 0;
@@ -49,10 +77,23 @@ static void socket_handle(void *arg)
       {
         uint32_t address = buf->addr.addr;
 
-        // 处理音频数据包
-        AudioPacketWIFI *packet = (AudioPacketWIFI *)((uint8_t *)buf->ptr->payload + WIFI_IP_HEAD_LEN);
-        audio::buffer::writeWiFiPacket(packet);
-        speedData += packet->size;
+        // 处理数据包
+        Packet *packet = (Packet *)((uint8_t *)buf->ptr->payload + WIFI_IP_HEAD_LEN);
+        switch (packet->type)
+        {
+        // 音频数据包
+        case PACKET_TYPE_WIFI_AUDIO:
+        {
+          audio::buffer::writeWiFiPacket(&packet->packet.audioDataWiFi);
+          speedData += packet->packet.audioDataWiFi.size;
+          break;
+        }
+
+        default:
+        {
+          break;
+        }
+        }
         // logger::debugln("Socket get data, size=%d", packet->size);
 
         netbuf_delete(buf);
@@ -201,665 +242,218 @@ static bool wifi_open()
 /*****************************
           BLE协议
 *****************************/
-#include "esp_bt.h"
-#include "esp_gap_ble_api.h"
-#include "esp_gattc_api.h"
-#include "esp_gatt_defs.h"
-#include "esp_bt_main.h"
-#include "esp_gatt_common_api.h"
-
 static bool bleIsOpen = false;
 static bool bleScanning = false;
-static const uint16_t bleGattcId = 0;
-static uint16_t bleGattcInterface = ESP_GATT_IF_NONE;
+
+// 储存池
+#define BLE_L2CAP_COC_BUF_COUNT (20 * MYNEWT_VAL(BLE_L2CAP_COC_MAX_NUM))
+static os_membuf_t bleMemory[OS_MEMPOOL_SIZE(BLE_L2CAP_COC_BUF_COUNT, BLE_L2CAP_MTU)];
+static os_mempool bleMemoryPool;
+static os_mbuf_pool bleBufferpool;
+
+static void ble_start_scanning();
+static void ble_stop_scanning();
 
 // 地址转换为字符串
-static std::string bleBdaToStr(esp_bd_addr_t bda)
+static std::string bleBdaToStr(ble_addr_t bda)
 {
   char bda_str[18];
   snprintf(bda_str, sizeof(bda_str), "%02x:%02x:%02x:%02x:%02x:%02x",
-           bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+           bda.val[0], bda.val[1], bda.val[2], bda.val[3], bda.val[4], bda.val[5]);
   return std::string(bda_str);
 }
 
-// 接收到电量信息
-static void ble_battery_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
+// L2CAP 事件
+static int ble_l2cap_handler(struct ble_l2cap_event *event, void *arg)
 {
-  device.battery = data[0];
-  logger::debugln("BLE battery level: %d", data[0]);
-}
+  int rc;
+  DeviceConnection *device = (DeviceConnection *)arg;
+  struct ble_l2cap_chan_info chan_info;
 
-// 接收到音频数据包
-static void ble_data_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
-{
-  // 音频数据通知
-  // if (data_len < sizeof(AudioPacket))
-  // {
-  //   memcpy(&packet, data, data_len);
-  // }
-  // else
-  // {
-  //   packet = *(AudioPacket *)data;
-  // }
-
-  // static uint32_t last_time = 0;
-  // static uint32_t last_num = 0;
-  // static uint32_t packet_size = 0;
-  // static uint32_t packet_num = 0;
-
-  // packet_size += value_len;
-  // if (last_num != 0)
-  // {
-  //   packet_num += packet->num - last_num - 1;
-  // }
-  // last_num = packet->num;
-
-  // uint32_t now_time = esp_timer_get_time() / 1000;
-  // if (now_time - last_time > 1000)
-  // {
-  //   last_time = now_time;
-  //   float loss_rate = (packet_num > 0) ? (packet_num / 1000.0f * 100.0f) : 0.0f;
-  //   logger::debugln("BLE get packet for %dbytes/s and loss for %.2f%%.", packet_size, loss_rate);
-  //   packet_size = 0;
-  //   packet_num = 0;
-  // }
-
-  // audio::decoder::writeData(packet->data);
-}
-
-// 接收到配置
-static void ble_config_control_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
-{
-  if (data_len == sizeof(ConfigClientControl))
+  switch (event->type)
   {
-    ConfigClientControl *src = (ConfigClientControl *)data;
-    // TODO
-    logger::debugln("BLE get config client control.");
-  }
-}
-
-// 接收到音频配置
-static void ble_audio_control_handler(DeviceConnection &device, uint8_t *data, uint16_t data_len)
-{
-  // 音频控制指示
-  if (data_len == sizeof(AudioClientControl))
+  // 建立连接事件
+  case BLE_L2CAP_EVENT_COC_CONNECTED:
   {
-    AudioClientControl *src = (AudioClientControl *)data;
-    // TODO
-    logger::debugln("BLE get audio client control.");
-  }
-}
-
-// GAP事件处理
-static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
-{
-  switch (event)
-  {
-  case ESP_GAP_BLE_SCAN_RESULT_EVT:
-  {
-    esp_ble_gap_cb_param_t *scan_result = (esp_ble_gap_cb_param_t *)param;
-    switch (scan_result->scan_rst.search_evt)
+    if (event->connect.status == 0)
     {
-    case ESP_GAP_SEARCH_INQ_RES_EVT:
-    {
-      // 解析设备名称
-      uint8_t name_len = 0;
-      uint8_t *name_data = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv, ESP_BLE_AD_TYPE_NAME_CMPL, &name_len);
-      if (name_data == NULL || name_len == 0)
+      rc = ble_l2cap_get_chan_info(event->connect.chan, &chan_info);
+      if (rc != 0)
       {
-        // 如果没有完整的设备名称，尝试获取缩短的设备名称
-        name_data = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv, ESP_BLE_AD_TYPE_NAME_SHORT, &name_len);
-      }
-      if (name_data == NULL || name_len == 0)
-      {
+        logger::warnln("BLE ble_l2cap_get_chan_info error: %d\n", rc);
         break;
       }
-      // 如果解析到一样的设备名
-      if (strcmp((char *)name_data, BLE_NAME) == 0)
-      {
-        // 解析蓝牙地址
-        std::string address = bleBdaToStr(scan_result->scan_rst.bda);
-
-        if (!devices.contains(address))
-        {
-          // 新设备，添加到待连接列表
-          devices.insert(std::make_pair(address, (DeviceConnection){.battery = 100,
-                                                                    .bleConnected = false,
-                                                                    .bleDoConnect = true,
-                                                                    .wifiConnected = false}));
-          memcpy(devices[address].bleAddress, scan_result->scan_rst.bda, ESP_BD_ADDR_LEN);
-          logger::debugln("BLE found device: %s, address: %s", name_data, address.c_str());
-
-          // 添加到界面
-          ui_bt_update(address);
-
-          // ble_connect_to_device(address);
-        }
-      }
-      break;
-    }
-    case ESP_GAP_SEARCH_INQ_CMPL_EVT:
-      logger::debugln("BLE scan complete.");
-      break;
-    default:
-      logger::debugln("BLE unknow GAP status.");
-      break;
-    }
-    break;
-  }
-
-  case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
-  {
-    bleScanning = false;
-    logger::debugln("BLE scan param set complete");
-    break;
-  }
-
-  case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
-  {
-    if (param->scan_start_cmpl.status != ESP_BT_STATUS_SUCCESS)
-    {
-      logger::warnln("BLE scan start failed.");
+      device->bleChannel = event->connect.chan;
+      device->bleConnected = true;
+      // 更新界面
+      ui_bt_update(bleBdaToStr(device->bleAddress), true);
+      logger::debugln("BLE LE COC connected, conn: %d, our_mps: %d, our_mtu: %d, peer_mps: %d, peer_mtu: %d\n",
+                      event->connect.conn_handle,
+                      chan_info.our_l2cap_mtu, chan_info.our_coc_mtu,
+                      chan_info.peer_l2cap_mtu, chan_info.peer_coc_mtu);
     }
     else
     {
-      logger::debugln("BLE scan started.");
-      bleScanning = true;
+      logger::warnln("BLE LE COC error: %d\n", event->connect.status);
+      break;
     }
+    break;
+  }
+
+  // 断开连接事件
+  case BLE_L2CAP_EVENT_COC_DISCONNECTED:
+  {
+    device->bleConnected = false;
+    device->bleChannel = NULL;
+    logger::debugln("BLE LE CoC disconnected, conn: %d", event->disconnect.conn_handle);
     break;
   }
 
   default:
+  {
     break;
   }
+  }
+  return 0;
 }
 
-// 全局GATTC事件处理
-static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
+// GAP 事件
+static int ble_gap_handler(struct ble_gap_event *event, void *arg)
 {
-  // 注册事件
-  if (event == ESP_GATTC_REG_EVT)
+  int rc;
+  struct ble_gap_conn_desc desc;
+  struct ble_hs_adv_fields fields;
+
+  switch (event->type)
   {
-    if (param->reg.status == ESP_GATT_OK)
+  // 发现设备事件
+  case BLE_GAP_EVENT_DISC:
+  {
+    rc = ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data);
+    if (rc != 0)
     {
-      if (param->reg.app_id == bleGattcId)
+      logger::warnln("BLE ble_hs_adv_parse_fields failed!");
+      break;
+    }
+
+    // 判断是否需要连接
+    if (event->disc.event_type == BLE_HCI_ADV_RPT_EVTYPE_ADV_IND ||
+        event->disc.event_type == BLE_HCI_ADV_RPT_EVTYPE_DIR_IND)
+    {
+      // 判断设备名是否一致
+      char name[fields.name_len + 1];
+      memcpy(name, fields.name, fields.name_len);
+      name[fields.name_len] = '\0';
+      if (strcmp(name, BLE_NAME) == 0)
       {
-        bleGattcInterface = gattc_if;
-        logger::debugln("BLE register app sucess, app_id %d, gattc_if %d", param->reg.app_id, gattc_if);
-      }
-      else
-      {
-        logger::warnln("BLE register app failed, app_id %d, status %d", param->reg.app_id, param->reg.status);
+        std::string address = bleBdaToStr(event->disc.addr);
+        if (!devices.contains(address))
+        {
+          devices[address] = {
+              // 设备信息
+              .battery = 100,
+              // 蓝牙记录
+              .bleConnected = false,
+              .bleDoConnect = true,
+              .bleAddress = event->disc.addr,
+              .bleConnectionHandle = 0,
+              .bleChannel = NULL,
+              // WIFI记录
+              .wifiConnected = false,
+              .wifiConnectionIP = 0x0,
+          };
+
+          // 添加新设备到界面
+          ui_bt_update(address);
+        }
+        logger::debugln("BLE find new device: %s.", address);
       }
     }
-    else
-    {
-      logger::warnln("BLE register app failed, app_id %d, status %d", param->reg.app_id, param->reg.status);
-    }
-    return;
+    break;
   }
 
-  if (gattc_if == ESP_GATT_IF_NONE || gattc_if == bleGattcInterface)
+  // 设备连接事件
+  case BLE_GAP_EVENT_CONNECT:
   {
-    switch (event)
+    if (event->connect.status == 0)
     {
-    // 连接成功事件
-    case ESP_GATTC_OPEN_EVT:
-    { // 查找对应的profile
-      std::string address = bleBdaToStr(param->open.remote_bda);
-      if (param->open.status != ESP_GATT_OK)
+      rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
+      if (rc != 0)
       {
-        if (devices.contains(address))
-        {
-          devices[address].bleConnected = false;
-          devices[address].bleDoConnect = false; // TODO: 连接失败
-        }
-        logger::warnln("BLE %s connect failed.", address);
+        logger::warnln("BLE failed to ble_gap_conn_find; rc=%d\n", rc);
+        break;
       }
-      else
-      {
-        if (devices.contains(address))
-        {
-          devices[address].bleConnected = true;
-          devices[address].bleConnectionID = param->open.conn_id;
-          connectionToDevice[param->open.conn_id] = &devices[address];
 
-          // 发送MTU请求
-          logger::debugln("BLE MTU exchange requested for %s", address.c_str());
-          esp_err_t ret = esp_ble_gattc_send_mtu_req(gattc_if, param->open.conn_id);
-          if (ret != ESP_OK)
-          {
-            logger::warnln("BLE failed to send MTU request: %s", esp_err_to_name(ret));
-          }
-
-          // 开始搜索服务
-          esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
-        }
-        logger::debugln("BLE %s connected to server. MTU is %d.", address, param->open.mtu);
-      }
-      break;
-    }
-
-    // 断开连接事件
-    case ESP_GATTC_DISCONNECT_EVT:
-    {
-      std::string address = bleBdaToStr(param->disconnect.remote_bda);
-      logger::debugln("BLE %d disconnected.", address);
-      if (devices.contains(address))
-      {
-        devices[address].bleConnected = false;
-        devices[address].bleDoConnect = true;
-        connectionToDevice.erase(devices[address].bleConnectionID);
-      }
-      break;
-    }
-
-    // 搜索到服务事件
-    case ESP_GATTC_SEARCH_RES_EVT:
-    {
-      esp_gatt_id_t *srvc_id = &param->search_res.srvc_id;
-      if (srvc_id->uuid.len == ESP_UUID_LEN_16)
-      {
-        if (connectionToDevice.contains(param->search_res.conn_id))
-        {
-          DeviceConnection *device = connectionToDevice[param->search_res.conn_id];
-          uint16_t uuid = srvc_id->uuid.uuid.uuid16;
-          // 检查服务UUID
-          switch (uuid)
-          {
-          case BATTERY_SERVICE_UUID:
-          {
-            device->bleBatteryStart = param->search_res.start_handle;
-            device->bleBatteryEnd = param->search_res.end_handle;
-            logger::debugln("BLE found battery service, start at %d, end at %d.", param->search_res.start_handle, param->search_res.end_handle);
-            break;
-          }
-          case AUDIO_SERVICE_UUID:
-          {
-            device->bleAudioStart = param->search_res.start_handle;
-            device->bleAudioEnd = param->search_res.end_handle;
-            logger::debugln("BLE found audio service, start at %d, end at %d.", param->search_res.start_handle, param->search_res.end_handle);
-            break;
-          }
-          }
-        }
-      }
-      break;
-    }
-
-    // 服务搜索完成事件
-    case ESP_GATTC_SEARCH_CMPL_EVT:
-    {
-      logger::debugln("BLE service search complete.");
-      if (connectionToDevice.contains(param->search_cmpl.conn_id))
-      {
-        DeviceConnection *device = connectionToDevice[param->search_cmpl.conn_id];
-
-        // 开始发现特征
-        esp_gattc_char_elem_t char_elem;
-        uint16_t count;
-        esp_gatt_status_t status;
-        // 1. 查询电池服务的电池特征 (0x2A19)
-        if (device->bleAudioStart != 0 && device->bleBatteryEnd != 0)
-        {
-          if (device->bleBattery == 0)
-          {
-            esp_bt_uuid_t battery_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = BATTERY_CHARACTERISTIC_UUID}};
-            status = esp_ble_gattc_get_char_by_uuid(gattc_if,
-                                                    param->search_cmpl.conn_id,
-                                                    device->bleBatteryStart,
-                                                    device->bleBatteryEnd,
-                                                    battery_char_uuid,
-                                                    &char_elem, &count);
-            if (status == ESP_GATT_OK && count > 0)
-            {
-              device->bleBattery = char_elem.char_handle;
-              logger::debugln("BLE found battery characteristic, handle: 0x%d", char_elem.char_handle);
-              // 注册特征NOTIFY
-              esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleBattery);
-              logger::debugln("BLE registered for battery notifications");
-              device->bleCharNum++;
-            }
-            else
-            {
-              logger::warnln("BLE battery characteristic not found, status: %d", status);
-              esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
-            }
-          }
-        }
-
-        // 2. 查询音频服务的三个特征
-        if (device->bleAudioStart != 0 && device->bleAudioEnd != 0)
-        {
-          // 2.1 查询数据特征 (0x2B81)
-          if (device->bleData == 0)
-          {
-            esp_bt_uuid_t data_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = DATA_CHARACTERISTIC_UUID}};
-            status = esp_ble_gattc_get_char_by_uuid(gattc_if,
-                                                    param->search_cmpl.conn_id,
-                                                    device->bleAudioStart,
-                                                    device->bleAudioEnd,
-                                                    data_char_uuid,
-                                                    &char_elem, &count);
-            if (status == ESP_GATT_OK && count > 0)
-            {
-              device->bleData = char_elem.char_handle;
-              logger::debugln("BLE found data characteristic, handle: 0x%d", char_elem.char_handle);
-              esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleData);
-              logger::debugln("BLE registered for data notifications");
-              device->bleCharNum++;
-            }
-            else
-            {
-              logger::warnln("BLE data characteristic not found, status: %d", status);
-              esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
-            }
-          }
-
-          // 2.2 查询配置控制特征 (0x2B7A)
-          if (device->bleConfigControl == 0)
-          {
-            esp_bt_uuid_t config_control_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = CONFIG_CONTROL_CHARACTERISTIC_UUID}};
-            status = esp_ble_gattc_get_char_by_uuid(gattc_if,
-                                                    param->search_cmpl.conn_id,
-                                                    device->bleAudioStart,
-                                                    device->bleAudioEnd,
-                                                    config_control_char_uuid,
-                                                    &char_elem, &count);
-            if (status == ESP_GATT_OK && count > 0)
-            {
-              device->bleConfigControl = char_elem.char_handle;
-              logger::debugln("BLE found config control characteristic, handle: 0x%d", char_elem.char_handle);
-              esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleConfigControl);
-              logger::debugln("BLE registered for config control notifications");
-              device->bleCharNum++;
-            }
-            else
-            {
-              logger::warnln("BLE config control characteristic not found, status: %d", status);
-              esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
-            }
-          }
-
-          // 2.3 查询音频控制特征 (0x2B7B)
-          if (device->bleAudioControl == 0)
-          {
-            esp_bt_uuid_t audio_control_char_uuid = {.len = ESP_UUID_LEN_16, .uuid = {.uuid16 = AUDIO_CONTROL_CHARACTERISTIC_UUID}};
-            status = esp_ble_gattc_get_char_by_uuid(gattc_if,
-                                                    param->search_cmpl.conn_id,
-                                                    device->bleAudioStart,
-                                                    device->bleAudioEnd,
-                                                    audio_control_char_uuid,
-                                                    &char_elem, &count);
-            if (status == ESP_GATT_OK && count > 0)
-            {
-              device->bleAudioControl = char_elem.char_handle;
-              logger::debugln("BLE found audio control characteristic, handle: 0x%d", char_elem.char_handle);
-              esp_ble_gattc_register_for_notify(gattc_if, device->bleAddress, device->bleAudioControl);
-              logger::debugln("BLE registered for audio control notifications");
-              device->bleCharNum++;
-            }
-            else
-            {
-              logger::warnln("BLE audio control characteristic not found, status: %d", status);
-              esp_ble_gattc_search_service(gattc_if, param->open.conn_id, NULL);
-            }
-          }
-        }
-
-        // 如果特征全部找齐
-        if (device->bleCharNum == BLE_CHARACTERISTIC_NUM)
-        {
-          ui_bt_update(bleBdaToStr(device->bleAddress), true);
-        }
-      }
-      break;
-    }
-
-    // 特征NOTIFY注册成功后事件
-    case ESP_GATTC_REG_FOR_NOTIFY_EVT:
-    {
-      if (param->reg_for_notify.status != ESP_GATT_OK)
-      {
-        logger::warnln("BLE register for notify fail!");
-      }
-      else
-      {
-        logger::debugln("BLE register for notify success");
-        uint16_t connection = -1;
-        uint16_t service_start = -1;
-        uint16_t service_end = -1;
-        uint16_t handle = param->reg_for_notify.handle;
-        uint16_t notify_en = 0x0000;
-        // 寻找对应的设备
-        for (auto &pair : devices)
-        {
-          DeviceConnection &device = pair.second;
-          if (device.bleBattery == handle)
-          {
-            service_start = device.bleBatteryStart;
-            service_end = device.bleBatteryEnd;
-            connection = device.bleConnectionID;
-            notify_en = 0x0001;
-            break;
-          }
-          else if (device.bleData == handle)
-          {
-            service_start = device.bleAudioStart;
-            service_end = device.bleAudioEnd;
-            connection = device.bleConnectionID;
-            notify_en = 0x0001;
-            break;
-          }
-          else if (device.bleConfigControl == handle)
-          {
-            service_start = device.bleAudioStart;
-            service_end = device.bleAudioEnd;
-            connection = device.bleConnectionID;
-            notify_en = 0x0002;
-            break;
-          }
-          else if (device.bleAudioControl == handle)
-          {
-            service_start = device.bleAudioStart;
-            service_end = device.bleAudioEnd;
-            connection = device.bleConnectionID;
-            notify_en = 0x0002;
-            break;
-          }
-        }
-
-        if (connection != -1)
-        {
-          uint16_t count = 0;
-          esp_gatt_status_t ret_status = esp_ble_gattc_get_attr_count(gattc_if, connection, ESP_GATT_DB_DESCRIPTOR,
-                                                                      service_start, service_end, handle, &count);
-          if (ret_status != ESP_GATT_OK)
-          {
-            logger::warnln("esp_ble_gattc_get_attr_count error");
-            break;
-          }
-          if (count > 0)
-          {
-            esp_gattc_descr_elem_t *descr_elem_result = (esp_gattc_descr_elem_t *)malloc(sizeof(esp_gattc_descr_elem_t) * count);
-            if (!descr_elem_result)
-            {
-              logger::warnln("malloc error, gattc no mem");
-              break;
-            }
-
-            const esp_bt_uuid_t cccd_uuid = {
-                .len = ESP_UUID_LEN_16,
-                .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG}};
-            ret_status = esp_ble_gattc_get_descr_by_char_handle(gattc_if, connection, handle, cccd_uuid, descr_elem_result, &count);
-            if (ret_status != ESP_GATT_OK)
-            {
-              logger::warnln("esp_ble_gattc_get_descr_by_char_handle error");
-              free(descr_elem_result);
-              descr_elem_result = NULL;
-              break;
-            }
-
-            esp_err_t esp_status = esp_ble_gattc_write_char_descr(gattc_if, connection, descr_elem_result[0].handle,
-                                                                  sizeof(notify_en), (uint8_t *)&notify_en,
-                                                                  ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
-            if (esp_status != ESP_OK)
-            {
-              logger::warnln("esp_ble_gattc_write_char_descr error");
-            }
-
-            free(descr_elem_result);
-            logger::debugln("BLE write CCCD success.");
-          }
-        }
-      }
-      break;
-    }
-
-    // 收到NOTIFY事件
-    case ESP_GATTC_NOTIFY_EVT:
-    {
-      std::string address = bleBdaToStr(param->notify.remote_bda);
+      std::string address = bleBdaToStr(desc.peer_id_addr);
       if (devices.contains(address))
       {
         DeviceConnection &device = devices[address];
-        uint16_t handle = param->notify.handle;
-        if (param->notify.is_notify)
+        device.bleConnectionHandle = event->connect.conn_handle;
+
+        // 连接到 L2CAP
+        struct os_mbuf *sdu_rx;
+        sdu_rx = os_mbuf_get_pkthdr(&bleBufferpool, 0);
+        rc = ble_l2cap_connect(device.bleConnectionHandle, BLE_L2CAP_PSM, BLE_L2CAP_MTU, sdu_rx, ble_l2cap_handler, &device);
+        if (rc != 0)
         {
-          if (handle == device.bleData)
-          {
-            ble_data_handler(device, param->notify.value, param->notify.value_len);
-          }
-          else if (handle == device.bleBattery)
-          {
-            ble_battery_handler(device, param->notify.value, param->notify.value_len);
-          }
+          logger::warnln("BLE failed to ble_l2cap_connect; rc=%d\n", rc);
+          break;
         }
-        else
-        {
-          if (handle == device.bleConfigControl)
-          {
-            ble_config_control_handler(device, param->notify.value, param->notify.value_len);
-          }
-          else if (handle == device.bleAudioControl)
-          {
-            ble_audio_control_handler(device, param->notify.value, param->notify.value_len);
-          }
-        }
+
+        // 成功建立连接
+        logger::debugln("BLE connection established.");
       }
-      break;
-    }
-
-    // 其他事件
-    default:
-    {
-      break;
-    }
-    }
-  }
-}
-
-// 发送ConfigServerControl配置数据
-static bool ble_send_config_control_to_device(const std::string &address)
-{
-  if (devices.contains(address))
-  {
-    DeviceConnection &device = devices[address];
-    // 发送配置控制数据
-    esp_err_t ret1 = esp_ble_gattc_write_char(bleGattcInterface, device.bleConnectionID, device.bleConfigControl,
-                                              sizeof(ConfigServerControl), (uint8_t *)&configBasic,
-                                              ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
-    if (ret1 == ESP_OK)
-    {
-      logger::debugln("BLE ConfigServerControl write.");
-      return true;
     }
     else
     {
-      logger::warnln("BLE Failed to send ConfigServerControl write: %s.", esp_err_to_name(ret1));
+      logger::warnln("BLE Connection failed; status=%d\n", event->connect.status);
     }
+    break;
   }
-  return false;
+
+  // 设备断开连接事件
+  case BLE_GAP_EVENT_DISCONNECT:
+  {
+    logger::debugln("BLE disconnect; reason=%d ", event->disconnect.reason);
+    break;
+  }
+
+  // 扫描完成事件
+  case BLE_GAP_EVENT_DISC_COMPLETE:
+  {
+    logger::debugln("BLE discovery complete; reason=%d\n", event->disc_complete.reason);
+    break;
+  }
+
+  default:
+  {
+    break;
+  }
+  }
+  return 0;
 }
 
-// 发送AudioServerControl配置数据
-static bool ble_send_audio_control_to_device(const std::string &address)
+// 重置
+static void ble_on_reset(int reason)
 {
-  if (devices.contains(address))
-  {
-    DeviceConnection &device = devices[address];
-    // 发送配置控制数据
-    esp_err_t ret1 = esp_ble_gattc_write_char(bleGattcInterface, device.bleConnectionID, device.bleAudioControl,
-                                              sizeof(AudioServerControl), (uint8_t *)&configAudio,
-                                              ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
-    if (ret1 == ESP_OK)
-    {
-      logger::debugln("BLE AudioServerControl write.");
-      return true;
-    }
-    else
-    {
-      logger::warnln("BLE Failed to send AudioServerControl write: %s.", esp_err_to_name(ret1));
-    }
-  }
-  return false;
+  logger::warnln("BLE reset, reason: %d", reason);
+  ble_stop_scanning();
+  bleIsOpen = false;
 }
 
-// 连接设备
-static bool ble_connect_to_device(const std::string &address)
+// NimBLE 协议栈加载完成
+static void ble_on_sync(void)
 {
-  if (bleGattcInterface != ESP_GATT_IF_NONE)
-  {
-    if (devices.contains(address))
-    {
-      DeviceConnection &device = devices[address];
-      esp_ble_gattc_open(bleGattcInterface, device.bleAddress, BLE_ADDR_TYPE_PUBLIC, true);
-      logger::debugln("BLE connecting to server %s.", address.c_str());
-      return true;
-    }
-    logger::warnln("BLE connect failed, because not found address %s.", address);
-    return false;
-  }
-  logger::warnln("BLE connect failed, because not get gattc_if.");
-  return false;
+  // 开始搜索设备
+  // ble_start_scanning();
 }
 
-// 断开连接设备
-static bool ble_disconnect_to_device(const std::string &address)
+void ble_host_task(void *param)
 {
-  if (bleGattcInterface != ESP_GATT_IF_NONE)
-  {
-    if (devices.contains(address))
-    {
-      DeviceConnection &device = devices[address];
-      esp_ble_gattc_close(bleGattcInterface, device.bleConnectionID);
-      devices.erase(address);
-      logger::debugln("BLE disconnecting to server %s.", address.c_str());
-      return true;
-    }
-    logger::warnln("BLE disconnect failed, because not found address %s.", address);
-    return false;
-  }
-  logger::warnln("BLE disconnect failed, because not get gattc_if.");
-  return false;
-}
-
-static void ble_start_scanning()
-{
-  if (!bleScanning)
-  {
-    esp_ble_gap_start_scanning(0);
-    bleScanning = true;
-  }
-}
-
-static void ble_stop_scanning()
-{
-  if (bleScanning)
-  {
-    esp_ble_gap_stop_scanning();
-    bleScanning = false;
-  }
+  logger::debugln("BLE Host Task Started.");
+  /* This function will return only when nimble_port_stop() is executed */
+  nimble_port_run();
+  nimble_port_freertos_deinit();
 }
 
 static bool ble_close()
@@ -867,38 +461,22 @@ static bool ble_close()
   if (bleIsOpen)
   {
     // 停止扫描
-    if (bleScanning)
+    ble_stop_scanning();
+
+    // 停止NimBLE主机任务
+    nimble_port_stop();
+
+    // 等待NimBLE停止完成
+    int rc = nimble_port_deinit();
+    if (rc != 0)
     {
-      esp_ble_gap_stop_scanning();
-      bleScanning = false;
+      logger::warnln("BLE NimBLE port deinit failed: %d", rc);
     }
 
-    // 反注册GATTC应用
-    esp_ble_gattc_app_unregister(bleGattcInterface);
-
-    // 禁用Bluedroid
-    esp_err_t ret;
-    ret = esp_bluedroid_disable();
-    if (ret != ESP_OK)
+    // 清理内存池
+    if (bleBufferpool.omp_pool != NULL)
     {
-      logger::warnln("BLE bluedroid disable failed: %s", esp_err_to_name(ret));
-    }
-    ret = esp_bluedroid_deinit();
-    if (ret != ESP_OK)
-    {
-      logger::warnln("BLE bluedroid deinit failed: %s", esp_err_to_name(ret));
-    }
-
-    // 禁用蓝牙控制器
-    ret = esp_bt_controller_disable();
-    if (ret != ESP_OK)
-    {
-      logger::warnln("BLE controller disable failed: %s", esp_err_to_name(ret));
-    }
-    ret = esp_bt_controller_deinit();
-    if (ret != ESP_OK)
-    {
-      logger::warnln("BLE controller deinit failed: %s", esp_err_to_name(ret));
+      os_mempool_clear(&bleMemoryPool);
     }
 
     bleIsOpen = false;
@@ -914,68 +492,195 @@ static bool ble_open()
     ble_close();
   }
 
-  esp_err_t ret;
-  ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
-
-  // 初始化蓝牙控制器
-  esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-  ret = esp_bt_controller_init(&bt_cfg);
-  if (ret)
+  // 初始化 NimBLE
+  esp_err_t ret = nimble_port_init();
+  if (ret != ESP_OK)
   {
-    logger::warnln("BLE controller initialize failed: %s", esp_err_to_name(ret));
-    return false;
-  }
-  ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-  if (ret)
-  {
-    logger::warnln("BLE controller enable failed: %s", esp_err_to_name(ret));
+    logger::warnln("BLE port init failed: %d", ret);
     return false;
   }
 
-  ret = esp_bluedroid_init();
-  if (ret)
+  // 初始化配置
+  ble_hs_cfg.reset_cb = ble_on_reset;
+  ble_hs_cfg.sync_cb = ble_on_sync;
+  ble_hs_cfg.store_status_cb = NULL;
+
+  // 创建接受池
+  ret = os_mempool_init(&bleMemoryPool, BLE_L2CAP_COC_BUF_COUNT, BLE_L2CAP_MTU, bleMemory, "coc_sdu_pool");
+  if (ret != 0)
   {
-    logger::warnln("BLE bluedroid init failed: %s", esp_err_to_name(ret));
+    logger::warnln("BLE os_mempool_init failed: %d", ret);
     return false;
   }
-  ret = esp_bluedroid_enable();
-  if (ret)
+  ret = os_mbuf_pool_init(&bleBufferpool, &bleMemoryPool, BLE_L2CAP_MTU, BLE_L2CAP_COC_BUF_COUNT);
+  if (ret != 0)
   {
-    logger::warnln("BLE bluedroid enable failed: %s", esp_err_to_name(ret));
+    logger::warnln("BLE os_mbuf_pool_init failed: %d", ret);
     return false;
   }
 
-  // 注册GAP和GATTC回调
-  ret = esp_ble_gap_register_callback(gap_event_handler);
-  if (ret)
-  {
-    logger::warnln("BLE gap register failed: %s", esp_err_to_name(ret));
-    return false;
-  }
-
-  ret = esp_ble_gattc_register_callback(gattc_event_handler);
-  if (ret)
-  {
-    logger::warnln("BLE gattc register failed: %s", esp_err_to_name(ret));
-    return false;
-  }
-
-  // 注册应用配置文件
-  ret = esp_ble_gattc_app_register(bleGattcId);
-  if (ret)
-  {
-    logger::warnln("BLE gattc app register failed: %s", esp_err_to_name(ret));
-    return false;
-  }
-
-  ret = esp_ble_gatt_set_local_mtu(517);
-  if (ret)
-  {
-    logger::warnln("BLE set local  MTU failed, error code = %x", ret);
-  }
+  // 启动 NimBLE 主机任务
+  nimble_port_freertos_init(ble_host_task);
 
   bleIsOpen = true;
   logger::debugln("BLE is started.");
+  return true;
+}
+
+static void ble_stop_scanning()
+{
+  if (bleScanning)
+  {
+    int rc;
+    rc = ble_gap_disc_cancel();
+    if (rc != 0)
+    {
+      logger::warnln("BLE cancel discovery failed; rc=%d\n", rc);
+      return;
+    }
+
+    bleScanning = false;
+  }
+}
+
+// 搜索BLE设备
+static void ble_start_scanning()
+{
+  if (!bleScanning)
+  {
+    int rc;
+
+    uint8_t own_addr_type;
+    ble_gap_disc_params disc_params = {0};
+
+    // 获取当前设备地址
+    rc = ble_hs_id_infer_auto(0, &own_addr_type);
+    if (rc != 0)
+    {
+      logger::warnln("BLE error determining address type; rc=%d\n", rc);
+      return;
+    }
+
+    // 扫描参数
+    disc_params.filter_duplicates = 1;
+    disc_params.passive = 1;
+    disc_params.itvl = 0;
+    disc_params.window = 0;
+    disc_params.filter_policy = 0;
+    disc_params.limited = 0;
+
+    rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params, ble_gap_handler, NULL);
+    if (rc != 0)
+    {
+      logger::warnln("BLE error initiating GAP discovery procedure; rc=%d\n", rc);
+    }
+
+    bleScanning = true;
+  }
+}
+
+// 连接设备
+static bool ble_connect_to_device(const std::string &address)
+{
+  if (bleIsOpen)
+  {
+    if (devices.contains(address))
+    {
+      int rc;
+      DeviceConnection &device = devices[address];
+
+      uint8_t own_addr_type;
+      rc = ble_hs_id_infer_auto(0, &own_addr_type);
+      if (rc != 0)
+      {
+        logger::warnln("BLE error determining address type; rc=%d", rc);
+        return false;
+      }
+      if (bleScanning)
+      {
+        // ble_gap_disc_cancel();
+        ble_stop_scanning();
+      }
+      rc = ble_gap_connect(own_addr_type, &device.bleAddress, BLE_HS_FOREVER, NULL, ble_gap_handler, NULL);
+      if (rc != 0)
+      {
+        logger::warnln("Error: Failed to connect to device; addr_type=%d; rc=%d\n", device.bleAddress.type, rc);
+        return false;
+      }
+      // if (bleScanning)
+      // {
+      //   bleScanning = false;
+      //   ble_start_scanning();
+      // }
+
+      logger::debugln("BLE connecting to server %s.", address.c_str());
+      return true;
+    }
+    logger::warnln("BLE connect failed, because not found address %s.", address);
+    return false;
+  }
+  logger::warnln("BLE connect failed, because BLE not open.");
+  return false;
+}
+
+// 断开连接设备
+static bool ble_disconnect_to_device(const std::string &address)
+{
+  if (bleIsOpen)
+  {
+    if (devices.contains(address))
+    {
+      int rc;
+      DeviceConnection &device = devices[address];
+
+      if (device.bleConnected)
+      {
+        ble_l2cap_disconnect(device.bleChannel);
+        ble_gap_terminate(device.bleConnectionHandle, BLE_ERR_REM_USER_CONN_TERM);
+      }
+
+      devices.erase(address);
+      logger::debugln("BLE disconnecting to server %s.", address.c_str());
+      return true;
+    }
+    logger::warnln("BLE disconnect failed, because not found address %s.", address);
+    return false;
+  }
+  logger::warnln("BLE disconnect failed, because BLE not open.");
+  return false;
+}
+
+// 发送数据
+bool ble_send(DeviceConnection &device, const uint8_t *data, uint16_t len)
+{
+  if (!bleIsOpen || !device.bleChannel)
+  {
+    logger::warnln("BLE channel not ready.");
+    return false;
+  }
+
+  if (len > BLE_L2CAP_MTU)
+  {
+    logger::warnln("BLE data too large for L2CAP MTU.");
+    return false;
+  }
+
+  struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
+  if (!om)
+  {
+    logger::warnln("BLE failed to allocate mbuf.");
+    return false;
+  }
+
+  int rc = ble_l2cap_send(device.bleChannel, om);
+  if (rc != 0)
+  {
+    logger::warnln("BLE failed to send data: %d", rc);
+    os_mbuf_free_chain(om);
+    return false;
+  }
+
+  logger::debugln("BLE sent %d bytes.", len);
   return true;
 }
 /****************************/
@@ -1009,22 +714,21 @@ void ui_bt_search()
 void ui_bt_pause_search()
 {
   audio::decoder::on(48000, 32);
-  ble_stop_scanning();
   for (auto &device : devices)
   {
     wifi_open();
-    const std::string &address = device.first;
-    configAudio.channel = 2;
-    configAudio.rate = 48000;
-    configAudio.bit = 32;
-    configAudio.autoVolumn = false;
-    configAudio.peekVolumn = false;
-    configAudio.volumn = 40;
-    configAudio.start = true;
-    ble_send_audio_control_to_device(address);
-    configBasic.startWiFi = true;
-    configBasic.start = true;
-    ble_send_config_control_to_device(address);
+    configAudio.packet.channel = 2;
+    configAudio.packet.rate = 48000;
+    configAudio.packet.bit = 32;
+    configAudio.packet.autoVolumn = false;
+    configAudio.packet.peekVolumn = false;
+    configAudio.packet.volumn = 40;
+    configAudio.packet.start = true;
+    ble_send(device.second, (uint8_t *)&configAudio, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+
+    // configDevice.packet.startWiFi = true;
+    // configDevice.packet.start = true;
+    // ble_send(device.second, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_DEVICE_SIZE);
   }
 }
 /****************************/
@@ -1033,14 +737,14 @@ void rf::reconfigure()
 {
   // 刷新配置
   // configBasic.start = false;
-  configBasic.mode = (ConfigControlMode)(config::value.transmitProtocol);
-  strcpy(configBasic.name, WIFI_NAME);
-  strcpy(configBasic.password, WIFI_PASSWORD);
+  configDevice.packet.mode = config::value.transmitProtocol;
+  strcpy(configDevice.packet.name, WIFI_NAME);
+  strcpy(configDevice.packet.password, WIFI_PASSWORD);
 
   // configAudio.start = false;
-  configAudio.channel = config::value.audioChannel;
-  configAudio.rate = config::value.audioRate;
-  configAudio.bit = config::value.audioBit;
+  configAudio.packet.channel = config::value.audioChannel;
+  configAudio.packet.rate = config::value.audioRate;
+  configAudio.packet.bit = config::value.audioBit;
   // configAudio.autoVolumn = ;
   // configAudio.peekVolumn = ;
   // configAudio.volumn = ;

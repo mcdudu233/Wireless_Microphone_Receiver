@@ -60,7 +60,7 @@ AudioData *audio::buffer::getAudioDataBufferFromNumber(uint32_t number)
   return getAudioDataFromNumber(number - AUDIO_BUFFER_DELAY_PACKET);
 }
 
-void audio::buffer::writeWiFiPacket(AudioPacketWIFI *packet)
+void audio::buffer::writeWiFiPacket(WiFiAudioPacket *packet)
 {
   if (packet->number <= getAudioDataFront()->num)
   {
@@ -69,7 +69,7 @@ void audio::buffer::writeWiFiPacket(AudioPacketWIFI *packet)
     if (audio != nullptr)
     {
       audio->size += packet->size;
-      memcpy(audio->data + WIFI_PACKET_DATA_MAX_SIZE * packet->part, packet->data, packet->size);
+      memcpy(audio->data + PACKET_WIFI_AUDIO_DATA_MAX_SIZE * packet->part, packet->data, packet->size);
     }
   }
   else
@@ -93,9 +93,9 @@ void audio::buffer::writeWiFiPacket(AudioPacketWIFI *packet)
     if (packet->part != 0)
     {
       // 前面的part填充为0
-      memset(audio->data, 0, (packet->part - 1) * WIFI_PACKET_DATA_MAX_SIZE);
+      memset(audio->data, 0, (packet->part - 1) * PACKET_WIFI_AUDIO_DATA_MAX_SIZE);
     }
-    memcpy(audio->data + packet->part * WIFI_PACKET_DATA_MAX_SIZE, packet->data, packet->size);
+    memcpy(audio->data + packet->part * PACKET_WIFI_AUDIO_DATA_MAX_SIZE, packet->data, packet->size);
   }
 }
 

@@ -2,54 +2,41 @@
 
 #define RF_MAX_CONNECTION 4
 // 蓝牙
-#define BLE_NAME "Microphone Transmitter"
-#define BLE_CHARACTERISTIC_NUM 4
-#define INFO_SERVICE_UUID 0x180A
-#define DEVICE_CHARACTERISTIC_UUID 0x2A00
-#define MODEL_CHARACTERISTIC_UUID 0x2A24
-#define MANUFACTURER_CHARACTERISTIC_UUID 0x2A29
-#define BATTERY_SERVICE_UUID 0x180F
-#define BATTERY_CHARACTERISTIC_UUID 0x2A19
-#define AUDIO_SERVICE_UUID 0x1843
-#define DATA_CHARACTERISTIC_UUID 0x2B81
-#define CONFIG_CONTROL_CHARACTERISTIC_UUID 0x2B7A
-#define AUDIO_CONTROL_CHARACTERISTIC_UUID 0x2B7B
+#define BLE_NAME "MicTx"
+#define BLE_L2CAP_UUID 0x1812
+#define BLE_L2CAP_PSM 0x1001
+#define BLE_L2CAP_MTU 512
 // WIFI
-#define WIFI_NAME "Microphone Receiver"
+#define WIFI_NAME "MicRx"
 #define WIFI_PASSWORD "Cx^9Xbg5wih3"
 #define WIFI_CHANNEL 8
 #define WIFI_IP_PROTOCOL 0xE9
 #define WIFI_NO_PORT 0
 #define WIFI_IP_HEAD_LEN 20
 
-enum ConfigControlMode
+// 客户端状态
+#define PACKET_CLIENT_STATUS_SIZE (sizeof(uint8_t) + sizeof(ClientStatusPacket))
+struct __attribute__((packed)) ClientStatusPacket
 {
-  AUDIO_CONTROL_MODE_BLE = 0,
-  AUDIO_CONTROL_MODE_WIFI = 1,
+  uint32_t ip = 0x00000000UL;
+  uint8_t battery = 0x00;
 };
 
-struct ConfigClientControl
-{
-  bool success = false;
-  uint32_t ip = 0x00000000;
-};
-
-struct AudioClientControl
-{
-  bool success = false;
-};
-
-struct ConfigServerControl
+// 服务端控制设备
+#define PACKET_SERVER_CONTROL_DEVICE_SIZE (sizeof(uint8_t) + sizeof(ServerControlDevicePacket))
+struct __attribute__((packed)) ServerControlDevicePacket
 {
   bool start = false;
   bool startWiFi = false;
   bool startBLE = true;
-  ConfigControlMode mode = AUDIO_CONTROL_MODE_BLE;
+  bool mode = false; // true: WiFi模式; false: BLE模式
   char name[32] = "";
   char password[32] = "";
 };
 
-struct AudioServerControl
+// 服务端控制音频
+#define PACKET_SERVER_CONTROL_AUDIO_SIZE (sizeof(uint8_t) + sizeof(ServerControlAudioPacket))
+struct __attribute__((packed)) ServerControlAudioPacket
 {
   bool start = false;
   uint8_t channel = 2;
@@ -60,59 +47,52 @@ struct AudioServerControl
   uint8_t volumn = 0;
 };
 
-// WIFI音频包
-#define WIFI_PACKET_HEAD_SIZE (sizeof(AudioPacketWIFI) - WIFI_PACKET_DATA_MAX_SIZE)
-#define WIFI_PACKET_DATA_MAX_SIZE 1420
-enum AudioPacketWIFIType
-{
-  AUDIO_PACKET_WIFI_TYPE_DATA = 0,
-  AUDIO_PACKET_WIFI_TYPE_CONTROL = 1,
-};
-struct __attribute__((packed)) AudioPacketWIFI
-{
-  uint8_t type; // 包类型
-  uint16_t size;
-  uint32_t number;
-  uint8_t part;
-  uint8_t data[WIFI_PACKET_DATA_MAX_SIZE];
-};
-
-// BLE音频包
-#define BLE_PACKET_HEAD_SIZE (sizeof(AudioPacketBLE) - BLE_PACKET_DATA_MAX_SIZE)
-#define BLE_PACKET_DATA_MAX_SIZE 384
-struct __attribute__((packed)) AudioPacketBLE
+// WIFI传输包
+#define PACKET_WIFI_AUDIO_HEAD_SIZE (sizeof(uint8_t) + sizeof(WiFiAudioPacket) - PACKET_WIFI_AUDIO_DATA_MAX_SIZE)
+#define PACKET_WIFI_AUDIO_DATA_MAX_SIZE 1420
+struct __attribute__((packed)) WiFiAudioPacket
 {
   uint16_t size;
   uint32_t number;
   uint8_t part;
-  uint8_t data[BLE_PACKET_DATA_MAX_SIZE];
+  uint8_t data[PACKET_WIFI_AUDIO_DATA_MAX_SIZE];
 };
 
-// 设备信息结构体
-struct DeviceConnection
+// BLE传输包
+#define PACKET_BLE_AUDIO_HEAD_SIZE (sizeof(uint8_t) + sizeof(BLEAudioPacket) - PACKET_BLE_AUDIO_DATA_MAX_SIZE)
+#define PACKET_BLE_AUDIO_DATA_MAX_SIZE 384
+struct __attribute__((packed)) BLEAudioPacket
 {
-  // 设备信息
-  uint8_t battery;
-  // 蓝牙记录
-  bool bleConnected;
-  bool bleDoConnect;
-  uint8_t bleAddress[6];
-  uint16_t bleConnectionID;
-  // GATT服务
-  uint16_t bleBatteryStart = 0;
-  uint16_t bleBatteryEnd = 0;
-  uint16_t bleAudioStart = 0;
-  uint16_t bleAudioEnd = 0;
-  // GATT特征
-  uint16_t bleBattery = 0;
-  uint16_t bleData = 0;
-  uint16_t bleAudioControl = 0;
-  uint16_t bleConfigControl = 0;
-  // 连接的特征数
-  uint8_t bleCharNum = 0;
-  // WIFI记录
-  bool wifiConnected;
-  uint32_t wifiConnectionIP;
+  uint16_t size;
+  uint32_t number;
+  uint8_t part;
+  uint8_t data[PACKET_BLE_AUDIO_DATA_MAX_SIZE];
+};
+
+// 统一协议
+enum PacketType
+{
+  PACKET_TYPE_WIFI_AUDIO = 0,
+  PACKET_TYPE_BLE_AUDIO = 1,
+  PACKET_TYPE_CLIENT_ACK = 2,
+  PACKET_TYPE_SERVER_ACK = 3,
+  PACKET_TYPE_CLIENT_STATUS = 4,
+  PACKET_TYPE_SERVER_CONTROL_DEVICE = 5,
+  PACKET_TYPE_SERVER_CONTROL_AUDIO = 6,
+};
+struct __attribute__((packed)) Packet
+{
+  uint8_t type; // 标识是哪个包
+  union
+  {
+    // 音频包
+    WiFiAudioPacket audioDataWiFi;
+    BLEAudioPacket audioDataBLE;
+    // 状态配置包
+    ClientStatusPacket clientStatus;
+    ServerControlDevicePacket serverControlDevice;
+    ServerControlAudioPacket serverControlAudio;
+  } packet;
 };
 
 namespace rf
