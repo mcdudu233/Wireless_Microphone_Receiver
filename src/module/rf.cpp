@@ -6,6 +6,7 @@
 #include "ui/ui_bt.h"
 
 #include "map"
+#include "queue"
 #include "string"
 
 // 整体配置
@@ -54,77 +55,62 @@ static unsigned long speedLastTime = millis();
 #include "lwip/err.h"
 #include "lwip/api.h"
 static bool socketIsOpen = false;
-static netconn *socketInstance;
+static netconn *socketSendInstance = NULL;
+static netconn *socketReceiveInstance = NULL;
 
-static void socket_handle(void *arg)
+// 发送数据 需要 netbuf_new
+static bool socket_send(uint32_t destIP, netbuf *buf)
 {
-  struct netbuf *buf = NULL;
-  ip_addr_t src_addr;
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(TASK_SOCKET_PERIOD);
-  while (true)
+  ip_addr_t socketDestination;
+  socketDestination.addr = destIP;
+  err_t err = netconn_sendto(socketSendInstance, buf, &socketDestination, WIFI_NO_PORT);
+  if (err != ERR_OK)
   {
-    xTaskDelayUntil(&xLastWakeTime, xFrequency);
-    if (!socketIsOpen)
-    {
-      vTaskDelete(NULL);
-    }
-    if (socketInstance != NULL)
-    {
-      // 接收数据
-      err_t err = netconn_recv(socketInstance, &buf);
-      if (err == ERR_OK)
-      {
-        uint32_t address = buf->addr.addr;
-
-        // 处理数据包
-        Packet *packet = (Packet *)((uint8_t *)buf->ptr->payload + WIFI_IP_HEAD_LEN);
-        switch (packet->type)
-        {
-        // 音频数据包
-        case PACKET_TYPE_WIFI_AUDIO:
-        {
-          audio::buffer::writeWiFiPacket(&packet->packet.audioDataWiFi);
-          speedData += packet->packet.audioDataWiFi.size;
-          break;
-        }
-
-        default:
-        {
-          break;
-        }
-        }
-        // logger::debugln("Socket get data, size=%d", packet->size);
-
-        netbuf_delete(buf);
-      }
-
-      // 计算速度
-      unsigned long speedNowTime = millis();
-      if (speedNowTime - speedLastTime > 1000)
-      {
-        speed = speedData;
-        speedData = 0;
-        speedLastTime = speedNowTime;
-        logger::debugln("Socket data speed %dKB/s", speed / 1024);
-      }
-    }
+    logger::warnln("Socket send failed: %d", err);
+    return false;
   }
+  // 释放
+  netbuf_delete(buf);
+  return true;
+}
+
+// 读取数据 需要 netbuf_delete
+static bool socket_receive(netbuf **buf)
+{
+  err_t err = netconn_recv(socketReceiveInstance, buf);
+  if (err == ERR_WOULDBLOCK)
+  {
+    return false;
+  }
+  else if (err != ERR_OK)
+  {
+    logger::warnln("Socket receive failed: %d", err);
+    return false;
+  }
+  return true;
 }
 
 static bool socket_close()
 {
   if (socketIsOpen)
   {
-    socketIsOpen = false;
-    netconn_delete(socketInstance);
-    socketInstance = NULL;
+    if (socketSendInstance != NULL)
+    {
+      netconn_delete(socketSendInstance);
+      socketSendInstance = NULL;
+    }
+    if (socketReceiveInstance != NULL)
+    {
+      netconn_delete(socketReceiveInstance);
+      socketReceiveInstance = NULL;
+    }
+    socketReceiveInstance = NULL;
   }
   logger::debugln("Socket is shutdown.");
   return true;
 }
 
-static bool socket_open()
+static bool socket_open(uint32_t localIP)
 {
   if (socketIsOpen)
   {
@@ -132,28 +118,47 @@ static bool socket_open()
   }
 
   // 创建
-  socketInstance = netconn_new_with_proto_and_callback(NETCONN_RAW, WIFI_IP_PROTOCOL, NULL);
-  if (socketInstance == NULL)
+  socketSendInstance = netconn_new_with_proto_and_callback(NETCONN_RAW, WIFI_IP_PROTOCOL, NULL);
+  if (socketSendInstance == NULL)
   {
     logger::warnln("Socket unable to create:!");
     return false;
   }
-
-  // 绑定到所有地址
-  err_t ret = netconn_bind(socketInstance, IP_ADDR_ANY, WIFI_NO_PORT);
-  if (ret != ERR_OK)
+  socketReceiveInstance = netconn_new_with_proto_and_callback(NETCONN_RAW, WIFI_IP_PROTOCOL, NULL);
+  if (socketReceiveInstance == NULL)
   {
-    logger::warnln("Socket netconn bind failed: %d", ret);
-    netconn_delete(socketInstance);
-    socketInstance = NULL;
+    netconn_delete(socketSendInstance);
+    logger::warnln("Socket unable to create:!");
     return false;
   }
 
-  // 阻塞模式
-  // netconn_set_recvtimeout(socketInstance, 0);
+  // 绑定到指定地址
+  ip_addr_t local_ip = {.addr = localIP};
+  err_t ret = netconn_bind(socketSendInstance, &local_ip, WIFI_NO_PORT);
+  if (ret != ERR_OK)
+  {
+    netconn_delete(socketSendInstance);
+    socketSendInstance = NULL;
+    netconn_delete(socketReceiveInstance);
+    socketReceiveInstance = NULL;
+    logger::warnln("Socket netconn bind failed: %d", ret);
+    return false;
+  }
+  ret = netconn_bind(socketReceiveInstance, IP_ADDR_ANY, WIFI_NO_PORT);
+  if (ret != ERR_OK)
+  {
+    netconn_delete(socketSendInstance);
+    socketSendInstance = NULL;
+    netconn_delete(socketReceiveInstance);
+    socketReceiveInstance = NULL;
+    logger::warnln("Socket netconn bind failed: %d", ret);
+    return false;
+  }
+
+  // 设置非阻塞模式
+  netconn_set_nonblocking(socketReceiveInstance, true);
 
   socketIsOpen = true;
-  xTaskCreatePinnedToCore(socket_handle, "socket_handle", TASK_SOCKET_STACK, NULL, TASK_SOCKET_PRIORITY, NULL, TASK_SOCKET_CORE);
   logger::debugln("Socket is started.");
   return true;
 }
@@ -166,6 +171,7 @@ static bool socket_open()
 #include "esp_wifi.h"
 #include "esp_event.h"
 static bool wifiIsOpen = false;
+static uint32_t wifiIP;
 static esp_netif_t *wifiNetIF;
 static esp_event_handler_instance_t wifiHandlerInstance;
 static const wifi_init_config_t wifiInitConfig = WIFI_INIT_CONFIG_DEFAULT();
@@ -232,9 +238,16 @@ static bool wifi_open()
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifiConfig));
   ESP_ERROR_CHECK(esp_wifi_start());
 
+  // 获取当前IP地址
+  esp_netif_ip_info_t ip;
+  if (esp_netif_get_ip_info(wifiNetIF, &ip) == ESP_OK)
+  {
+    wifiIP = ip.ip.addr;
+  }
+
   wifiIsOpen = true;
   logger::debugln("WiFi is started.");
-  socket_open();
+  socket_open(wifiIP);
   return true;
 }
 /****************************/
@@ -250,6 +263,7 @@ static bool bleScanning = false;
 static os_membuf_t bleMemory[OS_MEMPOOL_SIZE(BLE_L2CAP_COC_BUF_COUNT, BLE_L2CAP_MTU)];
 static os_mempool bleMemoryPool;
 static os_mbuf_pool bleBufferpool;
+static std::queue<uint8_t *> bleReceive;
 
 static void ble_start_scanning();
 static void ble_stop_scanning();
@@ -307,6 +321,21 @@ static int ble_l2cap_handler(struct ble_l2cap_event *event, void *arg)
     device->bleChannel = NULL;
     logger::debugln("BLE LE CoC disconnected, conn: %d", event->disconnect.conn_handle);
     break;
+  }
+
+    // 接收到数据事件
+  case BLE_L2CAP_EVENT_COC_DATA_RECEIVED:
+  {
+    if (event->receive.sdu_rx != NULL)
+    {
+      uint16_t data_len = OS_MBUF_PKTLEN(event->receive.sdu_rx);
+      // 放进接收队列
+      uint8_t *packet = (uint8_t *)heap_caps_malloc(event->receive.sdu_rx->om_len, MALLOC_CAP_SPIRAM);
+      memcpy(packet, event->receive.sdu_rx->om_data, event->receive.sdu_rx->om_len);
+      bleReceive.push(packet);
+      os_mbuf_free(event->receive.sdu_rx);
+      logger::debugln("BLE received %d bytes on L2CAP channel.", event->receive.sdu_rx->om_len);
+    }
   }
 
   default:
@@ -460,17 +489,23 @@ static bool ble_close()
 {
   if (bleIsOpen)
   {
+    int rc;
     // 停止扫描
     ble_stop_scanning();
 
     // 停止NimBLE主机任务
-    nimble_port_stop();
-
+    rc = nimble_port_stop();
+    if (rc != 0)
+    {
+      logger::warnln("BLE NimBLE port stop failed: %d", rc);
+      return false;
+    }
     // 等待NimBLE停止完成
-    int rc = nimble_port_deinit();
+    rc = nimble_port_deinit();
     if (rc != 0)
     {
       logger::warnln("BLE NimBLE port deinit failed: %d", rc);
+      return false;
     }
 
     // 清理内存池
@@ -504,6 +539,8 @@ static bool ble_open()
   ble_hs_cfg.reset_cb = ble_on_reset;
   ble_hs_cfg.sync_cb = ble_on_sync;
   ble_hs_cfg.store_status_cb = NULL;
+  ble_hs_cfg.sm_sc = 0; // 关闭安全连接
+  ble_hs_cfg.sm_bonding = 0;
 
   // 创建接受池
   ret = os_mempool_init(&bleMemoryPool, BLE_L2CAP_COC_BUF_COUNT, BLE_L2CAP_MTU, bleMemory, "coc_sdu_pool");
@@ -726,12 +763,51 @@ void ui_bt_pause_search()
     configAudio.packet.start = true;
     ble_send(device.second, (uint8_t *)&configAudio, PACKET_SERVER_CONTROL_AUDIO_SIZE);
 
-    // configDevice.packet.startWiFi = true;
-    // configDevice.packet.start = true;
-    // ble_send(device.second, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_DEVICE_SIZE);
+    configDevice.packet.startWiFi = true;
+    configDevice.packet.start = true;
+    ble_send(device.second, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_DEVICE_SIZE);
   }
 }
 /****************************/
+
+// 解析数据包
+static void rf_receive_packet(const uint8_t *data)
+{
+  Packet *packet = (Packet *)data;
+  switch (packet->type)
+  {
+  // WIFI音频数据包
+  case PACKET_TYPE_WIFI_AUDIO:
+  {
+    audio::buffer::writeWiFiPacket(&packet->packet.audioDataWiFi);
+    break;
+  }
+
+  // BLE音频数据包
+  case PACKET_TYPE_BLE_AUDIO:
+  {
+    break;
+  }
+
+  // 客户端响应ACK
+  case PACKET_TYPE_CLIENT_ACK:
+  {
+    break;
+  }
+
+  // 客户端状态
+  case PACKET_TYPE_CLIENT_STATUS:
+  {
+    break;
+  }
+
+  default:
+  {
+    logger::warnln("RF unknow packet type=%d", packet->type);
+    break;
+  }
+  }
+}
 
 void rf::reconfigure()
 {
@@ -750,8 +826,74 @@ void rf::reconfigure()
   // configAudio.volumn = ;
 }
 
+static void rf_handle(void *arg)
+{
+  // 缓存
+  netbuf *receiveBuffer = NULL;
+
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xFrequency = pdMS_TO_TICKS(TASK_RF_PERIOD);
+  while (true)
+  {
+    xTaskDelayUntil(&xLastWakeTime, xFrequency);
+
+    /* 处理 BLE 模块 */
+    if (bleIsOpen)
+    {
+      /* 发送 */
+      //////////
+
+      /* 接收 */
+      while (!bleReceive.empty())
+      {
+        uint8_t *packet = bleReceive.front();
+        // 解析数据包
+        rf_receive_packet(packet);
+        heap_caps_free(packet);
+        bleReceive.pop();
+      }
+    }
+
+    /* 处理 WIFI 模块 */
+    if (wifiIsOpen && socketIsOpen)
+    {
+      /* 发送 */
+      //////////
+
+      /* 接收 */
+      if (socket_receive(&receiveBuffer))
+      {
+        uint8_t *data;
+        uint16_t len;
+        do
+        {
+          netbuf_data(receiveBuffer, (void **)&data, &len);
+          data += WIFI_IP_HEAD_LEN;
+          len -= WIFI_IP_HEAD_LEN;
+          // 解析数据包 receiveBuffer->addr.addr
+          rf_receive_packet(data);
+          speedData += len;
+        } while (netbuf_next(receiveBuffer) >= 0);
+        netbuf_delete(receiveBuffer);
+      }
+    }
+
+    /* 计算速度 */
+    unsigned long speedNowTime = millis();
+    if (speedNowTime - speedLastTime > 1000)
+    {
+      speed = speedData;
+      speedData = 0;
+      speedLastTime = speedNowTime;
+      logger::debugln("RF data speed %dKB/s", speed / 1024);
+    }
+  }
+}
+
 void rf::setup()
 {
   reconfigure();
   ble_open();
+  // 启动发送接收线程
+  xTaskCreatePinnedToCore(rf_handle, "rf_handle", TASK_RF_STACK, NULL, TASK_RF_PRIORITY, NULL, TASK_RF_CORE);
 }
