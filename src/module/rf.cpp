@@ -811,6 +811,9 @@ void rf::reconfigure()
   strcpy(configDevice.packet.name, WIFI_NAME);
   strcpy(configDevice.packet.password, WIFI_PASSWORD);
 
+  config::config.audio.rate = 192000;
+  config::config.audio.bit = 32;
+
   configAudio.packet.channel = config::config.audio.channel;
   configAudio.packet.rate = config::config.audio.rate;
   configAudio.packet.bit = config::config.audio.bit;

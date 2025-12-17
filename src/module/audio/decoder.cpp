@@ -72,22 +72,19 @@ static void audioHandle(void *arg)
     // 启动了芯片才读取数据
     if (powerOn)
     {
+      // 判断音频配置是否更改
+      if (config::config.audio.rate != i2s_rate || config::config.audio.bit != i2s_bit || config::config.audio.channel != i2s_channel)
+      {
+        audio::decoder::off();
+        audio::decoder::on(config::config.audio.rate, config::config.audio.bit, config::config.audio.channel);
+        logger::debugln("Audio Decoder found audio config changed.");
+      }
+
+      // 获取数据
       data = audio::buffer::getDecoderData();
       if (data != nullptr)
       {
         // logger::infoln("Audio Decoder num=%d size=%d!", data->num, data->size);
-        // if (i2s_channel == I2S_SLOT_MODE_MONO)
-        // {
-        //   // 将单声道数据转换成立体声
-        //   data_channel->num = data->num;
-        //   data_channel->size = data->size * 2;
-        //   for (uint16_t i = 0; i < data->size; i += i2s_bit)
-        //   {
-        //     memcpy(data_channel->data + i * 2, data->data + i, i2s_bit);
-        //     memcpy(data_channel->data + i * 2 + 1, data->data + i, i2s_bit);
-        //   }
-        //   data = data_channel;
-        // }
         if (i2s_channel_write(i2s_tx_handle, data->data, data->size, NULL, AUDIO_DECODER_POLLING_CYCLE * 2) != ESP_OK)
         {
           logger::infoln("Audio Decoder write fail!");

@@ -6,7 +6,7 @@
 #define CONFIG_NAME "config"
 #define CONFIG_DATA_NAME "config"
 #define CONFIG_VERSION_NAME "version"
-#define CONFIG_VERSION_VALUE 0x0002 // 前两位大版本号 后两位小版本号
+#define CONFIG_VERSION_VALUE 0x0003 // 前两位大版本号 后两位小版本号
 
 // 多线程任务配置
 #define TASK_SYSTEM_CORE 1
@@ -55,7 +55,7 @@ namespace config
     struct
     {
       uint8_t channel = 2;
-      uint16_t rate = 48000;
+      uint32_t rate = 48000;
       uint8_t bit = 16;
       bool autoVolumn = true;
       bool peekVolumn = false;
