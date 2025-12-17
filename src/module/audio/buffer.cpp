@@ -100,7 +100,7 @@ void audio::buffer::writeWiFiPacket(WiFiAudioPacket *packet)
 }
 
 static uint32_t decoderLastNumber = 0;
-AudioData *audio::buffer::getDecoderData(uint32_t size)
+AudioData *audio::buffer::getDecoderData()
 {
   AudioData *audio = getAudioDataBufferFromNumber(decoderLastNumber);
   if (audio == nullptr)
@@ -114,12 +114,7 @@ AudioData *audio::buffer::getDecoderData(uint32_t size)
   }
 
   decoderLastNumber++;
-  if (audio->size == size)
-  {
-    return audio;
-  }
-  AudioWhiteData->size = size;
-  return AudioWhiteData;
+  return audio;
 }
 
 void audio::buffer::restart()

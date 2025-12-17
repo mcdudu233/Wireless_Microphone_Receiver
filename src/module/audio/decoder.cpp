@@ -30,6 +30,7 @@ static const i2s_std_gpio_config_t i2s_gpio_cfg = {
     }};
 
 static i2s_chan_handle_t i2s_tx_handle;
+static uint8_t i2s_channel;
 static uint32_t i2s_rate;
 static i2s_data_bit_width_t i2s_bit;
 static bool powerOn = false;
@@ -41,6 +42,10 @@ static int last_ok = 0;
 static int last_fail = 0;
 static void audioHandle(void *arg)
 {
+  // 音频数据
+  AudioData *data;
+  AudioData *data_channel = (AudioData *)heap_caps_malloc(sizeof(AudioData), MALLOC_CAP_SPIRAM);
+
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(TASK_AUDIO_DECODER_PERIOD);
   while (true)
@@ -55,7 +60,7 @@ static void audioHandle(void *arg)
       if (isPlugin)
       {
         logger::infoln("Audio Decoder found 3.5mm plug in!");
-        audio::decoder::on(config::config.audio.rate, config::config.audio.bit);
+        audio::decoder::on(config::config.audio.rate, config::config.audio.bit, config::config.audio.channel);
       }
       else
       {
@@ -67,10 +72,22 @@ static void audioHandle(void *arg)
     // 启动了芯片才读取数据
     if (powerOn)
     {
-      AudioData *data = audio::buffer::getDecoderData(i2s_rate / 1000 * AUDIO_DECODER_POLLING_CYCLE * i2s_bit / 8 * AUDIO_DECODER_CHANNEL);
+      data = audio::buffer::getDecoderData();
       if (data != nullptr)
       {
         // logger::infoln("Audio Decoder num=%d size=%d!", data->num, data->size);
+        // if (i2s_channel == I2S_SLOT_MODE_MONO)
+        // {
+        //   // 将单声道数据转换成立体声
+        //   data_channel->num = data->num;
+        //   data_channel->size = data->size * 2;
+        //   for (uint16_t i = 0; i < data->size; i += i2s_bit)
+        //   {
+        //     memcpy(data_channel->data + i * 2, data->data + i, i2s_bit);
+        //     memcpy(data_channel->data + i * 2 + 1, data->data + i, i2s_bit);
+        //   }
+        //   data = data_channel;
+        // }
         if (i2s_channel_write(i2s_tx_handle, data->data, data->size, NULL, AUDIO_DECODER_POLLING_CYCLE * 2) != ESP_OK)
         {
           logger::infoln("Audio Decoder write fail!");
@@ -101,24 +118,27 @@ void audio::decoder::setup()
   pinMode(AUDIO_DECODER_FLT, OUTPUT);
   digitalWrite(AUDIO_DECODER_MUTE, LOW);
   digitalWrite(AUDIO_DECODER_FLT, LOW);
+  // 启动插入检测
+  pinMode(AUDIO_DECODER_ON, INPUT);
   xTaskCreatePinnedToCore(audioHandle, "audio_decoder_handle", TASK_AUDIO_DECODER_STACK, NULL, TASK_AUDIO_DECODER_PRIORITY, NULL, TASK_AUDIO_DECODER_CORE);
   logger::debugln("Audio Decoder is started!");
 }
 
-void audio::decoder::on(uint32_t rate, uint32_t bit)
+void audio::decoder::on(uint32_t rate, uint32_t bit, uint8_t channel)
 {
   // 启动 i2s
   i2s_rate = rate;
   i2s_bit = (i2s_data_bit_width_t)bit;
+  i2s_channel = channel;
   i2s_new_channel(&i2s_chan_cfg, &i2s_tx_handle, NULL);
   i2s_std_config_t std_cfg = {
       .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(i2s_rate),
       .slot_cfg = {
           .data_bit_width = i2s_bit,
-          .slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT,
-          .slot_mode = I2S_SLOT_MODE_STEREO,
+          .slot_bit_width = (i2s_slot_bit_width_t)i2s_bit,
+          .slot_mode = (i2s_slot_mode_t)i2s_channel,
           .slot_mask = I2S_STD_SLOT_BOTH,
-          .ws_width = I2S_SLOT_BIT_WIDTH_32BIT,
+          .ws_width = i2s_bit,
           .ws_pol = false,
           .bit_shift = true,
           .left_align = false,
@@ -128,8 +148,6 @@ void audio::decoder::on(uint32_t rate, uint32_t bit)
   };
   i2s_channel_init_std_mode(i2s_tx_handle, &std_cfg);
   i2s_channel_enable(i2s_tx_handle);
-  // 启动插入检测
-  pinMode(AUDIO_DECODER_ON, INPUT);
   powerOn = true;
   setMute(false);
   logger::debugln("Audio Decoder is on.");

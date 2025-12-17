@@ -43,7 +43,7 @@ namespace audio::buffer
   void writeWiFiPacket(WiFiAudioPacket *packet);
 
   /* 读取数据 */
-  AudioData *getDecoderData(uint32_t size);
+  AudioData *getDecoderData();
 }
 
 extern AudioData *AudioWhiteData;

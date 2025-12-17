@@ -59,7 +59,7 @@ namespace config
       uint8_t bit = 16;
       bool autoVolumn = true;
       bool peekVolumn = false;
-      uint8_t volumn = 0;
+      uint8_t volumn = 30;
     } audio;
     // 协议配置
     struct

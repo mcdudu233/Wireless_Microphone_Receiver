@@ -18,7 +18,7 @@
 namespace audio::decoder
 {
   void setup();
-  void on(uint32_t rate = 192 * 1000, uint32_t bit = 32);
+  void on(uint32_t rate = 192 * 1000, uint32_t bit = 32, uint8_t channel = 2);
   void off();
   bool isOn();
 
