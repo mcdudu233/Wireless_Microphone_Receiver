@@ -750,20 +750,15 @@ void ui_bt_search()
 }
 void ui_bt_pause_search()
 {
-  audio::decoder::on(48000, 32);
+  rf::reconfigure();
   for (auto &device : devices)
   {
-    wifi_open();
-    configAudio.packet.channel = 2;
-    configAudio.packet.rate = 48000;
-    configAudio.packet.bit = 32;
-    configAudio.packet.autoVolumn = false;
-    configAudio.packet.peekVolumn = false;
-    configAudio.packet.volumn = 40;
     configAudio.packet.start = true;
     ble_send(device.second, (uint8_t *)&configAudio, PACKET_SERVER_CONTROL_AUDIO_SIZE);
 
+    wifi_open();
     configDevice.packet.startWiFi = true;
+    configDevice.packet.startBLE = false;
     configDevice.packet.start = true;
     ble_send(device.second, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_DEVICE_SIZE);
   }
@@ -812,18 +807,16 @@ static void rf_receive_packet(const uint8_t *data)
 void rf::reconfigure()
 {
   // 刷新配置
-  // configBasic.start = false;
-  configDevice.packet.mode = config::value.transmitProtocol;
+  configDevice.packet.mode = config::config.rf.mode;
   strcpy(configDevice.packet.name, WIFI_NAME);
   strcpy(configDevice.packet.password, WIFI_PASSWORD);
 
-  // configAudio.start = false;
-  configAudio.packet.channel = config::value.audioChannel;
-  configAudio.packet.rate = config::value.audioRate;
-  configAudio.packet.bit = config::value.audioBit;
-  // configAudio.autoVolumn = ;
-  // configAudio.peekVolumn = ;
-  // configAudio.volumn = ;
+  configAudio.packet.channel = config::config.audio.channel;
+  configAudio.packet.rate = config::config.audio.rate;
+  configAudio.packet.bit = config::config.audio.bit;
+  configAudio.packet.autoVolumn = config::config.audio.autoVolumn;
+  configAudio.packet.peekVolumn = config::config.audio.peekVolumn;
+  configAudio.packet.volumn = config::config.audio.volumn;
 }
 
 static void rf_handle(void *arg)

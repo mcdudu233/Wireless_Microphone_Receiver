@@ -47,48 +47,47 @@ static void audioHandle(void *arg)
   {
     xTaskDelayUntil(&xLastWakeTime, xFrequency);
 
+    // 判断是否插入3.5mm接口
+    bool isPlugin = !digitalRead(AUDIO_DECODER_ON);
+    if (isPlugin != plugin)
+    {
+      plugin = isPlugin;
+      if (isPlugin)
+      {
+        logger::infoln("Audio Decoder found 3.5mm plug in!");
+        audio::decoder::on(config::config.audio.rate, config::config.audio.bit);
+      }
+      else
+      {
+        logger::infoln("Audio Decoder found 3.5mm plug out!");
+        audio::decoder::off();
+      }
+    }
+
     // 启动了芯片才读取数据
     if (powerOn)
     {
-      // 判断是否插入3.5mm接口
-      bool isPlugin = !digitalRead(AUDIO_DECODER_ON);
-      if (isPlugin != plugin)
+      AudioData *data = audio::buffer::getDecoderData(i2s_rate / 1000 * AUDIO_DECODER_POLLING_CYCLE * i2s_bit / 8 * AUDIO_DECODER_CHANNEL);
+      if (data != nullptr)
       {
-        plugin = isPlugin;
-        if (isPlugin)
+        // logger::infoln("Audio Decoder num=%d size=%d!", data->num, data->size);
+        if (i2s_channel_write(i2s_tx_handle, data->data, data->size, NULL, AUDIO_DECODER_POLLING_CYCLE * 2) != ESP_OK)
         {
-          logger::infoln("Audio Decoder found 3.5mm plug in!");
+          logger::infoln("Audio Decoder write fail!");
+          last_fail++;
         }
         else
         {
-          logger::infoln("Audio Decoder found 3.5mm plug out!");
+          last_ok++;
         }
-      }
 
-      if (plugin)
-      {
-        AudioData *data = audio::buffer::getDecoderData(i2s_rate / 1000 * AUDIO_DECODER_POLLING_CYCLE * i2s_bit / 8 * AUDIO_DECODER_CHANNEL);
-        if (data != nullptr)
+        unsigned long now_time = millis();
+        if (now_time - last_time > 1000)
         {
-          // logger::infoln("Audio Decoder num=%d size=%d!", data->num, data->size);
-          if (i2s_channel_write(i2s_tx_handle, data->data, data->size, NULL, AUDIO_DECODER_POLLING_CYCLE * 2) != ESP_OK)
-          {
-            logger::infoln("Audio Decoder write fail!");
-            last_fail++;
-          }
-          else
-          {
-            last_ok++;
-          }
-
-          unsigned long now_time = millis();
-          if (now_time - last_time > 1000)
-          {
-            last_time = now_time;
-            logger::warnln("Audio Decoder write %d/%d!", last_ok, last_fail + last_ok);
-            last_ok = 0;
-            last_fail = 0;
-          }
+          last_time = now_time;
+          logger::warnln("Audio Decoder write %d/%d!", last_ok, last_fail + last_ok);
+          last_ok = 0;
+          last_fail = 0;
         }
       }
     }
