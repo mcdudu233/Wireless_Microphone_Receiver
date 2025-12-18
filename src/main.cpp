@@ -6,6 +6,7 @@
 #include "module/rf.h"
 #include "module/tf.h"
 #include "module/button.h"
+#include "module/usb/usb.h"
 #include "module/audio/buffer.h"
 #include "module/audio/decoder.h"
 
@@ -15,10 +16,13 @@ extern "C" void app_main()
   config::setup();
   screen::setup();
   ui_loading_set_part("屏幕");
-  ui_loading_set_percent(25);
+  ui_loading_set_percent(20);
+  usb::setup();
+  ui_loading_set_part("USB");
+  ui_loading_set_percent(30);
   sys::setup();
   ui_loading_set_part("系统");
-  ui_loading_set_percent(30);
+  ui_loading_set_percent(35);
   button::setup();
   ui_loading_set_part("按钮");
   ui_loading_set_percent(40);
