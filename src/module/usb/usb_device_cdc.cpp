@@ -15,11 +15,79 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
 {
   USBCDCStream::_line_state_callback(itf, dtr, rts);
 }
+// 下载模式标志
+static bool flagDownload = false;
+void USBCDCStream::_line_state_callback(uint8_t itf, bool dtr, bool rts)
+{
+  if (_instance)
+  {
+    // RTS DTR
+    //  0   0    清除下载模式标志
+    //  0   1    置位下载模式标志
+    //  1   0    复位 ESP32-S3
+    //  1   1    无操作
+
+    if (!rts && !dtr)
+    {
+      flagDownload = false;
+    }
+    else if (!rts && dtr)
+    {
+      flagDownload = true;
+    }
+    else if (rts && !dtr)
+    {
+      if (flagDownload)
+      {
+        // 进入下载模式
+        // REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+        usb::download_later();
+      }
+      else
+      {
+        // 软重启
+        REG_WRITE(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_SW_SYS_RST);
+      }
+    }
+
+    // 终端连接
+    USBCDCSerial._connect();
+  }
+}
 
 // Invoked when CDC interface received data from host
 void tud_cdc_rx_cb(uint8_t itf)
 {
   USBCDCStream::_rx_callback(itf);
+}
+void USBCDCStream::_rx_callback(uint8_t itf)
+{
+  if (_instance)
+  {
+    uint8_t buf[64];
+    uint32_t count;
+
+    if (tud_cdc_connected() && tud_cdc_available())
+    {
+      count = tud_cdc_read(buf, sizeof(buf));
+
+      // 将数据存入环形缓冲区
+      for (uint32_t i = 0; i < count; i++)
+      {
+        size_t next_head = (_instance->_rx_head + 1) % _instance->_rx_buffer_size;
+        if (next_head != _instance->_rx_tail)
+        { // 缓冲区未满
+          _instance->_rx_buffer[_instance->_rx_head] = buf[i];
+          _instance->_rx_head = next_head;
+        }
+        else
+        {
+          // 缓冲区满，丢弃数据
+          break;
+        }
+      }
+    }
+  }
 }
 
 USBCDCStream::USBCDCStream(size_t rx_buffer_size)
@@ -80,6 +148,11 @@ int USBCDCStream::peek()
 
 void USBCDCStream::flush()
 {
+  if (!_connected)
+  {
+    return;
+  }
+
   tud_cdc_write_flush();
 }
 
@@ -134,76 +207,9 @@ void USBCDCStream::clear()
 
 int USBCDCStream::availableForWrite()
 {
+  if (!_connected)
+  {
+    return 0;
+  }
   return tud_cdc_write_available();
-}
-
-// 静态回调函数
-void USBCDCStream::_rx_callback(uint8_t itf)
-{
-  if (_instance)
-  {
-    uint8_t buf[64];
-    uint32_t count;
-
-    if (tud_cdc_connected() && tud_cdc_available())
-    {
-      count = tud_cdc_read(buf, sizeof(buf));
-
-      // 将数据存入环形缓冲区
-      for (uint32_t i = 0; i < count; i++)
-      {
-        size_t next_head = (_instance->_rx_head + 1) % _instance->_rx_buffer_size;
-        if (next_head != _instance->_rx_tail)
-        { // 缓冲区未满
-          _instance->_rx_buffer[_instance->_rx_head] = buf[i];
-          _instance->_rx_head = next_head;
-        }
-        else
-        {
-          // 缓冲区满，丢弃数据
-          break;
-        }
-      }
-    }
-  }
-}
-
-// 下载模式标志
-static bool flagDownload = false;
-void USBCDCStream::_line_state_callback(uint8_t itf, bool dtr, bool rts)
-{
-  if (_instance)
-  {
-    // RTS DTR
-    //  0   0    清除下载模式标志
-    //  0   1    置位下载模式标志
-    //  1   0    复位 ESP32-S3
-    //  1   1    无操作
-
-    if (!rts && !dtr)
-    {
-      flagDownload = false;
-    }
-    else if (!rts && dtr)
-    {
-      flagDownload = true;
-    }
-    else if (rts && !dtr)
-    {
-      if (flagDownload)
-      {
-        // 进入下载模式
-        // REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
-        usb::download_later();
-      }
-      else
-      {
-        // 软重启
-        // REG_WRITE(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_SW_SYS_RST);
-      }
-    }
-
-    // 终端连接
-    _instance->_connected = true;
-  }
 }

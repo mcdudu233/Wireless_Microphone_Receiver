@@ -18,6 +18,8 @@ private:
 public:
   static void _rx_callback(uint8_t itf);
   static void _line_state_callback(uint8_t itf, bool dtr, bool rts);
+  void _connect() { _connected = true; }
+  void _disconnect() { _connected = false; }
 
 public:
   USBCDCStream(size_t rx_buffer_size = 10 * 1024);
@@ -38,7 +40,7 @@ public:
   // 缓冲区管理
   void clear();
 
-  // 额外功能方法
+  // 是否丽连接成功
   bool connected() const { return _connected; }
   operator bool() { return connected(); }
 };

@@ -1,6 +1,8 @@
 #include "config.h"
 #include "logger.h"
 #include "module/usb/usb.h"
+#include "module/usb/usb_device_cdc.h"
+#include "module/usb/usb_device_uac.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -85,6 +87,7 @@ void usb::off()
   // 关闭TUSB
   if (usb_tusb_on)
   {
+    USBCDCSerial._disconnect();
     vTaskDelete(usb_task);
     if (!tusb_teardown())
     {

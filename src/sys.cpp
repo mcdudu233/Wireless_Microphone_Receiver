@@ -95,5 +95,54 @@ static void system_handle(void *arg)
 
 void sys::setup()
 {
+  esp_reset_reason_t reason = esp_reset_reason();
+  switch (reason)
+  {
+  case ESP_RST_PANIC: //!< Software reset due to exception/panic
+  {
+    break;
+  }
+
+  case ESP_RST_INT_WDT:  //!< Reset (software or hardware) due to interrupt watchdog
+  case ESP_RST_TASK_WDT: //!< Reset due to task watchdog
+  case ESP_RST_WDT:      //!< Reset due to other watchdogs
+  {
+    break;
+  }
+
+  case ESP_RST_UNKNOWN: //!< Reset reason can not be determined
+  {
+    break;
+  }
+
+  case ESP_RST_EFUSE: //!< Reset due to efuse error
+  {
+    break;
+  }
+
+  case ESP_RST_PWR_GLITCH: //!< Reset due to power glitch detected
+  {
+    break;
+  }
+
+  case ESP_RST_CPU_LOCKUP: //!< Reset due to CPU lock up (double exception)
+  {
+    break;
+  }
+
+  // 不需要提示
+  case ESP_RST_POWERON:   //!< Reset due to power-on event
+  case ESP_RST_EXT:       //!< Reset by external pin (not applicable for ESP32)
+  case ESP_RST_SW:        //!< Software reset via esp_restart
+  case ESP_RST_DEEPSLEEP: //!< Reset after exiting deep sleep mode
+  case ESP_RST_BROWNOUT:  //!< Brownout reset (software or hardware)
+  case ESP_RST_SDIO:      //!< Reset over SDIO
+  case ESP_RST_USB:       //!< Reset by USB peripheral
+  case ESP_RST_JTAG:      //!< Reset by JTAG
+  default:
+  {
+    break;
+  }
+  }
   xTaskCreatePinnedToCore(system_handle, "system_handle", TASK_SYSTEM_STACK, NULL, TASK_SYSTEM_PRIORITY, NULL, TASK_SYSTEM_CORE);
 }
