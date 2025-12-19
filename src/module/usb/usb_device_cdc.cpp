@@ -3,11 +3,9 @@
 
 #include "Arduino.h"
 #include "tusb.h"
-#include "esp_system.h"
-#include "driver/gpio.h"
+#include "soc/soc.h"
+#include "soc/system_reg.h"
 #include "soc/rtc_cntl_reg.h"
-#include "soc/rtc.h"
-#include "esp_rom_sys.h"
 
 USBCDCStream *USBCDCStream::_instance = nullptr;
 USBCDCStream USBCDCSerial;
@@ -30,14 +28,14 @@ USBCDCStream::USBCDCStream(size_t rx_buffer_size)
       _rx_head(0), _rx_tail(0)
 {
   // 分配环形缓冲区
-  _rx_buffer = new uint8_t[rx_buffer_size];
+  _rx_buffer = (uint8_t *)heap_caps_malloc(rx_buffer_size, MALLOC_CAP_SPIRAM);
   // 设置单例实例
   _instance = this;
 }
 
 USBCDCStream::~USBCDCStream()
 {
-  delete[] _rx_buffer;
+  heap_caps_free(_rx_buffer);
   if (_instance == this)
   {
     _instance = nullptr;
@@ -170,29 +168,42 @@ void USBCDCStream::_rx_callback(uint8_t itf)
   }
 }
 
+// 下载模式标志
+static bool flagDownload = false;
 void USBCDCStream::_line_state_callback(uint8_t itf, bool dtr, bool rts)
 {
   if (_instance)
   {
-    if (rts)
+    // RTS DTR
+    //  0   0    清除下载模式标志
+    //  0   1    置位下载模式标志
+    //  1   0    复位 ESP32-S3
+    //  1   1    无操作
+
+    if (!rts && !dtr)
     {
-      if (!dtr)
+      flagDownload = false;
+    }
+    else if (!rts && dtr)
+    {
+      flagDownload = true;
+    }
+    else if (rts && !dtr)
+    {
+      if (flagDownload)
       {
-        // 重启进入下载模式
-        REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+        // 进入下载模式
+        // REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+        usb::download_later();
       }
-      REG_WRITE(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_SW_SYS_RST);
+      else
+      {
+        // 软重启
+        // REG_WRITE(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_SW_SYS_RST);
+      }
     }
 
-    if (dtr)
-    {
-      // 终端连接
-      _instance->_connected = true;
-    }
-    else
-    {
-      // 终端断开连接
-      _instance->_connected = false;
-    }
+    // 终端连接
+    _instance->_connected = true;
   }
 }

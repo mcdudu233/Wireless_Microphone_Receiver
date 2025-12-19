@@ -33,15 +33,15 @@ static void system_handle(void *arg)
     tasks = (TaskStatus_t *)heap_caps_malloc(sizeof(TaskStatus_t) * tasks_size, MALLOC_CAP_SPIRAM);
     tasks_size = uxTaskGetSystemState(tasks, tasks_size, &tasktime);
 #ifdef SYSTEM_PRINT_INFORMATION
-    printf("CPU info:\n");
-    printf("  | Task | Run Time | Percentage |\n");
+    logger::debugln("CPU info:\n");
+    logger::debugln("  | Task | Run Time | Percentage |\n");
 #endif
     for (int i = 0; i < tasks_size; i++)
     {
 #ifdef SYSTEM_PRINT_INFORMATION
       uint32_t task_elapsed_time = tasks[i].ulRunTimeCounter;
       uint32_t percentage_time = task_elapsed_time * 100UL / 1000;
-      printf("  | %s | %d | %d |\n", tasks[i].pcTaskName, task_elapsed_time, percentage_time);
+      logger::debugln("  | %s | %d | %d |\n", tasks[i].pcTaskName, task_elapsed_time, percentage_time);
 #endif
       // 找到空闲任务
       if (strcmp(tasks[i].pcTaskName, "IDLE0") == 0)
@@ -71,7 +71,7 @@ static void system_handle(void *arg)
     last_tasks_size = tasks_size;
     last_tasktime = tasktime;
 #ifdef SYSTEM_PRINT_INFORMATION
-    printf("  CPU0:%f%, CPU1:%f%\n", systemInfo.cpu0Usage, systemInfo.cpu1Usage);
+    logger::debugln("  CPU0:%f%, CPU1:%f%\n", systemInfo.cpu0Usage, systemInfo.cpu1Usage);
 #endif
 
     // IRAM内存信息
@@ -86,9 +86,9 @@ static void system_handle(void *arg)
     systemInfo.psramTotalSize = systemInfo.psramUsedSize + heapInfo.total_free_bytes;
 
 #ifdef SYSTEM_PRINT_INFORMATION
-    printf("Memory Info:");
-    printf("  IRAM: %d/%dKB\n", systemInfo.iramUsedSize / 1024, systemInfo.iramTotalSize / 1024);
-    printf("  PSRAM: %d/%dKB\n", systemInfo.psramUsedSize / 1024, systemInfo.psramTotalSize / 1024);
+    logger::debugln("Memory Info:");
+    logger::debugln("  IRAM: %d/%dKB\n", systemInfo.iramUsedSize / 1024, systemInfo.iramTotalSize / 1024);
+    logger::debugln("  PSRAM: %d/%dKB\n", systemInfo.psramUsedSize / 1024, systemInfo.psramTotalSize / 1024);
 #endif
   }
 }

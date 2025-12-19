@@ -17,7 +17,7 @@ extern const lv_image_dsc_t system_info;
 extern const lv_image_dsc_t about;
 extern const lv_image_dsc_t microphone;
 extern const lv_image_dsc_t audio_o;
-extern const lv_image_dsc_t usb;
+extern const lv_image_dsc_t ui_img_usb;
 extern const lv_image_dsc_t wifi;
 extern const lv_image_dsc_t bt;
 // 字体资源

@@ -1,12 +1,13 @@
 #pragma once
 
 #include "cstdint"
+#include "module/usb/usb.h"
 
 // 配置文件名
 #define CONFIG_NAME "config"
 #define CONFIG_DATA_NAME "config"
 #define CONFIG_VERSION_NAME "version"
-#define CONFIG_VERSION_VALUE 0x0003 // 前两位大版本号 后两位小版本号
+#define CONFIG_VERSION_VALUE 0x0004 // 前两位大版本号 后两位小版本号
 
 // 多线程任务配置
 #define TASK_SYSTEM_CORE 1
@@ -24,8 +25,12 @@
 #define TASK_SCREEN_STACK 8192
 #define TASK_SCREEN_PRIORITY 3
 
-#define TASK_TUSB_CORE 0
-#define TASK_TUSB_PERIOD 10
+#define TASK_USB_CORE 0
+#define TASK_USB_PERIOD 1
+#define TASK_USB_STACK 4096
+#define TASK_USB_PRIORITY 3
+
+#define TASK_TUSB_CORE 1
 #define TASK_TUSB_STACK 4096
 #define TASK_TUSB_PRIORITY 3
 
@@ -41,17 +46,6 @@
 
 namespace config
 {
-  enum TransmitMode
-  {
-    TRANSMIT_MODE_BLE = 0,
-    TRANSMIT_MODE_WIFI = 1,
-  };
-  enum USBMode
-  {
-    USB_MODE_NONE = 0,
-    USB_MODE_AUDIO = 1,
-    USB_MODE_SD = 2,
-  };
 
   // 全局配置
   struct ConfigValue
@@ -69,7 +63,8 @@ namespace config
     // 协议配置
     struct
     {
-      TransmitMode mode = TRANSMIT_MODE_WIFI;
+      // true为WiFi false为BLE
+      bool mode = true;
     } rf;
     // USB配置
     struct

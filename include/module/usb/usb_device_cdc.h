@@ -20,7 +20,7 @@ public:
   static void _line_state_callback(uint8_t itf, bool dtr, bool rts);
 
 public:
-  USBCDCStream(size_t rx_buffer_size = 256);
+  USBCDCStream(size_t rx_buffer_size = 10 * 1024);
   virtual ~USBCDCStream();
 
   // Stream 方法
