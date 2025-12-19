@@ -227,7 +227,7 @@ void ui_setting_init()
     // lv_group_add_obj(lv_group_get_default(), cont);
     // lv_menu_set_load_page_event(menu, cont, sub_mechanics_page);
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &audio_o, "音频设置", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true);
+    cont = ui_create_text(root_page, &ui_img_audio, "音频设置", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true);
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_audio_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_audio_page);
@@ -236,7 +236,7 @@ void ui_setting_init()
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &bt, "设备连接", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true); // finish
+    cont = ui_create_text(root_page, &ui_img_bt, "设备连接", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true); // finish
     lv_group_add_obj(lv_group_get_default(), cont);
     // lv_menu_set_load_page_event(menu, cont, sub_bt_page);
     lv_obj_add_event_cb(cont, relink_bt_cb, LV_EVENT_CLICKED, NULL);
@@ -245,7 +245,7 @@ void ui_setting_init()
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &wifi, "无线传输设置", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true); // TODO: 传输协议（BLE udp tcp）
+    cont = ui_create_text(root_page, &ui_img_wifi, "无线传输设置", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true); // TODO: 传输协议（BLE udp tcp）
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_wireless_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_wireless_page);
@@ -263,7 +263,7 @@ void ui_setting_init()
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &system_info, "系统信息", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true);
+    cont = ui_create_text(root_page, &ui_img_system_info, "系统信息", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true);
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_system_page); // TODO: AWA  CPU核1、2占用 运行内存（IRAM PSRAM） tf储存
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_system_page);
@@ -272,7 +272,7 @@ void ui_setting_init()
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &about, "关于", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true); // TODO: 大标题 固件版本 作者 链接
+    cont = ui_create_text(root_page, &ui_img_about, "关于", LV_MENU_ITEM_BUILDER_VARIANT_1, std::nullopt, true); // TODO: 大标题 固件版本 作者 链接
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_about_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_about_page);

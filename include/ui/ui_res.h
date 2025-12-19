@@ -13,14 +13,30 @@
 #endif
 
 // 图片资源
-extern const lv_image_dsc_t system_info;
-extern const lv_image_dsc_t about;
-extern const lv_image_dsc_t microphone;
-extern const lv_image_dsc_t audio_o;
+extern const lv_image_dsc_t ui_img_system_info;
+extern const lv_image_dsc_t ui_img_about;
+extern const lv_image_dsc_t ui_img_microphone;
+extern const lv_image_dsc_t ui_img_audio;
 extern const lv_image_dsc_t ui_img_usb;
-extern const lv_image_dsc_t wifi;
-extern const lv_image_dsc_t bt;
+extern const lv_image_dsc_t ui_img_wifi;
+extern const lv_image_dsc_t ui_img_bt;
 // 字体资源
 extern const lv_font_t lv_font_harmonyos_12;
 extern const lv_font_t lv_font_harmonyos_14;
 extern const lv_font_t lv_font_harmonyos_16;
+
+// lottie资源
+extern unsigned char ui_lottie_Insider_loading_json[];
+extern unsigned int ui_lottie_Insider_loading_json_len;
+
+extern unsigned char ui_lottie_blue_finish_json[];
+extern unsigned int ui_lottie_blue_finish_json_len;
+
+extern unsigned char ui_lottie_Bluetooth_connect_json[];
+extern unsigned int ui_lottie_Bluetooth_connect_json_len;
+
+extern unsigned char ui_lottie_Bluetooth_finish_json[];
+extern unsigned int ui_lottie_Bluetooth_finish_json_len;
+
+extern unsigned char ui_lottie_fail_json[];
+extern unsigned int ui_lottie_fail_json_len;

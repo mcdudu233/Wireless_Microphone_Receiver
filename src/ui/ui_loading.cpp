@@ -42,6 +42,8 @@ static void loding_timer_cb(lv_timer_t *timer)
 // ui初始化函数
 void ui_loading_init()
 {
+    lv_obj_t *label;
+
     // 设置屏幕背景色为白色
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, LV_PART_MAIN);
@@ -56,16 +58,21 @@ void ui_loading_init()
     lv_obj_set_style_bg_opa(loading_widget, LV_OPA_90, LV_PART_MAIN);
 
     lv_obj_t *img = lv_img_create(loading_widget);
-    lv_img_set_src(img, &microphone);
+    lv_img_set_src(img, &ui_img_microphone);
     lv_img_set_zoom(img, 64);
     lv_obj_set_size(img, 32, 32);
-    lv_obj_align(img, LV_ALIGN_TOP_MID, -30, -5);
+    lv_obj_align(img, LV_ALIGN_TOP_MID, -45, 0);
 
-    lv_obj_t *label = lv_label_create(loading_widget);
-    lv_label_set_recolor(label, true);
-    lv_label_set_text(label, "#626367 作者:awa#");
+    label = lv_label_create(loading_widget);
+    lv_label_set_text(label, "无线麦克风");
     lv_obj_set_style_text_font(label, &lv_font_harmonyos_16, 0);
-    lv_obj_align_to(label, img, LV_ALIGN_OUT_RIGHT_MID, 6, 10);
+    lv_obj_align_to(label, img, LV_ALIGN_OUT_RIGHT_MID, 6, -7);
+
+    label = lv_label_create(loading_widget);
+    lv_label_set_recolor(label, true);
+    lv_label_set_text_fmt(label, "#626367 v:%d.%d#", CONFIG_VERSION_F, CONFIG_VERSION_S);
+    lv_obj_set_style_text_font(label, &lv_font_harmonyos_14, 0);
+    lv_obj_align_to(label, img, LV_ALIGN_OUT_RIGHT_MID, 15, 10);
 
     bar = lv_bar_create(loading_widget);
     lv_obj_set_width(bar, lv_pct(100));
@@ -80,4 +87,9 @@ void ui_loading_init()
 
     lv_timer_create(loding_timer_cb, 1, NULL); // 设置加载速率
     LV_LOG_INFO("timer已创建");
+    // ui_popwin_load("正在连接中...");
+    // ui_popwin_load("正在连接蓝牙...", ui_lottie_Bluetooth_connect_json, ui_lottie_Bluetooth_connect_json_len, 1000, 64, 64);
+    // ui_popwin_finish("连接成功.", ui_lottie_Bluetooth_finish_json, ui_lottie_Bluetooth_finish_json_len, 1000, 64, 64);
+    // ui_popwin_finish("连接失败!", ui_lottie_fail_json, ui_lottie_fail_json_len, 1000, 48, 48);
+    // ui_popwin_msgbox("awa");
 }
