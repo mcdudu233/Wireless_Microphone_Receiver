@@ -1,3 +1,4 @@
+#include "config.h"
 #include "ui/ui.h"
 #include "ui/ui_loading.h"
 
@@ -70,7 +71,7 @@ void ui_loading_init()
 
     label = lv_label_create(loading_widget);
     lv_label_set_recolor(label, true);
-    lv_label_set_text_fmt(label, "#626367 v:%d.%d#", CONFIG_VERSION_F, CONFIG_VERSION_S);
+    lv_label_set_text_fmt(label, "#626367 版本: %d.%d#", CONFIG_VERSION_VALUE >> 8, CONFIG_VERSION_VALUE & 0xff);
     lv_obj_set_style_text_font(label, &lv_font_harmonyos_14, 0);
     lv_obj_align_to(label, img, LV_ALIGN_OUT_RIGHT_MID, 15, 10);
 

@@ -27,10 +27,6 @@
 // 最大蓝牙连接数
 #define MAX_DEVICE_COUNT 4
 
-#define CONFIG_VERSION_VALUE 0x0100
-#define CONFIG_VERSION_F CONFIG_VERSION_VALUE >> 8
-#define CONFIG_VERSION_S CONFIG_VERSION_VALUE & 0xff
-
 void ui_bt_init();
 void ui_main_init();
 void ui_setting_init();

@@ -1,6 +1,7 @@
 #include "logger.h"
 #include "config.h"
 #include "sys.h"
+#include "ui/ui.h"
 
 SystemInfo systemInfo;
 
@@ -9,14 +10,8 @@ static void system_handle(void *arg)
 {
   // 记录CPU信息
   TaskStatus_t *tasks = NULL;
-  TaskStatus_t *last_tasks = NULL;
   UBaseType_t tasks_size;
-  UBaseType_t last_tasks_size;
   uint32_t tasktime;
-  uint32_t last_tasktime;
-  last_tasks_size = uxTaskGetNumberOfTasks();
-  last_tasks = (TaskStatus_t *)heap_caps_malloc(sizeof(TaskStatus_t) * last_tasks_size, MALLOC_CAP_SPIRAM);
-  last_tasks_size = uxTaskGetSystemState(last_tasks, last_tasks_size, &last_tasktime);
 
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(TASK_SYSTEM_PERIOD);
@@ -27,49 +22,30 @@ static void system_handle(void *arg)
 
     // 写入系统信息
     // CPU信息
-    uint64_t idle0 = 0;
-    uint64_t idle1 = 0;
     tasks_size = uxTaskGetNumberOfTasks();
-    tasks = (TaskStatus_t *)heap_caps_malloc(sizeof(TaskStatus_t) * tasks_size, MALLOC_CAP_SPIRAM);
+    tasks = (TaskStatus_t *)malloc(sizeof(TaskStatus_t) * tasks_size);
     tasks_size = uxTaskGetSystemState(tasks, tasks_size, &tasktime);
+    logger::debugln("task=%d", tasktime);
 #ifdef SYSTEM_PRINT_INFORMATION
     logger::debugln("CPU info:\n");
-    logger::debugln("  | Task | Run Time | Percentage |\n");
+    logger::debugln("  | Task | Percentage | Stack High |\n");
 #endif
     for (int i = 0; i < tasks_size; i++)
     {
 #ifdef SYSTEM_PRINT_INFORMATION
-      uint32_t task_elapsed_time = tasks[i].ulRunTimeCounter;
-      uint32_t percentage_time = task_elapsed_time * 100UL / 1000;
-      logger::debugln("  | %s | %d | %d |\n", tasks[i].pcTaskName, task_elapsed_time, percentage_time);
+      logger::debugln("  | %s | %F | %d |\n", tasks[i].pcTaskName, tasks[i].ulRunTimeCounter * 100.0 / tasktime, uxTaskGetStackHighWaterMark(tasks[i].xHandle));
 #endif
       // 找到空闲任务
       if (strcmp(tasks[i].pcTaskName, "IDLE0") == 0)
       {
-        idle0 += tasks[i].ulRunTimeCounter;
+        systemInfo.cpu0Usage = 100.0 - (tasks[i].ulRunTimeCounter * 100.0 / tasktime);
       }
       else if (strcmp(tasks[i].pcTaskName, "IDLE1") == 0)
       {
-        idle1 += tasks[i].ulRunTimeCounter;
+        systemInfo.cpu1Usage = 100.0 - (tasks[i].ulRunTimeCounter * 100.0 / tasktime);
       }
     }
-    for (int i = 0; i < last_tasks_size; i++)
-    {
-      if (strcmp(last_tasks[i].pcTaskName, "IDLE0") == 0)
-      {
-        idle0 -= last_tasks[i].ulRunTimeCounter;
-      }
-      else if (strcmp(last_tasks[i].pcTaskName, "IDLE1") == 0)
-      {
-        idle1 -= last_tasks[i].ulRunTimeCounter;
-      }
-    }
-    systemInfo.cpu0Usage = 100.0 - (idle0 * 100.0 / (tasktime - last_tasktime));
-    systemInfo.cpu1Usage = 100.0 - (idle1 * 100.0 / (tasktime - last_tasktime));
-    free(last_tasks);
-    last_tasks = tasks;
-    last_tasks_size = tasks_size;
-    last_tasktime = tasktime;
+    free(tasks);
 #ifdef SYSTEM_PRINT_INFORMATION
     logger::debugln("  CPU0:%F%, CPU1:%F%\n", systemInfo.cpu0Usage, systemInfo.cpu1Usage);
 #endif
