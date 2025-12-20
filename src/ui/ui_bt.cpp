@@ -9,9 +9,10 @@ static lv_group_t *g2; // list内部设备选项
 
 static void bt_list_click_event_cb(lv_event_t *e); // bt_list 被点击
 static void list_event_handler(lv_event_t *e);     // bt_list 项被点击
-static void bt_list_update_event_cb(lv_event_t *e);
-static void main_widget_cb(lv_event_t *e); // 完成按钮回调 -> 主窗口
-static void link_cb(lv_event_t *e);        // 蓝牙连接按钮点击回调函数
+static void main_widget_cb(lv_event_t *e);         // 完成按钮回调 -> 主窗口
+static void link_cb(lv_event_t *e);                // 蓝牙连接按钮点击回调函数
+static uint8_t ui_list_get_select_num();
+static uint8_t ui_list_get_link_num();
 
 void ui_bt_init()
 {
@@ -79,21 +80,29 @@ static void link_cb(lv_event_t *e)
 {
     lv_obj_t *btn;
     lv_obj_t *label;
-    lv_obj_t *list = (lv_obj_t *)lv_event_get_user_data(e);
-
-    int32_t cnt = lv_obj_get_child_count_by_type(list, &lv_list_button_class);
+    uint8_t n = ui_list_get_select_num();
+    if (n == 0)
+    {
+        ui_popwin_msgbox("请先选择\n要连接的设备", g1, bt_list);
+        return;
+    }
+    ui_popwin_load("正在连接蓝牙...", ui_lottie_Bluetooth_connect_json, ui_lottie_Bluetooth_connect_json_len, 1000, 64, 64, g1, bt_list);
+    int32_t cnt = lv_obj_get_child_count_by_type(bt_list, &lv_list_button_class);
     for (int i = 0; i < cnt; i++)
     {
-        btn = lv_obj_get_child_by_type(list, i, &lv_list_button_class);
+        btn = lv_obj_get_child_by_type(bt_list, i, &lv_list_button_class);
         if (lv_color_eq(lv_obj_get_style_bg_color(btn, LV_PART_MAIN), COLOR_SELECTED)) // 选中
         {
             label = lv_obj_get_child(btn, 0);
             char *bt_name = lv_label_get_text(label); // 待链接蓝牙的名称
             LV_LOG_USER("正在连接蓝牙%s", bt_name);
             bool state = ui_bt_link(bt_name);
+            // TODO: 适配
             if (state) // 链接成功
             {
-                lv_obj_set_style_bg_color(btn, COLOR_LINKING, LV_STATE_CHECKED); // 设置连接状态
+                lv_obj_set_style_bg_color(btn, COLOR_LINKED, LV_STATE_CHECKED); // 设置连接状态
+                lv_obj_set_user_data(btn, BT_LINKED);
+                ui_popwin_finish("连接成功.", ui_lottie_Bluetooth_finish_json, ui_lottie_Bluetooth_finish_json_len, 1000, 64, 64, g1, bt_list);
             }
         }
     }
@@ -102,9 +111,15 @@ static void link_cb(lv_event_t *e)
 // 完成按钮点击回调 进入主窗口
 static void main_widget_cb(lv_event_t *e)
 {
-    ui_main_init();
-    ui_bt_pause_search();
-    lv_obj_delete(bt_widget);
+    uint8_t n = ui_list_get_link_num();
+    if (n >= 1)
+    {
+        ui_bt_pause_search();
+        ui_main_init();
+        lv_obj_delete(bt_widget);
+    }
+    else
+        ui_popwin_msgbox("请先连接设备", g1, bt_list);
 }
 
 // 蓝牙列表点击事件回调
@@ -112,12 +127,13 @@ static void list_event_handler(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t *obj = lv_event_get_target_obj(e);
-    lv_obj_t *list = lv_obj_get_parent(obj);
     if (code == LV_EVENT_CLICKED)
     {
         lv_state_t current_state = lv_obj_get_state(obj);
         LV_LOG_USER("state:%d", current_state);
-        const char *bt_name = lv_list_get_button_text(list, obj);
+        const char *bt_name = lv_list_get_button_text(bt_list, obj);
+        ui_bind_group_to_all_encoders(g1);            // 外层group
+        lv_group_focus_obj(bt_list);                  // 重置焦点
         if (!lv_obj_has_state(obj, LV_STATE_CHECKED)) // 非选中状态说明之前为选中
         {
             // lv_color_t c = lv_obj_get_style_bg_color(obj, 0);
@@ -127,17 +143,37 @@ static void list_event_handler(lv_event_t *e)
                 bool ret = ui_bt_unlink(bt_name);
                 LV_LOG_USER("断开连接");
                 if (!ret)
+                {
                     lv_obj_add_state(obj, LV_STATE_CHECKED);
+                    ui_popwin_msgbox("断开失败", g1, bt_list);
+                }
                 else
+                {
                     lv_obj_set_style_bg_color(obj, COLOR_SELECTED, LV_STATE_CHECKED);
-                lv_obj_set_user_data(obj, BT_UNLINKED);
+                    ui_popwin_msgbox("已断开", g1, bt_list);
+                    lv_obj_set_user_data(obj, BT_UNLINKED);
+                    lv_obj_remove_state(obj, LV_STATE_CHECKED);
+                }
+            }
+        }
+        else // 之前为未选中
+        {
+            lv_obj_remove_state(obj, (lv_state_t)(current_state & ~LV_STATE_CHECKED));
+            uint8_t n = ui_list_get_select_num();
+            if (n > 1)
+            {
+                lv_obj_set_style_bg_color(obj, COLOR_SELECTED, LV_STATE_CHECKED);
                 lv_obj_remove_state(obj, LV_STATE_CHECKED);
+                ui_popwin_msgbox("一次只能\n选择一个", g1, bt_list);
+            }
+            else
+            {
+                ui_bind_group_to_all_encoders(g1); // 外层group
+                lv_group_focus_obj(bt_list);       // 重置焦点
             }
         }
         lv_obj_remove_state(obj, (lv_state_t)(current_state & ~LV_STATE_CHECKED));
-        lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
-        ui_bind_group_to_all_encoders(g1); // 外层group
-        lv_group_focus_obj(list);          // 重置焦点
+        lv_obj_clear_flag(bt_list, LV_OBJ_FLAG_SCROLLABLE);
         LV_LOG_USER("Clicked: %s", bt_name);
     }
 }
@@ -200,4 +236,29 @@ void ui_bt_update(const std::string &mac, std::optional<bool> is_link)
         LV_LOG_USER("设置蓝牙:%s 未连接状态", mac.c_str());
     }
     LV_UNLOCK();
+}
+
+static uint8_t ui_list_get_select_num()
+{
+    uint8_t n = 0;
+    int32_t cnt = lv_obj_get_child_count_by_type(bt_list, &lv_list_button_class);
+    for (int i = 0; i < cnt; i++)
+    {
+        lv_obj_t *btn = lv_obj_get_child_by_type(bt_list, i, &lv_list_button_class);
+        if (lv_color_eq(lv_obj_get_style_bg_color(btn, LV_PART_MAIN), COLOR_SELECTED)) // 选中
+            n++;
+    }
+    return n;
+}
+static uint8_t ui_list_get_link_num()
+{
+    uint8_t n = 0;
+    int32_t cnt = lv_obj_get_child_count_by_type(bt_list, &lv_list_button_class);
+    for (int i = 0; i < cnt; i++)
+    {
+        lv_obj_t *btn = lv_obj_get_child_by_type(bt_list, i, &lv_list_button_class);
+        if (lv_obj_get_user_data(btn) == BT_LINKED) // 选中
+            n++;
+    }
+    return n;
 }

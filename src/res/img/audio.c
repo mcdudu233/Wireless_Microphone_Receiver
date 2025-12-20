@@ -67524,7 +67524,7 @@ const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST LV_ATTRIBUTE_IMAGE_AUDIO u
     0x00,
 };
 
-const lv_image_dsc_t audio_o = {
+const lv_image_dsc_t ui_img_audio = {
     .header.cf = LV_COLOR_FORMAT_RGB565A8,
     .header.magic = LV_IMAGE_HEADER_MAGIC,
     .header.w = 150,

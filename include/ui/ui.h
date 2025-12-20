@@ -27,16 +27,25 @@
 // 最大蓝牙连接数
 #define MAX_DEVICE_COUNT 4
 
+#define CONFIG_VERSION_VALUE 0x0100
+#define CONFIG_VERSION_F CONFIG_VERSION_VALUE >> 8
+#define CONFIG_VERSION_S CONFIG_VERSION_VALUE & 0xff
+
 void ui_bt_init();
 void ui_main_init();
 void ui_setting_init();
 
 void ui_bind_group_to_all_encoders(lv_group_t *g);
-void ui_info_msgbox(std::string title, std::string content);
 
 lv_obj_t *ui_add_win();
 lv_obj_t *ui_add_button(lv_obj_t *parent, std::string title, int32_t w, int32_t h, const lv_font_t *font);
 lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb, const lv_font_t *font, std::optional<lv_color_t> bg_color);
+
+lv_obj_t **ui_popwin(bool has_bg = true, lv_group_t *g = nullptr, lv_obj_t *obj = nullptr);
+lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g = nullptr, lv_obj_t *obj = nullptr);
+lv_obj_t *ui_popwin_load(const char *text, const void *src, size_t src_size, int32_t time, int32_t w = 64, int32_t h = 64, lv_group_t *g = nullptr, lv_obj_t *obj = nullptr);
+lv_obj_t *ui_popwin_finish(const char *text, const void *src, size_t src_size, int32_t time, int32_t w = 64, int32_t h = 64, lv_group_t *g = nullptr, lv_obj_t *obj = nullptr);
+lv_obj_t *ui_lottie_create(lv_obj_t *parent, const void *src, size_t src_size, int32_t time, int32_t w = 64, int32_t h = 64);
 
 void ui_free_main_widget();
 void ui_set_hidden_main_widget(bool state);
