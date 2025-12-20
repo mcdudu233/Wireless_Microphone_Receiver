@@ -6,6 +6,9 @@
 
 #include "tusb.h"
 
+// 已经连接上
+static bool isConnected = false;
+
 /**********************************************/
 /*               音频设备信息回调              */
 /**********************************************/
@@ -229,64 +232,53 @@ bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const *p_reques
 /**********************************************/
 /*                音频流传输回调               */
 /**********************************************/
-static uint8_t buffer[UAC_MAX_BUF_SIZE];
 bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, uint8_t cur_alt_setting)
 {
-    (void)rhport;
-    (void)itf;
-    (void)ep_in;
-    (void)cur_alt_setting;
-
-    // tud_audio_write((uint8_t *)test_buffer_audio, (uint16_t)(sampFreq / (TUD_OPT_HIGH_SPEED ? 8000 : 1000) * bytesPerSample));
-
-    // In read world application data flow is driven by I2S clock,
-    // both tud_audio_tx_done_pre_load_cb() & tud_audio_tx_done_post_load_cb() are hardly used.
-    // For example in your I2S receive callback:
-    // void I2S_Rx_Callback(int channel, const void* data, uint16_t samples)
-    // {
-    //    tud_audio_write_support_ff(channel, data, samples * N_BYTES_PER_SAMPLE * N_CHANNEL_PER_FIFO);
-    // }
-
-    // uint8_t *buf;
-    // if (xQueueReceive(audio::encoder::data, buf, 0) == pdTRUE)
-    // {
-    //     uint16_t size = 96000 * 4 * 2 / 1000;
-    //     memcpy(buffer, buf, size);
-    //     delete[] buf;
-    //     tud_audio_write(buffer, size);
-    //     i++;
-    // }
-    // else
-    // {
-    //     logger::warnln("Audio Encoder's queue is empty!");
-    // }
-
+    usb::uac::_connect();
     return true;
 }
 
 bool tud_audio_tx_done_post_load_cb(uint8_t rhport, uint16_t n_bytes_copied, uint8_t itf, uint8_t ep_in, uint8_t cur_alt_setting)
 {
-    (void)rhport;
-    (void)n_bytes_copied;
-    (void)itf;
-    (void)ep_in;
-    (void)cur_alt_setting;
-
     return true;
 }
 
 // 收到关闭音频流信息
 bool tud_audio_set_itf_close_EP_cb(uint8_t rhport, tusb_control_request_t const *p_request)
 {
-    (void)rhport;
-
-    uint8_t const itf = tu_u16_low(tu_le16toh(p_request->wIndex));
-    uint8_t const alt = tu_u16_low(tu_le16toh(p_request->wValue));
-
-    logger::debugln("Microphone interface closed");
-
+    usb::uac::_disconnect();
     return true;
 }
 /**********************************************/
 /**********************************************/
 /**********************************************/
+
+bool usb::uac::connected()
+{
+    return isConnected;
+}
+
+void usb::uac::_connect()
+{
+    isConnected = true;
+}
+
+void usb::uac::_disconnect()
+{
+    isConnected = false;
+}
+
+#include "module/audio/buffer.h"
+// 音频数据
+static AudioData *data = nullptr;
+void usb::uac::_loop()
+{
+    if (isConnected)
+    {
+        data = audio::buffer::getUSBData();
+        if (data != nullptr)
+        {
+            tud_audio_write(data->data, data->size);
+        }
+    }
+}

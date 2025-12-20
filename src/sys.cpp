@@ -71,7 +71,7 @@ static void system_handle(void *arg)
     last_tasks_size = tasks_size;
     last_tasktime = tasktime;
 #ifdef SYSTEM_PRINT_INFORMATION
-    logger::debugln("  CPU0:%f%, CPU1:%f%\n", systemInfo.cpu0Usage, systemInfo.cpu1Usage);
+    logger::debugln("  CPU0:%F%, CPU1:%F%\n", systemInfo.cpu0Usage, systemInfo.cpu1Usage);
 #endif
 
     // IRAM内存信息

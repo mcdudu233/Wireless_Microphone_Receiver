@@ -28,6 +28,9 @@ static void usb_handle(void *arg)
   {
     xTaskDelayUntil(&xLastWakeTime, xFrequency);
 
+    // 处理 UAC
+    usb::uac::_loop();
+
     // 进入下载模式
     if (usb_download_later)
     {
@@ -87,6 +90,7 @@ void usb::off()
   // 关闭TUSB
   if (usb_tusb_on)
   {
+    usb::uac::_disconnect();
     USBCDCSerial._disconnect();
     vTaskDelete(usb_task);
     if (!tusb_teardown())

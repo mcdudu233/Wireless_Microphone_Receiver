@@ -102,19 +102,47 @@ void audio::buffer::writeWiFiPacket(WiFiAudioPacket *packet)
 static uint32_t decoderLastNumber = 0;
 AudioData *audio::buffer::getDecoderData()
 {
+  // 寻找是否有合适的包
   AudioData *audio = getAudioDataBufferFromNumber(decoderLastNumber);
-  if (audio == nullptr)
+  if (audio != nullptr)
   {
-    AudioData *tmp = getAudioDataBufferFront();
-    if (tmp != nullptr)
-    {
-      decoderLastNumber = tmp->num;
-    }
-    return nullptr;
+    decoderLastNumber++;
+    return audio;
   }
 
-  decoderLastNumber++;
-  return audio;
+  // 找不到则找最前面的包
+  audio = getAudioDataBufferFront();
+  if (audio != nullptr)
+  {
+    decoderLastNumber = audio->num;
+    return audio;
+  }
+
+  // 都没有返回空
+  return nullptr;
+}
+
+static uint32_t usbLastNumber = 0;
+AudioData *audio::buffer::getUSBData()
+{
+  // 寻找是否有合适的包
+  AudioData *audio = getAudioDataBufferFromNumber(usbLastNumber);
+  if (audio != nullptr)
+  {
+    usbLastNumber++;
+    return audio;
+  }
+
+  // 找不到则找最前面的包
+  audio = getAudioDataBufferFront();
+  if (audio != nullptr)
+  {
+    usbLastNumber = audio->num;
+    return audio;
+  }
+
+  // 都没有返回空
+  return nullptr;
 }
 
 void audio::buffer::restart()

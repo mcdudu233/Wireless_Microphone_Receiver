@@ -37,17 +37,17 @@ void USBCDCStream::_line_state_callback(uint8_t itf, bool dtr, bool rts)
     }
     else if (rts && !dtr)
     {
-      if (flagDownload)
-      {
-        // 进入下载模式
-        // REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
-        usb::download_later();
-      }
-      else
-      {
-        // 软重启
-        REG_WRITE(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_SW_SYS_RST);
-      }
+      usb::download_later();
+      // if (flagDownload)
+      // {
+      //   // 进入下载模式
+      //   // REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+      // }
+      // else
+      // {
+      //   // 软重启
+      //   // REG_WRITE(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_SW_SYS_RST);
+      // }
     }
 
     // 终端连接
@@ -202,7 +202,8 @@ size_t USBCDCStream::write(const uint8_t *buffer, size_t size)
 
 void USBCDCStream::clear()
 {
-  _rx_head = _rx_tail = 0;
+  _rx_head = 0;
+  _rx_tail = 0;
 }
 
 int USBCDCStream::availableForWrite()

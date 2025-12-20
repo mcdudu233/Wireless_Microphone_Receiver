@@ -1,3 +1,9 @@
 #pragma once
 
-#define UAC_MAX_BUF_SIZE 1536
+namespace usb::uac
+{
+  bool connected();
+  void _connect();
+  void _disconnect();
+  void _loop();
+}
