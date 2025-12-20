@@ -1,6 +1,4 @@
 #include "ui/ui.h"
-#include <vector>
-#include <cstring>
 
 lv_obj_t *pop_win;
 
@@ -227,18 +225,15 @@ lv_obj_t *ui_lottie_create(lv_obj_t *parent, const void *src, size_t src_size, i
 {
     lv_obj_t *lottie = lv_lottie_create(parent);
     lv_lottie_set_src_data(lottie, src, src_size);
-    size_t buf_size = static_cast<size_t>(w) * static_cast<size_t>(h) * 4;
-    uint8_t *buf = static_cast<uint8_t *>(lv_malloc(buf_size));
-    if (buf)
-    {
-        std::memset(buf, 0, buf_size);
-        lv_lottie_set_buffer(lottie, w, h, buf);
-        // 释放缓冲区：绑定到删除事件
-        lv_obj_add_event_cb(lottie, [](lv_event_t *e)
-                            {
-                                uint8_t *p = static_cast<uint8_t *>(lv_event_get_user_data(e));
-                                if (p) lv_free(p); }, LV_EVENT_DELETE, buf);
-    }
+    uint8_t *buf = (uint8_t *)lv_malloc(w * h * 4);
+    LV_ASSERT_MALLOC(buf);
+    lv_lottie_set_buffer(lottie, w, h, buf);
+    // 释放缓冲区：绑定到删除事件
+    lv_obj_add_event_cb(lottie, [](lv_event_t *e)
+                        {
+                            uint8_t *p = (uint8_t *)lv_event_get_user_data(e);
+                            if (p) lv_free(p); }, LV_EVENT_DELETE, buf);
+
     lv_obj_center(lottie);
     lv_anim_t *a = lv_lottie_get_anim(lottie);
     lv_anim_set_time(a, time);
