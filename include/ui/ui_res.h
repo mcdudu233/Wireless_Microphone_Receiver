@@ -24,19 +24,3 @@ extern const lv_image_dsc_t ui_img_bt;
 extern const lv_font_t lv_font_harmonyos_12;
 extern const lv_font_t lv_font_harmonyos_14;
 extern const lv_font_t lv_font_harmonyos_16;
-
-// lottie资源
-extern unsigned char ui_lottie_Insider_loading_json[];
-extern unsigned int ui_lottie_Insider_loading_json_len;
-
-extern unsigned char ui_lottie_blue_finish_json[];
-extern unsigned int ui_lottie_blue_finish_json_len;
-
-extern unsigned char ui_lottie_Bluetooth_connect_json[];
-extern unsigned int ui_lottie_Bluetooth_connect_json_len;
-
-extern unsigned char ui_lottie_Bluetooth_finish_json[];
-extern unsigned int ui_lottie_Bluetooth_finish_json_len;
-
-extern unsigned char ui_lottie_fail_json[];
-extern unsigned int ui_lottie_fail_json_len;

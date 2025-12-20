@@ -86,7 +86,7 @@ static void link_cb(lv_event_t *e)
         ui_popwin_msgbox("请先选择\n要连接的设备", g1, bt_list);
         return;
     }
-    ui_popwin_load("正在连接蓝牙...", ui_lottie_Bluetooth_connect_json, ui_lottie_Bluetooth_connect_json_len, 1000, 64, 64, g1, bt_list);
+    ui_popwin_msgbox("正在连接蓝牙...", g1, bt_list);
     int32_t cnt = lv_obj_get_child_count_by_type(bt_list, &lv_list_button_class);
     for (int i = 0; i < cnt; i++)
     {
@@ -102,7 +102,7 @@ static void link_cb(lv_event_t *e)
             {
                 lv_obj_set_style_bg_color(btn, COLOR_LINKED, LV_STATE_CHECKED); // 设置连接状态
                 lv_obj_set_user_data(btn, BT_LINKED);
-                ui_popwin_finish("连接成功.", ui_lottie_Bluetooth_finish_json, ui_lottie_Bluetooth_finish_json_len, 1000, 64, 64, g1, bt_list);
+                ui_popwin_msgbox("连接成功.", g1, bt_list);
             }
         }
     }
