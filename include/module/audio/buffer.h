@@ -5,10 +5,10 @@
 #include "module/audio/decoder.h"
 
 #define AUDIO_BUFFER_MAX_DATA_SIZE (AUDIO_DECODER_RATE * AUDIO_DECODER_BIT * AUDIO_DECODER_CHANNEL / 8 * AUDIO_DECODER_POLLING_CYCLE / 1000)
-#define AUDIO_BUFFER_MAX_BUFFER_SIZE 200
+#define AUDIO_BUFFER_MAX_BUFFER_SIZE 100
 
 // 传输延迟(等待多久才把数据输出,数值过低会导致爆音)
-#define AUDIO_BUFFER_DELAY_PACKET 20                                                      // 延迟多少个数据包
+#define AUDIO_BUFFER_DELAY_PACKET 10                                                      // 延迟多少个数据包
 #define AUDIO_BUFFER_DELAY_TIME (AUDIO_BUFFER_DELAY_PACKET * AUDIO_DECODER_POLLING_CYCLE) // 计算得到传输延迟
 
 struct AudioData

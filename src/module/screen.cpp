@@ -191,6 +191,7 @@ static void setup_lvgl()
           .swap_bytes = true,
       }};
   lvgl_port_add_disp(&disp_cfg);
+
   // 初始化输入设备
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_ENCODER);
@@ -236,12 +237,7 @@ void screen::setup()
        LVGL 内存分配函数
       采用 PSRAM 分配内存
 *****************************/
-#include "lv_conf.h"
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_CUSTOM
-
-/**********************
- *   GLOBAL FUNCTIONS
- **********************/
 
 void lv_mem_init(void)
 {
@@ -295,9 +291,5 @@ lv_result_t lv_mem_test_core(void)
   /*Not supported*/
   return LV_RESULT_OK;
 }
-
-/**********************
- *   STATIC FUNCTIONS
- **********************/
 
 #endif /*LV_STDLIB_CLIB*/

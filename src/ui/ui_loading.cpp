@@ -43,6 +43,9 @@ static void loding_timer_cb(lv_timer_t *timer)
 // ui初始化函数
 void ui_loading_init()
 {
+    // 设置全局样式和字体
+    lv_obj_set_style_text_font(lv_screen_active(), &lv_font_harmonyos_14, LV_STATE_DEFAULT);
+
     lv_obj_t *label;
 
     // 设置屏幕背景色为白色
