@@ -175,6 +175,7 @@ static void setup_lvgl()
       .panel_handle = lcd_panel_handle,
       .buffer_size = TFT_HOR_RES * TFT_VER_RES,
       .double_buffer = true,
+      .trans_size = TFT_HOR_RES * TFT_VER_RES,
       .hres = TFT_HOR_RES,
       .vres = TFT_VER_RES,
       .monochrome = false,
@@ -190,7 +191,6 @@ static void setup_lvgl()
           .swap_bytes = true,
       }};
   lvgl_port_add_disp(&disp_cfg);
-
   // 初始化输入设备
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_ENCODER);
