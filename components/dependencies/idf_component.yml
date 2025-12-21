@@ -1,7 +1,10 @@
 dependencies:
+  lvgl/lvgl:
+    version: ^9.4.0
+  espressif/esp_lvgl_port:
+    version: ^2.7.0
   espressif/tinyusb:
     version: ^0.18.0~6
-  idf: '>=5.0'
 description: Import for dependencies.
 targets:
 - esp32s3

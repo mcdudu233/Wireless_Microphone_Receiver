@@ -5,32 +5,16 @@
 #include "ui/ui_loading.h"
 
 #include "lvgl.h"
-#include "SPI.h"
+#include "esp_lcd_io_spi.h"
+#include "esp_lcd_st7735s.h"
+#include "esp_lvgl_port.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
-#include "Adafruit_GFX.h"
-#include "Adafruit_SPITFT.h"
-#include "Adafruit_ST7735.h"
 
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-
-// 时间回调
-static uint32_t tick_cb(void)
-{
-  return esp_timer_get_time() / 1000;
-}
-
-// 屏幕回调
-static void screen_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
-{
-  uint32_t w = (area->x2 - area->x1 + 1);
-  uint32_t h = (area->y2 - area->y1 + 1);
-  tft.drawRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, w, h);
-
-  lv_display_flush_ready(disp);
-}
+// 屏幕接口
+static esp_lcd_panel_io_handle_t io_handle = NULL;
+static esp_lcd_panel_handle_t lcd_panel_handle;
 
 // 按键回调
 static bool left = false;
@@ -86,86 +70,128 @@ void screen::backlight(float percent)
 static SemaphoreHandle_t lv_mutex;
 bool screen::lv_lock()
 {
-  return xSemaphoreTake(lv_mutex, 1) == pdTRUE;
+  return lvgl_port_lock(1);
 }
 void screen::lv_lock_wait()
 {
-  xSemaphoreTake(lv_mutex, portMAX_DELAY);
+  lvgl_port_lock(0);
 }
 void screen::lv_unlock()
 {
-  xSemaphoreGive(lv_mutex);
+  lvgl_port_unlock();
 }
 
 // 初始化显示屏
-static void setup_tft()
+static void setup_lcd()
 {
-  logger::debugln("TFT now starting to init.");
-  // 先初始化 SPI
-  SPI.begin(TFT_CLK, -1, TFT_MOSI, -1);
-  // 初始化 TFT
-  tft.initR(INITR_MINI160x80);
-  // tft.initR(INITR_MINI160x80_PLUGIN); // 颜色翻转
-  tft.setSPISpeed(TFT_SPI_FREQ);
-  tft.setRotation(3);
-  uint8_t madctl = ST77XX_MADCTL_MX | ST77XX_MADCTL_MV | TFT_COLOR;
-  tft.sendCommand(ST77XX_MADCTL, &madctl, 1);
-  logger::debugln("TFT is inited.");
+  esp_err_t ret;
 
-  tft.fillScreen(ST77XX_BLACK);
-  logger::debugln("TFT is started in black.");
+  // 初始化SPI
+  spi_bus_config_t spi_cfg = {
+      .mosi_io_num = TFT_MOSI,
+      .miso_io_num = GPIO_NUM_NC,
+      .sclk_io_num = TFT_CLK,
+      .quadwp_io_num = GPIO_NUM_NC,
+      .quadhd_io_num = GPIO_NUM_NC,
+      .max_transfer_sz = TFT_HOR_RES * TFT_VER_RES * sizeof(uint16_t),
+  };
+  ret = spi_bus_initialize(TFT_SPI_NUM, &spi_cfg, SPI_DMA_CH_AUTO);
+  if (ret != ESP_OK)
+  {
+    logger::warnln("LCD SPI init failed! reason=%d", ret);
+    return;
+  }
+
+  // 初始化LCD驱动
+  const esp_lcd_panel_io_spi_config_t io_config = {
+      .cs_gpio_num = TFT_CS,
+      .dc_gpio_num = TFT_DC,
+      .spi_mode = 0,
+      .pclk_hz = TFT_SPI_FREQ,
+      .trans_queue_depth = 10,
+      .lcd_cmd_bits = 8,
+      .lcd_param_bits = 8,
+  };
+  ret = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)1, &io_config, &io_handle);
+  if (ret != ESP_OK)
+  {
+    logger::warnln("LCD IO init failed! reason=%d", ret);
+    return;
+  }
+  const esp_lcd_panel_dev_config_t panel_config = {
+      .reset_gpio_num = TFT_RST,
+      .color_space = LCD_RGB_ELEMENT_ORDER_BGR,
+      .bits_per_pixel = 16,
+  };
+  ret = esp_lcd_new_panel_st7735s(io_handle, &panel_config, &lcd_panel_handle);
+  if (ret != ESP_OK)
+  {
+    logger::warnln("LCD Driver init failed! reason=%d", ret);
+    return;
+  }
+  ret = esp_lcd_panel_reset(lcd_panel_handle);
+  if (ret != ESP_OK)
+  {
+    logger::warnln("LCD Driver init failed! reason=%d", ret);
+    return;
+  }
+  ret = esp_lcd_panel_init(lcd_panel_handle);
+  if (ret != ESP_OK)
+  {
+    logger::warnln("LCD Driver init failed! reason=%d", ret);
+    return;
+  }
 
   // 初始化背光
   logger::debugln("TFT backlight now starting to init.");
   ledcAttach(TFT_BLK, TFT_BLK_FREQ, TFT_BLK_BIT);
-  screen::backlight(0);
+  screen::backlight(100);
   logger::debugln("TFT backlight is inited.");
-
-  // 测试帧率
-  // unsigned long last = millis();
-  // int i = 0;
-  // while (true)
-  // {
-  //   if (i % 2 == 0)
-  //   {
-  //     tft.fillScreen(ST77XX_BLACK);
-  //   }
-  //   else
-  //   {
-  //     tft.fillScreen(ST77XX_GREEN);
-  //   }
-  //   i++;
-  //   unsigned long now = millis();
-  //   if (now - last > 1000)
-  //   {
-  //     last = now;
-  //     logger::debugln("%d", i);
-  //     i = 0;
-  //   }
-  //   delay(1);
-  // }
 }
 
 // 初始化图形库
-static uint8_t screen_buffer[TFT_HOR_RES * TFT_VER_RES * 2]; /* x2 because of 16-bit color depth */
 static void setup_lvgl()
 {
-  // 初始化 LVGL
-  lv_init();
-  // lv_log_register_print_cb(log_cb);
-  lv_mutex = xSemaphoreCreateMutex();
+  esp_err_t ret;
 
-  // 设置时间
-  lv_tick_set_cb(tick_cb);
+  // 初始化LVGL
+  const lvgl_port_cfg_t lvgl_cfg = {
+      .task_priority = TASK_SCREEN_PRIORITY, /* LVGL task priority */
+      .task_stack = TASK_SCREEN_STACK,       /* LVGL task stack size */
+      .task_affinity = TASK_SCREEN_CORE,     /* LVGL task pinned to core (-1 is no affinity) */
+      .task_max_sleep_ms = 500,              /* Maximum sleep in LVGL task */
+      .timer_period_ms = TASK_SCREEN_PERIOD  /* LVGL timer tick period in ms */
+  };
+  ret = lvgl_port_init(&lvgl_cfg);
+  if (ret != ESP_OK)
+  {
+    logger::warnln("LVGL init failed!");
+    return;
+  }
 
-  // 创建屏幕 RGB565
-  lv_display_t *display = lv_display_create(TFT_HOR_RES, TFT_VER_RES);
-  lv_display_set_buffers(display, screen_buffer, NULL, sizeof(screen_buffer), LV_DISPLAY_RENDER_MODE_PARTIAL);
-  lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
-  lv_display_set_flush_cb(display, screen_cb);
-  // lv_display_set_rotation(display, LV_DISP_ROTATION_270);
+  // 初始化屏幕
+  const lvgl_port_display_cfg_t disp_cfg = {
+      .io_handle = io_handle,
+      .panel_handle = lcd_panel_handle,
+      .buffer_size = TFT_HOR_RES * TFT_VER_RES,
+      .double_buffer = true,
+      .hres = TFT_HOR_RES,
+      .vres = TFT_VER_RES,
+      .monochrome = false,
+      .rotation = {
+          .swap_xy = true,
+          .mirror_x = true,
+          .mirror_y = false,
+      },
+      .color_format = LV_COLOR_FORMAT_RGB565,
+      .flags = {
+          .buff_dma = true,
+          .buff_spiram = true,
+          .swap_bytes = true,
+      }};
+  lvgl_port_add_disp(&disp_cfg);
 
-  // 创建输入设备 按钮操作
+  // 初始化输入设备
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_ENCODER);
   lv_indev_set_read_cb(indev, button_cb);
@@ -174,21 +200,6 @@ static void setup_lvgl()
   lv_indev_set_group(indev, group);
 
   logger::debugln("LVGL is started.");
-}
-
-static void screen_handle(void *arg)
-{
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(TASK_SCREEN_PERIOD);
-  while (true)
-  {
-    xTaskDelayUntil(&xLastWakeTime, xFrequency);
-
-    // 图形库处理
-    LV_LOCK();
-    lv_timer_handler();
-    LV_UNLOCK();
-  }
 }
 
 // 屏幕渐亮线程
@@ -208,11 +219,10 @@ static void screen_backlight_on_handle(void *arg)
 void screen::setup()
 {
   logger::debugln("Screen is starting...");
-  setup_tft();
+  setup_lcd();
   setup_lvgl();
 
   // 创建图形库处理线程
-  xTaskCreatePinnedToCore(screen_handle, "screen_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL, TASK_SCREEN_CORE);
   xTaskCreatePinnedToCore(screen_backlight_on_handle, "screen_backlight_on_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL, TASK_SCREEN_CORE);
 
   LV_LOCK();

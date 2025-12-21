@@ -25,7 +25,6 @@ static void system_handle(void *arg)
     tasks_size = uxTaskGetNumberOfTasks();
     tasks = (TaskStatus_t *)malloc(sizeof(TaskStatus_t) * tasks_size);
     tasks_size = uxTaskGetSystemState(tasks, tasks_size, &tasktime);
-    logger::debugln("task=%d", tasktime);
 #ifdef SYSTEM_PRINT_INFORMATION
     logger::debugln("CPU info:\n");
     logger::debugln("  | Task | Percentage | Stack High |\n");
