@@ -21,7 +21,6 @@
 #define WIDGET_H 160
 // 实际垂直
 #define WIDGET_V 80
-
 // 主窗口数据获取周期 单位：ms
 #define DEVICE_DATA_REFLUSH_TIME 500
 // 最大蓝牙连接数

@@ -82,17 +82,11 @@ void ui_main_init()
     lv_obj_set_size(label_widget, 160 * 0.3 + 5, 35);
     lv_obj_align_to(label_widget, info_widget, LV_ALIGN_OUT_RIGHT_MID, 2, -5);
 
-    upload_label = lv_label_create(label_widget);
-    lv_label_set_recolor(upload_label, true);
-    lv_label_set_text_fmt(upload_label, "#00FF00 %s#%.1fb/s", LV_SYMBOL_UP, 0);
-    lv_obj_set_style_text_font(upload_label, &lv_font_harmonyos_12, 0);
-    lv_obj_align(upload_label, LV_ALIGN_TOP_LEFT, 0, 0);
-
     download_label = lv_label_create(label_widget);
     lv_label_set_recolor(download_label, true);
-    lv_label_set_text_fmt(download_label, "#00FF00 %s#%.1fb/s", LV_SYMBOL_DOWN, 1.1);
+    lv_label_set_text_fmt(download_label, "#333333 %s#%.1fb/s", LV_SYMBOL_DOWNLOAD, 1.1);
     lv_obj_set_style_text_font(download_label, &lv_font_harmonyos_12, 0);
-    lv_obj_align_to(download_label, upload_label, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 0);
+    lv_obj_align(download_label, LV_ALIGN_CENTER, 0, 0);
 
     btn = ui_add_button(main_widget, "设置", 160 * 0.3, 25, NULL);
     lv_obj_align_to(btn, info_widget, LV_ALIGN_OUT_RIGHT_MID, 3, 20);

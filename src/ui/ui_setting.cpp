@@ -1,5 +1,6 @@
 #include "ui/ui.h"
 #include "ui/ui_setting.h"
+#include "config.h"
 #include <string>
 #include <optional>
 
@@ -11,6 +12,15 @@ static lv_style_t scroll_style;
 
 static bool enter_bottom = false;
 static lv_obj_t *root_page_ref = NULL;
+
+static lv_obj_t *dd_audio_bit;
+static lv_obj_t *dd_audio_channel;
+static lv_obj_t *dd_audio_freq;
+static lv_obj_t *dd_audio_volumn_mode;
+
+static lv_obj_t *dd_wireless_mode;
+
+static lv_obj_t *dd_usb_mode;
 
 static lv_obj_t *cpu1;
 static lv_obj_t *cpu2;
@@ -29,9 +39,8 @@ static void scroll_event_cb(lv_event_t *e);
 
 static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt,
                                 lv_menu_builder_variant_t builder_variant, std::optional<lv_obj_t **> label_o = std::nullopt, std::optional<bool> is_from_svg = std::nullopt);
-static lv_obj_t *ui_create_slider(lv_obj_t *parent, const char *icon, const char *txt, int32_t min, int32_t max,
+static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
                                   int32_t val);
-static lv_obj_t *ui_create_switch(lv_obj_t *parent, const char *icon, const char *txt, bool chk);
 static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const char *txt, const char *options, std::optional<lv_obj_t **> dd_o = std::nullopt);
 static lv_obj_t *ui_create_sub_page(lv_obj_t *parent, const char *title, bool display_scroll = true); // 新建子页面
 
@@ -77,7 +86,6 @@ void ui_setting_init()
     }
 
     lv_obj_t *cont;
-    lv_obj_t *dd;
 
     /*Create sub pages*/
     lv_obj_t *sub_about_page = ui_create_sub_page(menu, "关于", false);
@@ -173,10 +181,13 @@ void ui_setting_init()
     lv_label_set_recolor(sd, true);
 
     // section = lv_menu_section_create(sub_usb_page);
-    ui_create_dropdown(sub_usb_page, NULL, "传输模式", "音频传输\n"
-                                                       "读卡器",
-                       &dd);
-    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)1);
+    ui_create_dropdown(sub_usb_page, NULL, "传输模式", "默认"
+                                                       "音频\n"
+                                                       "读卡器\n"
+                                                       "JTAG",
+
+                       &dd_usb_mode);
+    lv_obj_add_event_cb(dd_usb_mode, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)1);
     // 音频 频率 比特 通道 下拉菜单
     // 48000 96000 192000 Hz
     // 16 24 32 bit
@@ -185,26 +196,31 @@ void ui_setting_init()
     ui_create_dropdown(sub_audio_page, NULL, "采样率", "48000Hz\n"
                                                        "96000Hz\n"
                                                        "192000Hz",
-                       &dd);
-    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)2);
+                       &dd_audio_freq);
+    lv_obj_add_event_cb(dd_audio_freq, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)2);
     // section = lv_menu_section_create(sub_audio_page);
     ui_create_dropdown(sub_audio_page, NULL, "位深度", "16bit\n"
                                                        "24bit\n"
                                                        "32bit",
-                       &dd);
-    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)3);
+                       &dd_audio_bit);
+    lv_obj_add_event_cb(dd_audio_bit, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)3);
     // section = lv_menu_section_create(sub_audio_page);
     ui_create_dropdown(sub_audio_page, NULL, "通道数", "单通道\n"
                                                        "立体声",
-                       &dd);
-    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)4);
+                       &dd_audio_channel);
+    lv_obj_add_event_cb(dd_audio_channel, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)4);
+    ui_create_dropdown(sub_audio_page, NULL, "增益模式", "自动增益\n"
+                                                         "峰值减少\n"
+                                                         "手动",
+                       &dd_audio_volumn_mode);
+    // TODO:缺少事件
+    ui_create_slider(sub_audio_page, NULL, "增益", 0, 60, 0);
 
     // section = lv_menu_section_create(sub_wireless_page);
     ui_create_dropdown(sub_wireless_page, NULL, "传输协议", "BLE\n"
-                                                            "UDP\n"
-                                                            "TCP",
-                       &dd);
-    lv_obj_add_event_cb(dd, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)5);
+                                                            "WIFI\n",
+                       &dd_wireless_mode);
+    lv_obj_add_event_cb(dd_wireless_mode, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)5);
 
     // lv_obj_align(dd, LV_ALIGN_TOP_MID, 0, 20);
     // lv_obj_add_event_cb(dd, event_handler, LV_EVENT_ALL, NULL);
@@ -290,6 +306,21 @@ void ui_setting_init()
     lv_obj_scroll_to_view(lv_obj_get_child(root_page, 0), LV_ANIM_OFF);
 
     sys_info_timer = lv_timer_create(sys_info_timer_cb, SYSTEM_INFO_REFLUSH_TIME, NULL);
+    // TODO:获取数据
+    uint32_t i;
+    switch (config::config.audio.channel)
+    {
+    case 1:
+        i = 0;
+        break;
+    case 2:
+        i = 1;
+        break;
+    default:
+        i = 1;
+        break;
+    }
+    lv_dropdown_set_selected(dd_audio_channel, i);
 }
 
 // 设置页面back按钮回调
@@ -301,6 +332,8 @@ static void back_cb(lv_event_t *e)
         ui_set_hidden_main_widget(false);
         lv_timer_delete(sys_info_timer);
         lv_obj_del(setting_widget);
+        // TODO:加入msgbox获取是否立即生效
+        ui_update_config();
     }
     else
     {
@@ -381,30 +414,34 @@ static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *
     }
     return obj;
 }
-static lv_obj_t *create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
-                               int32_t val)
+static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
+                                  int32_t val)
 {
-    lv_obj_t *obj = ui_create_text(parent, icon, txt, LV_MENU_ITEM_BUILDER_VARIANT_2);
-
+    lv_obj_t *title;
+    lv_obj_t *obj = ui_create_text(parent, icon, txt, LV_MENU_ITEM_BUILDER_VARIANT_1, &title);
+    lv_group_remove_obj(obj);
     lv_obj_t *slider = lv_slider_create(obj);
-    lv_obj_set_flex_grow(slider, 1);
+    lv_obj_set_style_pad_all(slider, 0, LV_PART_KNOB);
+    lv_obj_align_to(slider, title, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+    lv_obj_set_size(slider, lv_pct(73), 20);
     lv_slider_set_range(slider, min, max);
     lv_slider_set_value(slider, val, LV_ANIM_OFF);
 
-    if (icon == NULL)
-    {
-        lv_obj_add_flag(slider, LV_OBJ_FLAG_FLEX_IN_NEW_TRACK);
-    }
+    lv_obj_t *pct = lv_label_create(slider);
+    lv_label_set_text_fmt(pct, "%d%%", 0);
+    lv_obj_set_style_text_color(pct, lv_color_hex(0x333333), 0);
+    lv_obj_align(pct, LV_ALIGN_CENTER, 0, 0);
 
-    return obj;
-}
-static lv_obj_t *ui_create_switch(lv_obj_t *parent, const void *icon, const char *txt, bool chk)
-{
-    lv_obj_t *obj = ui_create_text(parent, icon, txt, LV_MENU_ITEM_BUILDER_VARIANT_1);
-
-    lv_obj_t *sw = lv_switch_create(obj);
-    lv_obj_add_state(sw, chk ? LV_STATE_CHECKED : LV_STATE_DEFAULT);
-
+    lv_obj_add_event_cb(slider, [](lv_event_t *e)
+                        {
+        lv_obj_t * slider = (lv_obj_t*)lv_event_get_target(e);
+        lv_obj_t* pct = (lv_obj_t*) lv_event_get_user_data(e);
+        lv_label_set_text_fmt(pct,"%d",lv_slider_get_value(slider)); }, LV_EVENT_VALUE_CHANGED, pct);
+    lv_obj_add_event_cb(slider, [](lv_event_t *e)
+                        {
+        lv_obj_t* target = lv_event_get_target_obj(e);
+        lv_obj_t* parent = lv_obj_get_parent(target);
+        lv_obj_scroll_to_view_recursive(parent,LV_ANIM_ON); }, LV_EVENT_FOCUSED, NULL);
     return obj;
 }
 // 创建下拉列表， options: apple\nbanana...
@@ -423,6 +460,17 @@ static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const ch
     lv_obj_add_flag(dd, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_align_to(dd, label, LV_ALIGN_OUT_RIGHT_MID, 0, 0);
     lv_group_add_obj(lv_group_get_default(), dd);
+
+    lv_obj_t *list = lv_dropdown_get_list(dd);
+    for (int i = 0; i < lv_obj_get_child_count_by_type(list, &lv_button_class); i++)
+    {
+        lv_obj_t *child = lv_obj_get_child_by_type(list, i, &lv_button_class);
+        lv_obj_add_event_cb(child, [](lv_event_t *e)
+                            {
+            lv_obj_t* target = (lv_obj_t*)lv_event_get_target_obj(e);
+            lv_obj_scroll_to_view_recursive(target,LV_ANIM_ON); }, LV_EVENT_FOCUSED, NULL);
+    }
+
     lv_obj_add_event_cb(dd, [](lv_event_t *e)
                         {
         lv_obj_t *dd = lv_event_get_target_obj(e);
@@ -484,20 +532,62 @@ static void choose_cb(lv_event_t *e)
         ui_set_transmit_mode(choice);
         break;
     case 2:
+        switch (choice)
+        {
+        case 0:
+            config::config.audio.rate = 48000;
+            break;
+        case 1:
+            config::config.audio.rate = 96000;
+            break;
+        case 2:
+            config::config.audio.rate = 192000;
+            break;
+        default:
+            break;
+        }
         ui_set_sample_freq(choice);
         break;
     case 3:
+        switch (choice)
+        {
+        case 0:
+            config::config.audio.bit = 16;
+            break;
+        case 1:
+            config::config.audio.bit = 24;
+            break;
+        case 2:
+            config::config.audio.bit = 32;
+            break;
+        default:
+            break;
+        }
+
         ui_set_bit(choice);
         break;
     case 4:
+        switch (choice)
+        {
+        case 0:
+            config::config.audio.channel = 1;
+            break;
+        case 1:
+            config::config.audio.channel = 2;
+            break;
+        default:
+            break;
+        }
         ui_set_channel(choice);
         break;
     case 5:
         ui_set_transmit_protocol(choice);
+
         break;
     default:
         break;
     }
+    config::save();
 }
 static void sys_info_timer_cb(lv_timer_t *)
 {
@@ -635,5 +725,8 @@ void ui_set_channel(const uint32_t &choice)
 }
 // 传输协议 0:BLE 1:UDP 2:TCP
 void ui_set_transmit_protocol(const uint32_t &choice)
+{
+}
+void ui_update_config()
 {
 }

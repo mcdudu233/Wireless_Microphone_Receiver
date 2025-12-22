@@ -22,7 +22,7 @@ namespace SystemInfo
 }
 
 // 定义
-// 传输模式 0:音频转换 1:usb
+// 传输模式 0:默认 1:音频 2:读卡器 3:JTAG
 void ui_set_transmit_mode(const uint32_t &choice);
 // 采样率 0:48000 1:96000 2:192000
 void ui_set_sample_freq(const uint32_t &choice);
@@ -30,5 +30,8 @@ void ui_set_sample_freq(const uint32_t &choice);
 void ui_set_bit(const uint32_t &choice);
 // 通道数 0:单通道 1:立体声
 void ui_set_channel(const uint32_t &choice);
-// 传输协议 0:BLE 1:UDP 2:TCP
+// 传输协议 0:BLE 1:WIFI
 void ui_set_transmit_protocol(const uint32_t &choice);
+
+// 更新新的配置时调用
+void ui_update_config();
