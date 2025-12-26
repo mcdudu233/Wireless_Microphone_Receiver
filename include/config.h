@@ -7,7 +7,7 @@
 #define CONFIG_NAME "config"
 #define CONFIG_DATA_NAME "config"
 #define CONFIG_VERSION_NAME "version"
-#define CONFIG_VERSION_VALUE 0x0004 // 前两位大版本号 后两位小版本号
+#define CONFIG_VERSION_VALUE 0x0005 // 前两位大版本号 后两位小版本号
 
 // 多线程任务配置
 #define TASK_SYSTEM_CORE 1
@@ -56,8 +56,10 @@ namespace config
       uint8_t channel = 2;
       uint32_t rate = 48000;
       uint8_t bit = 16;
+      // 增益模式 自动增益;峰值减少;手动
       bool autoVolumn = true;
       bool peekVolumn = false;
+      // 增益
       uint8_t volumn = 30;
     } audio;
     // 协议配置

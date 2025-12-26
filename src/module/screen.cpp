@@ -145,7 +145,7 @@ static void setup_lcd()
   // 初始化背光
   logger::debugln("TFT backlight now starting to init.");
   ledcAttach(TFT_BLK, TFT_BLK_FREQ, TFT_BLK_BIT);
-  screen::backlight(100);
+  screen::backlight(0);
   logger::debugln("TFT backlight is inited.");
 }
 

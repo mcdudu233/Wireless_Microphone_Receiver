@@ -82,6 +82,11 @@ void usb::on(USBMode mode)
     usb_sd_mode();
     break;
   }
+  case USB_MODE_NONE:
+  default:
+  {
+    break;
+  }
   }
 }
 
