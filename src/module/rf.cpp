@@ -31,6 +31,7 @@ struct DeviceConnection
 #include "host/ble_hs.h"
   // 设备信息
   uint8_t battery;
+  int8_t rssi;
   // 蓝牙记录
   bool bleConnected;
   bool bleDoConnect;
@@ -39,10 +40,12 @@ struct DeviceConnection
   ble_l2cap_chan *bleChannel;
   // WIFI记录
   bool wifiConnected;
+  uint8_t wifiConnectionMAC[6];
   uint32_t wifiConnectionIP;
 };
 static std::map<std::string, DeviceConnection> devices;
-// static std::map<uint16_t, DeviceConnection *> connectionToDevice;
+static std::map<uint32_t, DeviceConnection *> ipToDevice;
+static std::map<std::string, DeviceConnection *> macToDevice;
 
 // 计算音频传输速度
 static uint32_t speed = 0;
@@ -269,12 +272,16 @@ static void ble_start_scanning();
 static void ble_stop_scanning();
 
 // 地址转换为字符串
-static std::string bleBdaToStr(ble_addr_t bda)
+static std::string bleBdaToStr(uint8_t bda[6])
 {
   char bda_str[18];
   snprintf(bda_str, sizeof(bda_str), "%02x:%02x:%02x:%02x:%02x:%02x",
-           bda.val[0], bda.val[1], bda.val[2], bda.val[3], bda.val[4], bda.val[5]);
+           bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
   return std::string(bda_str);
+}
+static std::string bleBdaToStr(ble_addr_t bda)
+{
+  return bleBdaToStr(bda.val);
 }
 
 // L2CAP 事件
@@ -781,6 +788,7 @@ static void rf_receive_packet(const uint8_t *data)
   // BLE音频数据包
   case PACKET_TYPE_BLE_AUDIO:
   {
+    // audio::buffer::writeBLEPacket(&packet->packet.audioDataWiFi);
     break;
   }
 
@@ -793,6 +801,30 @@ static void rf_receive_packet(const uint8_t *data)
   // 客户端状态
   case PACKET_TYPE_CLIENT_STATUS:
   {
+    uint32_t ip = packet->packet.clientStatus.wifiIP;
+    std::string mac = bleBdaToStr(packet->packet.clientStatus.bleMAC);
+    if (ip != PACKET_CLIENT_STATUS_WIFI_IP_NONE)
+    {
+      if (!ipToDevice.contains(ip))
+      {
+        DeviceConnection &device = devices[mac];
+        memcpy(device.wifiConnectionMAC, packet->packet.clientStatus.wifiMAC, 6);
+        device.wifiConnectionIP = ip;
+        macToDevice[bleBdaToStr(packet->packet.clientStatus.wifiMAC)] = &device;
+        ipToDevice[ip] = &device;
+      }
+      DeviceConnection &device = *ipToDevice[ip];
+      device.battery = packet->packet.clientStatus.battery;
+    }
+    else
+    {
+      if (devices.contains(mac))
+      {
+        DeviceConnection &device = devices[mac];
+        device.battery = packet->packet.clientStatus.battery;
+      }
+    }
+    logger::debugln("RF client status received, mac=%s, ip=0x%08x, battery=%d%%", mac.c_str(), ip, packet->packet.clientStatus.battery);
     break;
   }
 
@@ -823,6 +855,8 @@ static void rf_handle(void *arg)
 {
   // 缓存
   netbuf *receiveBuffer = NULL;
+  // rssi
+  wifi_sta_list_t staList;
 
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(TASK_RF_PERIOD);
@@ -868,6 +902,19 @@ static void rf_handle(void *arg)
           speedData += len;
         } while (netbuf_next(receiveBuffer) >= 0);
         netbuf_delete(receiveBuffer);
+      }
+    }
+
+    /* 获取信号强度 */
+    esp_wifi_ap_get_sta_list(&staList);
+    for (int i = 0; i < staList.num; i++)
+    {
+      wifi_sta_info_t station = staList.sta[i];
+      std::string address = bleBdaToStr(station.mac);
+      if (macToDevice.contains(address))
+      {
+        DeviceConnection &device = *macToDevice[address];
+        device.rssi = station.rssi;
       }
     }
 
