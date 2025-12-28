@@ -233,19 +233,25 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char
 
 void ui_free_main_widget()
 {
-    for (int i = 0; i < MAX_DEVICE_COUNT; i++)
+    for (size_t i = 0; i < cards.size(); ++i)
     {
-        if (tabs[i] == NULL)
-            break;
-        lv_obj_t *cur_tab = tabs[i];
-        lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
-        if (card == NULL)
-            break;
-        device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
-        lv_free(card_data);
+        device_card_data *card_data = cards[i];
+        if (card_data)
+        {
+            lv_free(card_data);
+        }
     }
-    // lv_timer_delete(pull_data_timer);
-    lv_obj_delete(main_widget);
+    cards.clear();
+    for (int i = 0; i < MAX_DEVICE_COUNT; ++i)
+    {
+        tabs[i] = NULL;
+    }
+
+    if (main_widget && lv_obj_is_valid(main_widget))
+    {
+        lv_obj_delete(main_widget);
+        main_widget = NULL;
+    }
 }
 
 void ui_set_hidden_main_widget(bool state)
@@ -260,7 +266,8 @@ device_card_data *ui_info_get_obj(const std::string &mac)
     int i = 0;
     for (device_card_data *dev : cards)
     {
-        if (strcmp(dev->device_name, mac.c_str()))
+        // 修正为等值判断：strcmp 返回 0 表示字符串相等
+        if (strcmp(dev->device_name, mac.c_str()) == 0)
         {
             return dev;
         }
@@ -342,7 +349,7 @@ void ui_info_set_signal(device_card_data *card, int8_t pct)
     if (card != nullptr)
     {
         LV_LOCK();
-        lv_label_set_text_fmt(card->power_label, "信号%d", pct);
+        lv_label_set_text_fmt(card->signal_label, "信号%d", pct);
         LV_UNLOCK();
     }
 }
