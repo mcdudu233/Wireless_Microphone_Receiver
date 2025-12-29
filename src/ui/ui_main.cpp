@@ -275,7 +275,7 @@ device_card_data *ui_info_get_obj(const std::string &mac)
     }
     return nullptr;
 }
-void ui_info_set_bar_pct(lv_obj_t *bar, int8_t pct)
+void ui_info_set_bar_pct(lv_obj_t *&bar, int8_t pct)
 {
     LV_LOCK();
     lv_bar_set_value(bar, pct, LV_ANIM_ON);
@@ -311,7 +311,7 @@ void ui_info_del_card(const std::string &mac)
         i++;
     }
 }
-void ui_info_del_card(device_card_data *card)
+void ui_info_del_card(device_card_data *&card)
 {
     ui_info_del_card(std::string(card->device_name));
 }
@@ -325,7 +325,7 @@ void ui_info_set_power(const std::string &mac, int8_t pct)
         LV_UNLOCK();
     }
 }
-void ui_info_set_power(device_card_data *card, int8_t pct)
+void ui_info_set_power(device_card_data *&card, int8_t pct)
 {
     if (card != nullptr)
     {
@@ -344,7 +344,7 @@ void ui_info_set_signal(const std::string &mac, int8_t pct)
         LV_UNLOCK();
     }
 }
-void ui_info_set_signal(device_card_data *card, int8_t pct)
+void ui_info_set_signal(device_card_data *&card, int8_t pct)
 {
     if (card != nullptr)
     {
