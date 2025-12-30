@@ -7,6 +7,8 @@ static lv_obj_t *bt_widget;
 static lv_group_t *g1; // list 俩个按钮
 static lv_group_t *g2; // list内部设备选项
 
+static lv_style_t style_list_button;
+
 static void bt_list_click_event_cb(lv_event_t *e); // bt_list 被点击
 static void list_event_handler(lv_event_t *e);     // bt_list 项被点击
 static void finish_button_cb(lv_event_t *e);       // 完成按钮回调 -> 主窗口
@@ -19,6 +21,9 @@ void ui_bt_init()
     lv_obj_t *btn;
     lv_obj_t *label;
     bt_widget = ui_add_win();
+
+    lv_style_init(&style_list_button);
+    lv_style_set_pad_all(&style_list_button, 0);
 
     g1 = lv_group_create(); // 外层group
     g2 = lv_group_create(); // 内层group list的内部按钮选项
@@ -217,7 +222,7 @@ void ui_bt_update(const std::string &mac, std::optional<bool> is_link)
         btn = lv_obj_get_child_by_type(bt_list, j, &lv_list_button_class);
         label = lv_obj_get_child(btn, 0);
         bt_name = lv_label_get_text(label); // 蓝牙mac
-        if (bt_name == mac)                 // 链接成功
+        if (bt_name == mac)
         {
             is_exist = true;
             break;
@@ -226,6 +231,7 @@ void ui_bt_update(const std::string &mac, std::optional<bool> is_link)
     if (!is_exist)
     {
         btn = ui_add_list_obj(bt_list, mac, list_event_handler, NULL, COLOR_NONE);
+        lv_obj_add_style(btn, &style_list_button, 0);
         lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
         lv_group_add_obj(g2, btn);
     }

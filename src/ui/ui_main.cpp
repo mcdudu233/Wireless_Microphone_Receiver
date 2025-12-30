@@ -4,7 +4,6 @@
 #include <algorithm>
 
 static lv_style_t style_indic_h; // 横向bar样式
-static lv_style_t style_indic_v;
 static lv_obj_t *info_widget;
 static lv_obj_t *main_widget;
 static lv_obj_t *transmit_speed_label;
