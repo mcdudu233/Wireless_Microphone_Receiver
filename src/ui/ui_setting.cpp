@@ -38,8 +38,7 @@ static void sys_info_timer_cb(lv_timer_t *); // 系统信息更新timer
 static void back_btn_focus_cb(lv_event_t *e);
 static void scroll_event_cb(lv_event_t *e);
 
-static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt,
-                                lv_menu_builder_variant_t builder_variant, lv_obj_t **label_o = nullptr, bool is_from_svg = false);
+static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt, lv_obj_t **label_o = nullptr, bool is_from_svg = false);
 static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
                                   int32_t val, lv_obj_t **slider_obj = nullptr);
 static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const char *txt, const char *options, lv_obj_t **dd_o = nullptr);
@@ -162,11 +161,11 @@ void ui_setting_init()
 
     lv_spangroup_refresh(spans);
 
-    ui_create_text(sub_system_page, NULL, "CPU 1", LV_MENU_ITEM_BUILDER_VARIANT_1, &cpu1);
-    ui_create_text(sub_system_page, NULL, "CPU 2", LV_MENU_ITEM_BUILDER_VARIANT_1, &cpu2);
-    ui_create_text(sub_system_page, NULL, "IRAM", LV_MENU_ITEM_BUILDER_VARIANT_1, &iram);
-    ui_create_text(sub_system_page, NULL, "PSRAM", LV_MENU_ITEM_BUILDER_VARIANT_1, &psram);
-    ui_create_text(sub_system_page, NULL, "外置存储", LV_MENU_ITEM_BUILDER_VARIANT_1, &sd);
+    ui_create_text(sub_system_page, NULL, "CPU 1", &cpu1);
+    ui_create_text(sub_system_page, NULL, "CPU 2", &cpu2);
+    ui_create_text(sub_system_page, NULL, "IRAM", &iram);
+    ui_create_text(sub_system_page, NULL, "PSRAM", &psram);
+    ui_create_text(sub_system_page, NULL, "外置存储", &sd);
 
     lv_label_set_recolor(cpu1, true);
     lv_label_set_recolor(cpu2, true);
@@ -219,7 +218,7 @@ void ui_setting_init()
     lv_obj_add_style(root_page, &scroll_style, LV_PART_SCROLLBAR);
     lv_obj_add_event_cb(root_page, scroll_event_cb, LV_EVENT_SCROLL, NULL);
 
-    cont = ui_create_text(root_page, &ui_img_audio, "音频设置", LV_MENU_ITEM_BUILDER_VARIANT_1, nullptr, true);
+    cont = ui_create_text(root_page, &ui_img_audio, "音频设置", nullptr, true);
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_audio_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_audio_page);
@@ -228,7 +227,7 @@ void ui_setting_init()
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &ui_img_bt, "设备连接", LV_MENU_ITEM_BUILDER_VARIANT_1, nullptr, true); // finish
+    cont = ui_create_text(root_page, &ui_img_bt, "设备连接", nullptr, true); // finish
     lv_group_add_obj(lv_group_get_default(), cont);
     // lv_menu_set_load_page_event(menu, cont, sub_bt_page);
     lv_obj_add_event_cb(cont, relink_bt_cb, LV_EVENT_CLICKED, NULL);
@@ -236,7 +235,7 @@ void ui_setting_init()
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
-    cont = ui_create_text(root_page, &ui_img_wifi, "无线传输设置", LV_MENU_ITEM_BUILDER_VARIANT_1, nullptr, true);
+    cont = ui_create_text(root_page, &ui_img_wifi, "无线传输设置", nullptr, true);
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_rf_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_rf_page);
@@ -245,7 +244,7 @@ void ui_setting_init()
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &ui_img_usb, "USB传输设置", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    cont = ui_create_text(root_page, &ui_img_usb, "USB传输设置");
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_usb_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_usb_page);
@@ -254,7 +253,7 @@ void ui_setting_init()
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &ui_img_system_info, "系统信息", LV_MENU_ITEM_BUILDER_VARIANT_1, nullptr, true);
+    cont = ui_create_text(root_page, &ui_img_system_info, "系统信息", nullptr, true);
     lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_system_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_system_page);
@@ -263,7 +262,7 @@ void ui_setting_init()
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &ui_img_about, "关于", LV_MENU_ITEM_BUILDER_VARIANT_1, nullptr, true);
+    cont = ui_create_text(root_page, &ui_img_about, "关于", nullptr, true);
     lv_menu_set_load_page_event(menu, cont, sub_about_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_about_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
@@ -328,8 +327,7 @@ static void relink_bt_cb(lv_event_t *e)
     ui_bt_init();
 }
 
-static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt,
-                                lv_menu_builder_variant_t builder_variant, lv_obj_t **label_o, bool is_from_svg)
+static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt, lv_obj_t **label_o, bool is_from_svg)
 {
     lv_obj_t *obj = lv_menu_cont_create(parent);
     lv_obj_t *img = NULL;
@@ -363,26 +361,13 @@ static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *
         label = lv_label_create(obj);
         lv_label_set_text(label, txt);
         lv_obj_set_style_text_color(label, lv_color_hex(0x333333), 0);
-        // lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-        // lv_obj_set_flex_grow(label, 1);
     }
 
-    if (builder_variant == LV_MENU_ITEM_BUILDER_VARIANT_2 && icon && txt)
-    {
-        lv_obj_add_flag(img, LV_OBJ_FLAG_FLEX_IN_NEW_TRACK);
-        lv_obj_swap(img, label);
-    }
-    // lv_obj_set_style_text_font(obj,&lv_font_montserrat_10,0);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_group_add_obj(lv_group_get_default(), obj);
 
-    // lv_obj_add_event_cb(obj, [](lv_event_t *e)
-    //                     {
-    //     lv_obj_t* target = lv_event_get_target_obj(e);
-    //     lv_obj_scroll_to_view(target, LV_ANIM_ON);
-    // }, LV_EVENT_FOCUSED, NULL);
     if (label_o)
     {
         *label_o = label;
@@ -393,7 +378,7 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
                                   int32_t val, lv_obj_t **slider_obj)
 {
     lv_obj_t *title;
-    lv_obj_t *obj = ui_create_text(parent, icon, txt, LV_MENU_ITEM_BUILDER_VARIANT_1, &title);
+    lv_obj_t *obj = ui_create_text(parent, icon, txt, &title);
     lv_group_remove_obj(obj);
     lv_obj_t *slider = lv_slider_create(obj);
     lv_obj_set_style_pad_all(slider, 0, LV_PART_KNOB);
@@ -428,7 +413,7 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
 static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const char *txt, const char *options, lv_obj_t **dd_o)
 {
     lv_obj_t *label;
-    lv_obj_t *obj = ui_create_text(parent, icon, txt, LV_MENU_ITEM_BUILDER_VARIANT_1, &label);
+    lv_obj_t *obj = ui_create_text(parent, icon, txt, &label);
 
     // 从焦点组中移除标签容器，使其无法被编码器选中
     lv_group_remove_obj(obj);

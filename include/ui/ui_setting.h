@@ -1,10 +1,5 @@
 #pragma once
 #include "config.h"
-typedef enum
-{
-    LV_MENU_ITEM_BUILDER_VARIANT_1,
-    LV_MENU_ITEM_BUILDER_VARIANT_2
-} lv_menu_builder_variant_t;
 
 // 系统信息刷新周期 ms
 #define SYSTEM_INFO_REFLUSH_TIME 1000
