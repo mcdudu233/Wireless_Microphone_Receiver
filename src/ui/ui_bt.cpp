@@ -217,7 +217,7 @@ void ui_bt_update(const std::string &mac, std::optional<bool> is_link)
         btn = lv_obj_get_child_by_type(bt_list, j, &lv_list_button_class);
         label = lv_obj_get_child(btn, 0);
         bt_name = lv_label_get_text(label); // 蓝牙mac
-        if (bt_name == mac)                 // 链接成功
+        if (bt_name == mac)
         {
             is_exist = true;
             break;
@@ -226,6 +226,9 @@ void ui_bt_update(const std::string &mac, std::optional<bool> is_link)
     if (!is_exist)
     {
         btn = ui_add_list_obj(bt_list, mac, list_event_handler, NULL, COLOR_NONE);
+        lv_obj_set_height(btn, 30);
+        lv_obj_set_style_pad_all(btn, 0, 0);
+        lv_obj_set_style_height(btn, 30, LV_PART_MAIN);
         lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
         lv_group_add_obj(g2, btn);
     }
