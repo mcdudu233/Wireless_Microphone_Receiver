@@ -2,7 +2,7 @@
 
 #include "cinttypes"
 
-#define SYSTEM_PRINT_INFORMATION
+// #define SYSTEM_PRINT_INFORMATION
 
 struct SystemInfo
 {
