@@ -97,7 +97,6 @@ static void link_cb(lv_event_t *e)
             char *bt_name = lv_label_get_text(label); // 待链接蓝牙的名称
             LV_LOG_USER("正在连接蓝牙%s", bt_name);
             bool state = ui_bt_link(bt_name);
-            // TODO: 适配
             if (state) // 链接成功
             {
                 lv_obj_set_style_bg_color(btn, COLOR_LINKED, LV_STATE_CHECKED); // 设置连接状态

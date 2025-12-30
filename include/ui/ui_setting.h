@@ -10,17 +10,19 @@ typedef enum
 #define SYSTEM_INFO_REFLUSH_TIME 1000
 #define AUTHOR "awa"
 #define WEBSITE "https://www.github.com"
-// api
-namespace SystemInfo
-{
-    extern uint8_t cpu1;
-    extern uint8_t cpu2;
-    extern uint64_t IRAM;
-    extern uint64_t PSRAM;
-    extern uint64_t SD;
-}
 
-// 定义
+// 获取系统信息调用
+void ui_setting_system_page_rcb(uint8_t &cpu1_pct, uint8_t &cpu2_pct, uint64_t &iram_current, uint64_t &psram_current, uint64_t &sd_current);
 
 // 更新新的配置时调用
-void ui_update_config();
+
+// audio页面读取回调
+void ui_setting_audio_page_rcb(uint8_t &bit, uint8_t &channel, uint32_t &rate, uint8_t &volumn, uint8_t &volumn_mode);
+// audio页面保存回调 now: 是否立即生效
+void ui_setting_audio_page_scb(uint8_t bit, uint8_t channel, uint32_t rate, uint8_t volumn, uint8_t &volumn_mode, bool now);
+
+void ui_setting_usb_page_rcb(USBMode &mode);
+void ui_setting_usb_page_scb(USBMode mode, bool now);
+
+void ui_setting_rf_page_rcb(bool &mode);
+void ui_setting_rf_page_scb(bool mode, bool now);
