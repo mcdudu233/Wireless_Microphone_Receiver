@@ -36,10 +36,12 @@ static i2s_data_bit_width_t i2s_bit;
 static bool powerOn = false;
 static bool plugin = false;
 
+// 记录丢包率
+// static unsigned long last_time = millis();
+// static int last_ok = 0;
+// static int last_fail = 0;
+
 // 实时处理音频数据
-static unsigned long last_time = millis();
-static int last_ok = 0;
-static int last_fail = 0;
 static void audioHandle(void *arg)
 {
   // 音频数据
@@ -88,21 +90,21 @@ static void audioHandle(void *arg)
         if (i2s_channel_write(i2s_tx_handle, data->data, data->size, NULL, AUDIO_DECODER_POLLING_CYCLE * 2) != ESP_OK)
         {
           logger::infoln("Audio Decoder write fail!");
-          last_fail++;
+          // last_fail++;
         }
-        else
-        {
-          last_ok++;
-        }
+        // else
+        // {
+        //   last_ok++;
+        // }
 
-        unsigned long now_time = millis();
-        if (now_time - last_time > 1000)
-        {
-          last_time = now_time;
-          logger::warnln("Audio Decoder write %d/%d!", last_ok, last_fail + last_ok);
-          last_ok = 0;
-          last_fail = 0;
-        }
+        // unsigned long now_time = millis();
+        // if (now_time - last_time > 1000)
+        // {
+        //   last_time = now_time;
+        //   logger::warnln("Audio Decoder write %d/%d!", last_ok, last_fail + last_ok);
+        //   last_ok = 0;
+        //   last_fail = 0;
+        // }
       }
     }
   }

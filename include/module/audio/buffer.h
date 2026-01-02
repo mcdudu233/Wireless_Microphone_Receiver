@@ -24,23 +24,10 @@ namespace audio::buffer
   // 重置指针
   void restart();
 
-  /* 原始方法 */
-  // 获取当前指针
-  uint8_t getPointer();
-  // 获取当前音频包号码
-  uint32_t getNumber();
-  // 获取目前的音频原始数据包
-  AudioData *getAudioDataFront();
-  // 获取目前的音频原始数据包(带缓冲)
-  AudioData *getAudioDataBufferFront();
-  // 根据音频包号码获取音频原始数据包
-  AudioData *getAudioDataFromNumber(uint32_t number);
-  // 根据音频包号码获取音频原始数据包(带缓冲)
-  AudioData *getAudioDataBufferFromNumber(uint32_t number);
-
   /* 写入数据 */
   // 写入音频数据
   void writeWiFiPacket(WiFiAudioPacket *packet);
+  // void writeBLEPacket(BLEAudioPacket *packet);
 
   /* 读取数据 */
   // 获取音频解码器的数据

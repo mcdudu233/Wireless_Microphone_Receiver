@@ -751,6 +751,9 @@ void ui_bt_pause_search()
     configDevice.packet.start = true;
     ble_send(device, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_DEVICE_SIZE);
   }
+
+  delay(1000);
+  ble_close();
 }
 /****************************/
 
