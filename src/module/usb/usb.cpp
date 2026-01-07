@@ -166,6 +166,23 @@ static void usb_sd_mode()
 {
 }
 
+// 界面获取USB设置
+void ui_setting_usb_page_rcb(USBMode &mode)
+{
+  mode = config::config.usb.mode;
+}
+
+// 界面保存USB设置
+void ui_setting_usb_page_scb(USBMode mode, bool now)
+{
+  config::config.usb.mode = mode;
+  config::save();
+  if (now)
+  {
+    usb::on(mode);
+  }
+}
+
 /*               USB设备回调              */
 // Invoked when device is mounted
 void tud_mount_cb(void)
