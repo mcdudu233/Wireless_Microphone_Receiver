@@ -819,8 +819,8 @@ void rf::reconfigure()
   config::config.audio.autoVolumn = false;
   config::config.audio.peekVolumn = true;
   config::config.audio.volumn = 30;
-  config::config.audio.bit = 32;
-  config::config.audio.rate = 48000;
+  config::config.audio.bit = 24;
+  config::config.audio.rate = 96000;
 
   configAudio.packet.channel = config::config.audio.channel;
   configAudio.packet.rate = config::config.audio.rate;

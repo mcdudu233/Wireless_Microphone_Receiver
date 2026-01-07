@@ -121,3 +121,12 @@ void sys::setup()
   }
   xTaskCreatePinnedToCore(system_handle, "system_handle", TASK_SYSTEM_STACK, NULL, TASK_SYSTEM_PRIORITY, NULL, TASK_SYSTEM_CORE);
 }
+
+// 界面读取系统信息
+void ui_setting_system_page_rcb(uint8_t &cpu1_pct, uint8_t &cpu2_pct, uint64_t &iram_current, uint64_t &psram_current, uint64_t &sd_current)
+{
+  cpu1_pct = (uint8_t)(systemInfo.cpu0Usage + 0.5);
+  cpu2_pct = (uint8_t)(systemInfo.cpu1Usage + 0.5);
+  iram_current = systemInfo.iramUsedSize;
+  psram_current = systemInfo.psramUsedSize;
+}

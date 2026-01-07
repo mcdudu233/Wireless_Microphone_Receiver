@@ -154,7 +154,7 @@ void ui_setting_init()
     lv_span_t *span;
 
     span = lv_spangroup_add_span(spans);
-    lv_span_set_text_fmt(span, "固件版本: v%u.%u\n作者: %s\n外部链接: %s",
+    lv_span_set_text_fmt(span, "固件版本: v%u.%u\n作者: %s\n%s",
                          CONFIG_VERSION_VALUE >> 8, CONFIG_VERSION_VALUE & 0xFF, AUTHOR, WEBSITE);
     lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
     lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
@@ -783,9 +783,6 @@ static void save_config(uint8_t &p, bool now)
     }
 }
 
-void ui_setting_system_page_rcb(uint8_t &cpu1_pct, uint8_t &cpu2_pct, uint64_t &iram_current, uint64_t &psram_current, uint64_t &sd_current)
-{
-}
 // audio页面读取回调
 void ui_setting_audio_page_rcb(uint8_t &bit, uint8_t &channel, uint32_t &rate, uint8_t &volumn, uint8_t &volumn_mode)
 {

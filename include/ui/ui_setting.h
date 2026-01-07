@@ -3,8 +3,8 @@
 
 // 系统信息刷新周期 ms
 #define SYSTEM_INFO_REFLUSH_TIME 1000
-#define AUTHOR "awa"
-#define WEBSITE "https://www.github.com"
+#define AUTHOR "dudu233, tiosa"
+#define WEBSITE "www.mcso.top/mic"
 
 // 获取系统信息调用
 void ui_setting_system_page_rcb(uint8_t &cpu1_pct, uint8_t &cpu2_pct, uint64_t &iram_current, uint64_t &psram_current, uint64_t &sd_current);
