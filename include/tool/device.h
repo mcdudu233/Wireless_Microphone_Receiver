@@ -69,46 +69,16 @@ public:
   void print();
 };
 
-// MAC地址结构体
-struct MACKey
-{
-  uint8_t mac[6];
-
-  MACKey() { memset(mac, 0, 6); }
-  MACKey(const uint8_t m[6]) { memcpy(mac, m, 6); }
-
-  bool operator==(const MACKey &other) const
-  {
-    return memcmp(mac, other.mac, 6) == 0;
-  }
-};
-
-// MACKey的哈希函数
-struct MACKeyHash
-{
-  size_t operator()(const MACKey &key) const
-  {
-    size_t hash = 0;
-    // 将6个字节组合成一个哈希值
-    for (int i = 0; i < 6; i++)
-    {
-      hash = hash * 31 + key.mac[i];
-    }
-    return hash;
-  }
-};
-
 class DeviceManager
 {
 private:
   uint8_t deviceCount = 0;
   Device devices[RF_MAX_CONNECTION];
-  std::unordered_map<MACKey, Device *, MACKeyHash> bleMACToDevice;
-  std::unordered_map<MACKey, Device *, MACKeyHash> wifiMACToDevice;
+  std::unordered_map<int64_t, Device *> bleMACToDevice;
+  std::unordered_map<int64_t, Device *> wifiMACToDevice;
   std::unordered_map<uint32_t, Device *> wifiIPToDevice;
 
-  std::unordered_map<MACKey, uint32_t, MACKeyHash> wifiMACToIP;
-
+  std::unordered_map<int64_t, uint32_t> wifiMACToIP;
 public:
   // 添加设备
   Device *addDevice(uint8_t bleMAC[6]);
