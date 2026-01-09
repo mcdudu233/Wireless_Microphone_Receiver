@@ -109,32 +109,24 @@ void ui_main_init()
                                    {
                                         // 更新数据
                                         lv_obj_t *obj;
-                                        int8_t pct;
-                                        std::string speed;
+                                        std::string speed = ui_info_get_transmit_speed();
 
                                         uint32_t act = lv_tabview_get_tab_active(tabview);
                                         lv_obj_t *content = lv_tabview_get_content(tabview);
                                         lv_obj_t *cur_tab = lv_obj_get_child(content, act);
                                         lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
                                         device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
-
-                                        // 设置传输速度
-                                        ui_info_get_transmit_speed(speed);
+                                        
                                         lv_label_set_text_fmt(transmit_speed_label, "#00FF00 %s#%s", LV_SYMBOL_DOWNLOAD, speed.c_str());
 
                                         // 设置卡片内信息
                                         if (card_data == nullptr)
                                             return;
 
-
-                                        ui_info_get_left_voice(card_data->device_mac,pct);
-                                        lv_bar_set_value(card_data->left_voice_bar,pct,LV_ANIM_ON);
-                                        ui_info_get_right_voice(card_data->device_mac,pct);
-                                        lv_bar_set_value(card_data->right_voice_bar,pct,LV_ANIM_ON);
-                                        ui_info_get_power(card_data->device_mac, pct);
-                                        lv_label_set_text_fmt(card_data->power_label, "电量%d", pct);
-                                        ui_info_get_signal(card_data->device_mac, pct);
-                                        lv_label_set_text_fmt(card_data->signal_label, "信号%d", pct); },
+                                        lv_bar_set_value(card_data->left_voice_bar, ui_info_get_left_voice(card_data->device_mac), LV_ANIM_ON);
+                                        lv_bar_set_value(card_data->right_voice_bar, ui_info_get_right_voice(card_data->device_mac), LV_ANIM_ON);
+                                        lv_label_set_text_fmt(card_data->power_label, "电量%d", ui_info_get_power(card_data->device_mac));
+                                        lv_label_set_text_fmt(card_data->signal_label, "信号%d", ui_info_get_signal(card_data->device_mac)); },
                                    UPDATE_TIMER_PERIOD, NULL);
 }
 
@@ -296,15 +288,3 @@ void ui_info_del_card(device_card_data *card)
 {
     ui_info_del_card(std::string(card->device_mac));
 }
-
-// 定义
-std::vector<std::string> ui_bt_get_linked()
-{
-    std::vector<std::string> dev = {"00:1A:2B:3C:4D:5E", "00:1A:2B:3C:4D:5F", "00:1A:2B:3C:4D:5D"};
-    return dev;
-}
-void ui_info_get_left_voice(const std::string &mac, int8_t &pct) {}
-void ui_info_get_right_voice(const std::string &mac, int8_t &pct) {}
-void ui_info_get_transmit_speed(const std::string &speed) {}
-void ui_info_get_power(const std::string &mac, int8_t &pct) {}
-void ui_info_get_signal(const std::string &mac, int8_t &pct) {}

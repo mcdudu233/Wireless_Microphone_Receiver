@@ -122,6 +122,9 @@ void sys::setup()
   xTaskCreatePinnedToCore(system_handle, "system_handle", TASK_SYSTEM_STACK, NULL, TASK_SYSTEM_PRIORITY, NULL, TASK_SYSTEM_CORE);
 }
 
+/*****************************
+            界面
+*****************************/
 // 界面读取系统信息
 void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, uint64_t &iram_current, uint64_t &psram_current, uint64_t l_iram_max, uint64_t l_psram_max)
 {
@@ -129,4 +132,7 @@ void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, uint64_t &iram
   cpu2_pct = (float)(systemInfo.cpu1Usage + 0.5);
   iram_current = systemInfo.iramUsedSize;
   psram_current = systemInfo.psramUsedSize;
+  l_iram_max = systemInfo.iramTotalSize;
+  l_psram_max = systemInfo.psramTotalSize;
 }
+/****************************/

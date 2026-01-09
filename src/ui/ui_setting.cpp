@@ -194,7 +194,7 @@ void ui_setting_init()
     lv_label_set_recolor(cpu2, true);
     lv_label_set_recolor(iram, true);
     lv_label_set_recolor(psram, true);
-    lv_label_set_recolor(sd, true);
+    // lv_label_set_recolor(sd, true);
 
     // section = lv_menu_section_create(sub_usb_page);
     ui_create_dropdown(sub_usb_page, NULL, "传输模式", "默认\n"

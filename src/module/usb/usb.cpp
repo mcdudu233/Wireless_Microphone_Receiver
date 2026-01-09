@@ -166,6 +166,9 @@ static void usb_sd_mode()
 {
 }
 
+/*****************************
+            界面
+*****************************/
 // 界面获取USB设置
 void ui_setting_usb_page_rcb(USBMode &mode)
 {
@@ -182,6 +185,7 @@ void ui_setting_usb_page_scb(USBMode mode, bool now)
     usb::on(mode);
   }
 }
+/****************************/
 
 /*               USB设备回调              */
 // Invoked when device is mounted

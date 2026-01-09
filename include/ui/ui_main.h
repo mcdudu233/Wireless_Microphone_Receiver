@@ -19,11 +19,11 @@ typedef struct
 device_card_data *ui_info_get_obj(const std::string &mac);
 void ui_info_set_bar_pct(lv_obj_t *bar, int8_t pct);
 
-void ui_info_get_transmit_speed(const std::string &speed);
-void ui_info_get_power(const std::string &mac, int8_t &pct);
-void ui_info_get_signal(const std::string &mac, int8_t &pct);
-void ui_info_get_left_voice(const std::string &mac, int8_t &pct);
-void ui_info_get_right_voice(const std::string &mac, int8_t &pct);
+const std::string ui_info_get_transmit_speed();
+int8_t ui_info_get_power(const std::string &mac);
+int8_t ui_info_get_signal(const std::string &mac);
+int8_t ui_info_get_left_voice(const std::string &mac);
+int8_t ui_info_get_right_voice(const std::string &mac);
 
 void ui_info_del_card(device_card_data *card);
 void ui_info_del_card(const std::string &mac);

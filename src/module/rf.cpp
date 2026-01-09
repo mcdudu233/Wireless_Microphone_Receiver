@@ -25,8 +25,8 @@ static struct
 } configAudio;
 
 // 计算音频传输速度
-static uint32_t speed = 0;
-static uint32_t speedData = 0;
+static uint32_t transmitSpeed = 0;
+static uint32_t transmitSpeedData = 0;
 
 /*****************************
           传输层协议
@@ -845,7 +845,7 @@ static void rf_handle(void *arg)
           len -= WIFI_IP_HEAD_LEN;
           // 解析数据包 receiveBuffer->addr.addr
           rf_receive_packet(data);
-          speedData += len;
+          transmitSpeedData += len;
         } while (netbuf_next(receiveBuffer) >= 0);
         netbuf_delete(receiveBuffer);
       }
@@ -856,10 +856,10 @@ static void rf_handle(void *arg)
     if (secondNowTime - secondLastTime > 1000)
     {
       /* 计算速度 */
-      speed = speedData;
-      speedData = 0;
+      transmitSpeed = transmitSpeedData;
+      transmitSpeedData = 0;
       secondLastTime = secondNowTime;
-      logger::debugln("RF data speed %dKB/s", speed / 1024);
+      logger::debugln("RF data speed %dKB/s", transmitSpeed / 1024);
 
       /* 获取信号强度 */
       if (bleIsOpen)
@@ -892,7 +892,7 @@ void rf::setup()
 }
 
 /*****************************
-          界面操作
+            界面
 *****************************/
 // 连接蓝牙设备
 bool ui_bt_link(const std::string &mac)
@@ -903,6 +903,7 @@ bool ui_bt_link(const std::string &mac)
   }
   return false;
 }
+
 // 断开蓝牙设备
 bool ui_bt_unlink(const std::string &mac)
 {
@@ -912,6 +913,7 @@ bool ui_bt_unlink(const std::string &mac)
   }
   return false;
 }
+
 // 需要update已连接和未连接的蓝牙
 void ui_bt_search()
 {
@@ -936,5 +938,57 @@ void ui_bt_pause_search()
 
   delay(1000);
   ble_close();
+}
+
+std::vector<std::string> ui_bt_get_linked()
+{
+  std::vector<std::string> strs;
+  uint8_t size = deviceManager.size();
+  if (size != 0)
+  {
+    Device *devices = deviceManager.getAllDevices();
+    for (uint8_t i = 0; i < size; i++)
+    {
+      strs.push_back(devices[i].getBleMACString());
+    }
+  }
+  return strs;
+}
+
+int8_t ui_info_get_left_voice(const std::string &mac)
+{
+  return 0;
+}
+
+int8_t ui_info_get_right_voice(const std::string &mac)
+{
+  return 0;
+}
+
+const std::string ui_info_get_transmit_speed()
+{
+  return std::to_string(transmitSpeed / 1024) + " KB/s";
+}
+
+int8_t ui_info_get_power(const std::string &mac)
+{
+  Device *device = deviceManager.getDeviceByBleMAC(mac);
+  if (device != nullptr)
+  {
+    return device->getBattery();
+  }
+  logger::warnln("Screen get wrong MAC by %s", mac);
+  return 100;
+}
+
+int8_t ui_info_get_signal(const std::string &mac)
+{
+  Device *device = deviceManager.getDeviceByBleMAC(mac);
+  if (device != nullptr)
+  {
+    return device->getRssi();
+  }
+  logger::warnln("Screen get wrong MAC by %s", mac);
+  return 100;
 }
 /****************************/
