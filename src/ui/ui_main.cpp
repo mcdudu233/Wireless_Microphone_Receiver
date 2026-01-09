@@ -7,12 +7,13 @@ static lv_style_t style_indic_h; // 横向bar样式
 static lv_obj_t *info_widget;
 static lv_obj_t *main_widget;
 static lv_obj_t *transmit_speed_label;
-static lv_obj_t *tabview;
-static lv_obj_t *tabs[MAX_DEVICE_COUNT];                                                                  // 最多4个                                                                              // 纵向bar样式
-static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char *icon, bool color_test); // 创建自定义card容器组件
+static lv_obj_t *tabview;                                                                                // 最多4个                                                                              // 纵向bar样式
+static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_mac, char *icon, bool color_test); // 创建自定义card容器组件
 
 static std::vector<std::string> linked_devices;
 static std::vector<device_card_data *> cards;
+
+static lv_timer_t *timer_update;
 
 static void setting_widget_cb(lv_event_t *e); // 设置按钮回调
 
@@ -55,7 +56,6 @@ void ui_main_init()
         lv_obj_t *card = ui_create_device_card(tab, dev.data(), buf, false);
         lv_obj_set_style_pad_all(tab, 0, 0);
         lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
-        tabs[i] = tab;
         device_card_data *data = (device_card_data *)lv_obj_get_user_data(card);
         data->tab = tab;
         i++;
@@ -104,6 +104,38 @@ void ui_main_init()
     lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
 
     ui_bind_group_to_all_encoders(lv_group_get_default());
+
+    timer_update = lv_timer_create([](lv_timer_t *t)
+                                   {
+                                        // 更新数据
+                                        lv_obj_t *obj;
+                                        int8_t pct;
+                                        std::string speed;
+
+                                        uint32_t act = lv_tabview_get_tab_active(tabview);
+                                        lv_obj_t *content = lv_tabview_get_content(tabview);
+                                        lv_obj_t *cur_tab = lv_obj_get_child(content, act);
+                                        lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
+                                        device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
+
+                                        // 设置传输速度
+                                        ui_info_get_transmit_speed(speed);
+                                        lv_label_set_text_fmt(transmit_speed_label, "#00FF00 %s#%s", LV_SYMBOL_DOWNLOAD, speed.c_str());
+
+                                        // 设置卡片内信息
+                                        if (card_data == nullptr)
+                                            return;
+
+
+                                        ui_info_get_left_voice(card_data->device_mac,pct);
+                                        lv_bar_set_value(card_data->left_voice_bar,pct,LV_ANIM_ON);
+                                        ui_info_get_right_voice(card_data->device_mac,pct);
+                                        lv_bar_set_value(card_data->right_voice_bar,pct,LV_ANIM_ON);
+                                        ui_info_get_power(card_data->device_mac, pct);
+                                        lv_label_set_text_fmt(card_data->power_label, "电量%d", pct);
+                                        ui_info_get_signal(card_data->device_mac, pct);
+                                        lv_label_set_text_fmt(card_data->signal_label, "信号%d", pct); },
+                                   UPDATE_TIMER_PERIOD, NULL);
 }
 
 // 设置按钮回调 -> 进入设置界面
@@ -113,7 +145,7 @@ static void setting_widget_cb(lv_event_t *e)
 }
 
 // 创建设备卡片
-static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char *icon, bool color_test)
+static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_mac, char *icon, bool color_test)
 {
     device_card_data *data = (device_card_data *)lv_malloc(sizeof(device_card_data));
     LV_ASSERT_MALLOC(data);
@@ -180,7 +212,7 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char
         lv_anim_start(&b);
     }
 
-    data->device_name = device_name;
+    data->device_mac = device_mac;
 
     lv_obj_set_user_data(card, data);
     cards.push_back(data);
@@ -189,6 +221,7 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, char *device_name, char
 
 void ui_free_main_widget()
 {
+    lv_timer_delete(timer_update);
     for (size_t i = 0; i < cards.size(); ++i)
     {
         device_card_data *card_data = cards[i];
@@ -198,10 +231,6 @@ void ui_free_main_widget()
         }
     }
     cards.clear();
-    for (int i = 0; i < MAX_DEVICE_COUNT; ++i)
-    {
-        tabs[i] = NULL;
-    }
 
     if (main_widget && lv_obj_is_valid(main_widget))
     {
@@ -223,7 +252,7 @@ device_card_data *ui_info_get_obj(const std::string &mac)
     for (device_card_data *dev : cards)
     {
         // 修正为等值判断：strcmp 返回 0 表示字符串相等
-        if (strcmp(dev->device_name, mac.c_str()) == 0)
+        if (strcmp(dev->device_mac, mac.c_str()) == 0)
         {
             return dev;
         }
@@ -232,12 +261,6 @@ device_card_data *ui_info_get_obj(const std::string &mac)
     return nullptr;
 }
 
-void ui_info_set_transmit_speed(const std::string &speed)
-{
-    LV_LOCK();
-    lv_label_set_text_fmt(transmit_speed_label, "#00FF00 %s#%s", LV_SYMBOL_DOWNLOAD, speed.c_str());
-    LV_UNLOCK();
-}
 void ui_info_set_bar_pct(lv_obj_t *bar, int8_t pct)
 {
     LV_LOCK();
@@ -250,17 +273,9 @@ void ui_info_del_card(const std::string &mac)
     int i = 0;
     for (device_card_data *card : cards)
     {
-        if (strcmp(card->device_name, mac.c_str()) == 0)
+        if (strcmp(card->device_mac, mac.c_str()) == 0)
         {
             LV_LOCK();
-            for (int j = 0; j < MAX_DEVICE_COUNT; ++j)
-            {
-                if (tabs[j] == card->tab)
-                {
-                    tabs[j] = NULL;
-                    break;
-                }
-            }
             lv_obj_del(card->tab);
             lv_free(card);
             cards.erase(cards.begin() + i);
@@ -279,49 +294,17 @@ void ui_info_del_card(const std::string &mac)
 }
 void ui_info_del_card(device_card_data *card)
 {
-    ui_info_del_card(std::string(card->device_name));
+    ui_info_del_card(std::string(card->device_mac));
 }
-void ui_info_set_power(const std::string &mac, int8_t pct)
-{
-    device_card_data *card = ui_info_get_obj(mac);
-    if (card != nullptr)
-    {
-        LV_LOCK();
-        lv_label_set_text_fmt(card->power_label, "电量%d", pct);
-        LV_UNLOCK();
-    }
-}
-void ui_info_set_power(device_card_data *card, int8_t pct)
-{
-    if (card != nullptr)
-    {
-        LV_LOCK();
-        lv_label_set_text_fmt(card->power_label, "电量%d", pct);
-        LV_UNLOCK();
-    }
-}
-void ui_info_set_signal(const std::string &mac, int8_t pct)
-{
-    device_card_data *card = ui_info_get_obj(mac);
-    if (card != nullptr)
-    {
-        LV_LOCK();
-        lv_label_set_text_fmt(card->signal_label, "信号%d", pct);
-        LV_UNLOCK();
-    }
-}
-void ui_info_set_signal(device_card_data *card, int8_t pct)
-{
-    if (card != nullptr)
-    {
-        LV_LOCK();
-        lv_label_set_text_fmt(card->signal_label, "信号%d", pct);
-        LV_UNLOCK();
-    }
-}
+
 // 定义
 std::vector<std::string> ui_bt_get_linked()
 {
     std::vector<std::string> dev = {"00:1A:2B:3C:4D:5E", "00:1A:2B:3C:4D:5F", "00:1A:2B:3C:4D:5D"};
     return dev;
 }
+void ui_info_get_left_voice(const std::string &mac, int8_t &pct) {}
+void ui_info_get_right_voice(const std::string &mac, int8_t &pct) {}
+void ui_info_get_transmit_speed(const std::string &speed) {}
+void ui_info_get_power(const std::string &mac, int8_t &pct) {}
+void ui_info_get_signal(const std::string &mac, int8_t &pct) {}

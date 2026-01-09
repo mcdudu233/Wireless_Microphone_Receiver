@@ -123,10 +123,10 @@ void sys::setup()
 }
 
 // 界面读取系统信息
-void ui_setting_system_page_rcb(uint8_t &cpu1_pct, uint8_t &cpu2_pct, uint64_t &iram_current, uint64_t &psram_current, uint64_t &sd_current)
+void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, uint64_t &iram_current, uint64_t &psram_current, uint64_t l_iram_max, uint64_t l_psram_max)
 {
-  cpu1_pct = (uint8_t)(systemInfo.cpu0Usage + 0.5);
-  cpu2_pct = (uint8_t)(systemInfo.cpu1Usage + 0.5);
+  cpu1_pct = (float)(systemInfo.cpu0Usage + 0.5);
+  cpu2_pct = (float)(systemInfo.cpu1Usage + 0.5);
   iram_current = systemInfo.iramUsedSize;
   psram_current = systemInfo.psramUsedSize;
 }

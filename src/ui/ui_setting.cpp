@@ -50,7 +50,8 @@ enum e_page
     audio_page = 2,
     rf_page = 3,
     about_page = 4,
-    system_page = 5
+    system_page = 5,
+    file_page = 6
 };
 
 void ui_setting_init()
@@ -92,6 +93,8 @@ void ui_setting_init()
     lv_obj_set_user_data(sub_about_page, (void *)e_page::about_page);
     lv_obj_t *sub_usb_page = ui_create_sub_page(menu, "USB传输设置");
     lv_obj_set_user_data(sub_usb_page, (void *)e_page::usb_page);
+    lv_obj_t *sub_file_page = ui_create_sub_page(menu, "文件系统管理");
+    lv_obj_set_user_data(sub_usb_page, (void *)e_page::file_page);
     lv_obj_t *sub_system_page = ui_create_sub_page(menu, "系统信息");
     lv_obj_set_user_data(sub_system_page, (void *)e_page::system_page);
     lv_obj_t *sub_audio_page = ui_create_sub_page(menu, "音频设置");
@@ -152,12 +155,32 @@ void ui_setting_init()
     lv_obj_set_height(scroller, 53);
 
     lv_span_t *span;
+    lv_style_t *sty;
 
     span = lv_spangroup_add_span(spans);
-    lv_span_set_text_fmt(span, "固件版本: v%u.%u\n作者: %s\n%s",
+    lv_span_set_text_fmt(span, "无线麦克风 V%u.%u",
                          CONFIG_VERSION_VALUE >> 8, CONFIG_VERSION_VALUE & 0xFF, AUTHOR, WEBSITE);
     lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
     lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
+    sty = lv_span_get_style(span);
+    lv_style_set_text_align(sty, LV_TEXT_ALIGN_CENTER);
+    lv_spangroup_set_span_style(spans, span, sty);
+
+    span = lv_spangroup_add_span(spans);
+    lv_span_set_text_fmt(span, "作者: %s", AUTHOR);
+    lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
+    lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
+    sty = lv_span_get_style(span);
+    lv_style_set_text_align(sty, LV_TEXT_ALIGN_LEFT);
+    lv_spangroup_set_span_style(spans, span, sty);
+
+    span = lv_spangroup_add_span(spans);
+    lv_span_set_text_fmt(span, "%s", WEBSITE);
+    lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
+    lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
+    sty = lv_span_get_style(span);
+    lv_style_set_text_align(sty, LV_TEXT_ALIGN_CENTER);
+    lv_spangroup_set_span_style(spans, span, sty);
 
     lv_spangroup_refresh(spans);
 
@@ -165,7 +188,7 @@ void ui_setting_init()
     ui_create_text(sub_system_page, NULL, "CPU 2", &cpu2);
     ui_create_text(sub_system_page, NULL, "IRAM", &iram);
     ui_create_text(sub_system_page, NULL, "PSRAM", &psram);
-    ui_create_text(sub_system_page, NULL, "外置存储", &sd);
+    // ui_create_text(sub_system_page, NULL, "外置存储", &sd);
 
     lv_label_set_recolor(cpu1, true);
     lv_label_set_recolor(cpu2, true);
@@ -174,7 +197,7 @@ void ui_setting_init()
     lv_label_set_recolor(sd, true);
 
     // section = lv_menu_section_create(sub_usb_page);
-    ui_create_dropdown(sub_usb_page, NULL, "传输模式", "默认"
+    ui_create_dropdown(sub_usb_page, NULL, "传输模式", "默认\n"
                                                        "音频\n"
                                                        "读卡器\n"
                                                        "JTAG",
@@ -209,7 +232,7 @@ void ui_setting_init()
     ui_create_slider(sub_audio_page, NULL, "增益", 0, 60, 0, &slider_audio_volumn);
 
     ui_create_dropdown(sub_rf_page, NULL, "传输协议", "BLE\n"
-                                                      "WIFI\n",
+                                                      "WIFI",
                        &dd_rf_mode);
     // lv_obj_add_event_cb(dd_rf_mode, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)6);
 
@@ -269,7 +292,8 @@ void ui_setting_init()
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
-    // lv_menu_set_sidebar_page(menu, root_page);
+    // TODO: 文件系统页面
+    //  lv_menu_set_sidebar_page(menu, root_page);
 
     // lv_obj_send_event(lv_obj_get_child(lv_obj_get_child(lv_menu_get_cur_sidebar_page(menu), 0), 0), LV_EVENT_CLICKED,
     //                   NULL);
@@ -582,15 +606,15 @@ static void focus_async_cb(void *obj_p)
 
 static void sys_info_timer_cb(lv_timer_t *)
 {
-    uint8_t l_cpu1, l_cpu2;
-    uint64_t l_iram, l_psram, l_sd;
+    float l_cpu1, l_cpu2;
+    uint64_t l_iram, l_psram, l_iram_max, l_psram_max;
 
-    ui_setting_system_page_rcb(l_cpu1, l_cpu2, l_iram, l_psram, l_sd);
-    lv_label_set_text_fmt(cpu1, "CPU1   #626367 %d%#", l_cpu1);
-    lv_label_set_text_fmt(cpu2, "CPU2   #626367 %d%#", l_cpu2);
-    lv_label_set_text_fmt(iram, "IRAM   #626367 %bit#", l_iram);
-    lv_label_set_text_fmt(psram, "PSRAM   #626367 %dbit#", l_psram);
-    lv_label_set_text_fmt(sd, "SD   #626367 %dbit#", l_sd);
+    ui_setting_system_page_rcb(l_cpu1, l_cpu2, l_iram, l_psram, l_iram_max, l_psram_max);
+    lv_label_set_text_fmt(cpu1, "CPU1   #626367 %.2f%%#", l_cpu1);
+    lv_label_set_text_fmt(cpu2, "CPU2   #626367 %.2f%%#", l_cpu2);
+    lv_label_set_text_fmt(iram, "IRAM   #626367 %d/%dKB#", l_iram / 1024 / 8, l_iram_max / 1024 / 8);
+    lv_label_set_text_fmt(psram, "PSRAM   #626367 %d/%dKB#", l_psram / 1024 / 8, l_psram_max / 1024 / 8);
+    // lv_label_set_text_fmt(sd, "SD   #626367 %dbit#", l_sd);
 }
 // 返回按钮焦点事件回调
 static void back_btn_focus_cb(lv_event_t *e)

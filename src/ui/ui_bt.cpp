@@ -229,6 +229,7 @@ void ui_bt_update(const std::string &mac, std::optional<bool> is_link)
         lv_obj_set_height(btn, 30);
         lv_obj_set_style_pad_all(btn, 0, 0);
         lv_obj_set_style_height(btn, 30, LV_PART_MAIN);
+
         lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
         lv_group_add_obj(g2, btn);
     }
