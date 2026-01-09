@@ -27,7 +27,7 @@ static lv_obj_t *cpu1;
 static lv_obj_t *cpu2;
 static lv_obj_t *iram;
 static lv_obj_t *psram;
-static lv_obj_t *sd;
+// static lv_obj_t *sd;
 
 static void save_config(uint8_t &p, bool now);
 static void back_cb(lv_event_t *e);          // 设置页面back按钮回调
@@ -103,87 +103,33 @@ void ui_setting_init()
     lv_obj_set_user_data(sub_rf_page, (void *)e_page::rf_page);
 
     // 关于
-    // section = lv_menu_section_create(sub_about_page);
-    // 放入一个可滚动容器，使其显示滚动条，并可被编码器聚焦控制
-    lv_obj_t *scroller = lv_obj_create(sub_about_page);
-    lv_obj_set_width(scroller, lv_pct(100));
-    lv_obj_set_height(scroller, LV_SIZE_CONTENT);
-    lv_obj_set_scroll_dir(scroller, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(scroller, LV_SCROLLBAR_MODE_AUTO);
-    lv_obj_add_flag(scroller, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(scroller, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-    lv_group_add_obj(lv_group_get_default(), scroller);
-    lv_obj_set_style_bg_opa(scroller, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(scroller, 0, 0);
-    lv_obj_set_style_pad_all(scroller, 0, 0);
-    lv_obj_set_style_pad_all(sub_about_page, 0, 0);
-    lv_obj_add_style(scroller, &scroll_style, LV_PART_SCROLLBAR);
-    lv_obj_add_event_cb(scroller, [](lv_event_t *e)
-                        {
-        lv_obj_t *obj = lv_event_get_target_obj(e);
-        lv_group_t *g = lv_obj_get_group(obj);
-        if(g) lv_group_set_editing(g, true);
-        lv_obj_scroll_to_view_recursive(obj, LV_ANIM_ON); }, LV_EVENT_FOCUSED, NULL);
-    lv_obj_add_event_cb(scroller, [](lv_event_t *e)
-                        {
-        lv_obj_t *obj = lv_event_get_target_obj(e);
-        lv_point_t end;
-        lv_obj_get_scroll_end(obj, &end);
-        int32_t bottom = lv_obj_get_scroll_bottom(obj);
-        if(end.y >= bottom) {
-            if(enter_bottom)
-            {
-                lv_obj_scroll_to_y(obj, 0, LV_ANIM_ON);
-                lv_obj_t *header = lv_menu_get_main_header(menu);
-                if(header) {
-                    lv_obj_t *back_btn = lv_obj_get_child(header, 0);
-                    if(back_btn) lv_group_focus_obj(back_btn);
-                    lv_group_t *g = lv_obj_get_group(obj);
-                    if(g) lv_group_set_editing(g, false);
-                }
-                enter_bottom = false;
-            }else
-                enter_bottom = true;
-            
-        } }, LV_EVENT_SCROLL, NULL);
+    lv_obj_t *label_title = lv_label_create(sub_about_page);
+    lv_label_set_text_fmt(label_title, "无线麦克风 V%u.%u",
+                          CONFIG_VERSION_VALUE >> 8, CONFIG_VERSION_VALUE & 0xFF);
+    lv_obj_set_width(label_title, lv_pct(100));
+    lv_obj_set_style_text_align(label_title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(label_title, lv_color_hex(0x626367), 0);
+    lv_obj_set_style_text_font(label_title, &lv_font_harmonyos_14, 0);
 
-    lv_obj_t *spans = lv_spangroup_create(scroller);
-    // 让文本按容器宽度自动换行，高度由内容决定
-    lv_obj_set_width(spans, lv_pct(100));
-    lv_obj_set_height(spans, LV_SIZE_CONTENT);
-    lv_spangroup_set_align(spans, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_height(scroller, 53);
+    lv_obj_t *label_author = lv_label_create(sub_about_page);
+    lv_label_set_text_fmt(label_author, "作者:%s", AUTHOR);
+    lv_obj_set_width(label_author, lv_pct(100));
+    lv_obj_set_style_text_align(label_author, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(label_author, lv_color_hex(0x626367), 0);
+    lv_obj_set_style_text_font(label_author, &lv_font_harmonyos_12, 0);
 
-    lv_span_t *span;
-    lv_style_t *sty;
+    lv_obj_t *label_link = lv_label_create(sub_about_page);
+    lv_label_set_text(label_link, WEBSITE);
+    lv_obj_set_width(label_link, lv_pct(100));
+    lv_obj_set_style_text_align(label_link, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(label_link, lv_color_hex(0x626367), 0);
+    lv_obj_set_style_text_font(label_link, &lv_font_harmonyos_12, 0);
 
-    span = lv_spangroup_add_span(spans);
-    lv_span_set_text_fmt(span, "无线麦克风 V%u.%u",
-                         CONFIG_VERSION_VALUE >> 8, CONFIG_VERSION_VALUE & 0xFF, AUTHOR, WEBSITE);
-    lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
-    lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
-    sty = lv_span_get_style(span);
-    lv_style_set_text_align(sty, LV_TEXT_ALIGN_CENTER);
-    lv_spangroup_set_span_style(spans, span, sty);
+    lv_obj_align(label_title, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_align_to(label_author, label_title, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
+    lv_obj_align_to(label_link, label_author, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
 
-    span = lv_spangroup_add_span(spans);
-    lv_span_set_text_fmt(span, "作者: %s", AUTHOR);
-    lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
-    lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
-    sty = lv_span_get_style(span);
-    lv_style_set_text_align(sty, LV_TEXT_ALIGN_LEFT);
-    lv_spangroup_set_span_style(spans, span, sty);
-
-    span = lv_spangroup_add_span(spans);
-    lv_span_set_text_fmt(span, "%s", WEBSITE);
-    lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(0x626367));
-    lv_style_set_text_font(lv_span_get_style(span), &lv_font_harmonyos_12);
-    sty = lv_span_get_style(span);
-    lv_style_set_text_align(sty, LV_TEXT_ALIGN_CENTER);
-    lv_spangroup_set_span_style(spans, span, sty);
-
-    lv_spangroup_refresh(spans);
-
+    // 系统信息
     ui_create_text(sub_system_page, NULL, "CPU 1", &cpu1);
     ui_create_text(sub_system_page, NULL, "CPU 2", &cpu2);
     ui_create_text(sub_system_page, NULL, "IRAM", &iram);
