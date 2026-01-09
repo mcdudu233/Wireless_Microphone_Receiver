@@ -27,7 +27,6 @@ static struct
 // 计算音频传输速度
 static uint32_t speed = 0;
 static uint32_t speedData = 0;
-static unsigned long speedLastTime = millis();
 
 /*****************************
           传输层协议
@@ -177,7 +176,7 @@ static void dhcp_event_handle(void *arg, esp_event_base_t event_base, int32_t ev
   {
     ip_event_ap_staipassigned_t *event = (ip_event_ap_staipassigned_t *)event_data;
     // 记录映射
-    deviceManager.bindWifiMACToIP(event->mac, event->ip.addr);
+    deviceManager.bindWifiMACToIP(event->mac, htonl(event->ip.addr)); // 转换IP字节序
   }
 }
 
@@ -366,10 +365,17 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
       name[fields.name_len] = '\0';
       if (strcmp(name, BLE_NAME) == 0)
       {
-        Device *device = deviceManager.getDeviceByBleMAC(event->disc.addr.val);
+        // 翻转MAC地址字节序
+        uint8_t mac[6];
+        for (int i = 0; i < 6; i++)
+        {
+          mac[i] = event->disc.addr.val[5 - i];
+        }
+
+        Device *device = deviceManager.getDeviceByBleMAC(mac);
         if (device == nullptr)
         {
-          device = deviceManager.addDevice(event->disc.addr.val);
+          device = deviceManager.addDevice(mac);
           if (device != nullptr)
           {
             device->setBleConnected(false);
@@ -379,9 +385,9 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
             device->setBleChannel(nullptr);
             // 添加新设备到界面
             ui_bt_update(device->getBleMACString());
+            logger::debugln("BLE find new device: %s.", device->getBleMACString());
           }
         }
-        logger::debugln("BLE find new device: %s.", device->getBleMACString());
       }
     }
     break;
@@ -399,7 +405,13 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
         break;
       }
 
-      Device *device = deviceManager.getDeviceByBleMAC(desc.peer_id_addr.val);
+      // 翻转MAC地址字节序
+      uint8_t mac[6];
+      for (int i = 0; i < 6; i++)
+      {
+        mac[i] = desc.peer_id_addr.val[5 - i];
+      }
+      Device *device = deviceManager.getDeviceByBleMAC(mac);
       if (device != nullptr)
       {
         device->setBleHandle(event->connect.conn_handle);
@@ -417,25 +429,17 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
         // 成功建立连接
         logger::debugln("BLE connection established.");
       }
+      else
+      {
+        logger::warnln("BLE device not found for MAC: %d:%d:%d:%d:%d:%d",
+                       mac[0], mac[1], mac[2],
+                       mac[3], mac[4], mac[5]);
+      }
     }
     else
     {
       logger::warnln("BLE Connection failed; status=%d\n", event->connect.status);
     }
-    break;
-  }
-
-  // 设备断开连接事件
-  case BLE_GAP_EVENT_DISCONNECT:
-  {
-    logger::debugln("BLE disconnect; reason=%d ", event->disconnect.reason);
-    break;
-  }
-
-  // 扫描完成事件
-  case BLE_GAP_EVENT_DISC_COMPLETE:
-  {
-    logger::debugln("BLE discovery complete; reason=%d\n", event->disc_complete.reason);
     break;
   }
 
@@ -625,7 +629,11 @@ static bool ble_connect_to_device(const std::string &mac)
       }
       ble_addr_t peer_addr;
       peer_addr.type = BLE_ADDR_PUBLIC;
-      memcpy(peer_addr.val, device->getBleMAC(), 6);
+      // 翻转MAC地址字节序
+      for (int i = 0; i < 6; i++)
+      {
+        peer_addr.val[i] = device->getBleMAC()[5 - i];
+      }
       rc = ble_gap_connect(own_addr_type, &peer_addr, BLE_HS_FOREVER, NULL, ble_gap_handler, NULL);
       if (rc != 0)
       {
@@ -709,54 +717,6 @@ bool ble_send(const Device &device, const uint8_t *data, uint16_t len)
 }
 /****************************/
 
-/*****************************
-          界面操作
-*****************************/
-// 连接蓝牙设备
-bool ui_bt_link(const std::string &mac)
-{
-  if (ble_connect_to_device(mac))
-  {
-    return true; // 返回连接状态
-  }
-  return false;
-}
-// 断开蓝牙设备
-bool ui_bt_unlink(const std::string &mac)
-{
-  if (ble_disconnect_to_device(mac))
-  {
-    return true; // 返回连接状态
-  }
-  return false;
-}
-// 需要update已连接和未连接的蓝牙
-void ui_bt_search()
-{
-  ble_start_scanning();
-}
-void ui_bt_pause_search()
-{
-  rf::reconfigure();
-  Device *devices = deviceManager.getAllDevices();
-  for (uint8_t i = 0; i < deviceManager.size(); i++)
-  {
-    Device device = devices[i];
-    configAudio.packet.start = true;
-    ble_send(device, (uint8_t *)&configAudio, PACKET_SERVER_CONTROL_AUDIO_SIZE);
-
-    wifi_open();
-    configDevice.packet.startWiFi = true;
-    configDevice.packet.startBLE = false;
-    configDevice.packet.start = true;
-    ble_send(device, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_DEVICE_SIZE);
-  }
-
-  delay(1000);
-  ble_close();
-}
-/****************************/
-
 // 解析数据包
 static void rf_receive_packet(const uint8_t *data)
 {
@@ -786,18 +746,24 @@ static void rf_receive_packet(const uint8_t *data)
   // 客户端状态
   case PACKET_TYPE_CLIENT_STATUS:
   {
-
+    uint64_t bleMACNone = PACKET_CLIENT_STATUS_BLE_MAC_NONE;
+    uint64_t wifiMACNone = PACKET_CLIENT_STATUS_WIFI_MAC_NONE;
     uint8_t *bleMAC = packet->packet.clientStatus.bleMAC;
     uint8_t *wifiMAC = packet->packet.clientStatus.wifiMAC;
-    deviceManager.bindDevice(bleMAC, wifiMAC);
-    Device *device = deviceManager.getDeviceByBleMAC(bleMAC);
-    if (device != nullptr)
+    if (memcmp(bleMAC, &bleMACNone, 6) != 0)
     {
-      device->setBattery(packet->packet.clientStatus.battery);
+      if (memcmp(wifiMAC, &wifiMACNone, 6) != 0)
+      {
+        deviceManager.bindDevice(bleMAC, wifiMAC);
+      }
+      Device *device = deviceManager.getDeviceByBleMAC(bleMAC);
+      if (device != nullptr)
+      {
+        device->setBattery(packet->packet.clientStatus.battery);
+        logger::debugln("RF client status received, bleMAC=%s, wifiMAC=%s, wifiIP=%s, battery=%d%%",
+                        device->getBleMACString(), device->getWifiMACString(), device->getWifiIPString(), device->getBattery());
+      }
     }
-    logger::debugln("RF client status received, blemac=%s, ip=0x%08x, battery=%d%%",
-                    device->getBleMACString(), device->getWifiIPString(), device->getBattery());
-    device->print();
     break;
   }
 
@@ -830,6 +796,7 @@ void rf::reconfigure()
   configAudio.packet.volumn = config::config.audio.volumn;
 }
 
+static unsigned long secondLastTime = millis(); // 每秒时间点
 static void rf_handle(void *arg)
 {
   // 缓存
@@ -884,27 +851,34 @@ static void rf_handle(void *arg)
       }
     }
 
-    /* 获取信号强度 */
-    // esp_wifi_ap_get_sta_list(&staList);
-    // for (int i = 0; i < staList.num; i++)
-    // {
-    //   wifi_sta_info_t station = staList.sta[i];
-    //   std::string address = bleBdaToStr(station.mac);
-    //   if (macToDevice.contains(address))
-    //   {
-    //     DeviceConnection &device = *macToDevice[address];
-    //     device.rssi = station.rssi;
-    //   }
-    // }
-
-    /* 计算速度 */
-    unsigned long speedNowTime = millis();
-    if (speedNowTime - speedLastTime > 1000)
+    /* 每秒执行一次获取其他信息 */
+    unsigned long secondNowTime = millis();
+    if (secondNowTime - secondLastTime > 1000)
     {
+      /* 计算速度 */
       speed = speedData;
       speedData = 0;
-      speedLastTime = speedNowTime;
+      secondLastTime = secondNowTime;
       logger::debugln("RF data speed %dKB/s", speed / 1024);
+
+      /* 获取信号强度 */
+      if (bleIsOpen)
+      {
+      }
+      else if (wifiIsOpen && socketIsOpen)
+      {
+        esp_wifi_ap_get_sta_list(&staList);
+        for (int i = 0; i < staList.num; i++)
+        {
+          wifi_sta_info_t station = staList.sta[i];
+          Device *device = deviceManager.getDeviceByWifiMAC(station.mac);
+          if (device != nullptr)
+          {
+            device->setRssi(station.rssi);
+            device->print();
+          }
+        }
+      }
     }
   }
 }
@@ -916,3 +890,51 @@ void rf::setup()
   // 启动发送接收线程
   xTaskCreatePinnedToCore(rf_handle, "rf_handle", TASK_RF_STACK, NULL, TASK_RF_PRIORITY, NULL, TASK_RF_CORE);
 }
+
+/*****************************
+          界面操作
+*****************************/
+// 连接蓝牙设备
+bool ui_bt_link(const std::string &mac)
+{
+  if (ble_connect_to_device(mac))
+  {
+    return true; // 返回连接状态
+  }
+  return false;
+}
+// 断开蓝牙设备
+bool ui_bt_unlink(const std::string &mac)
+{
+  if (ble_disconnect_to_device(mac))
+  {
+    return true; // 返回连接状态
+  }
+  return false;
+}
+// 需要update已连接和未连接的蓝牙
+void ui_bt_search()
+{
+  ble_start_scanning();
+}
+void ui_bt_pause_search()
+{
+  rf::reconfigure();
+  Device *devices = deviceManager.getAllDevices();
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    Device device = devices[i];
+    configAudio.packet.start = true;
+    ble_send(device, (uint8_t *)&configAudio, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+
+    wifi_open();
+    configDevice.packet.startWiFi = true;
+    configDevice.packet.startBLE = false;
+    configDevice.packet.start = true;
+    ble_send(device, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_DEVICE_SIZE);
+  }
+
+  delay(1000);
+  ble_close();
+}
+/****************************/

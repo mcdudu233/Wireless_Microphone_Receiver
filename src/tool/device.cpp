@@ -2,7 +2,7 @@
 #include "tool/device.h"
 
 // 地址转换为字符串
-static std::string macToStr(uint8_t mac[6])
+static std::string macToStr(const uint8_t mac[6])
 {
   char bda_str[18];
   snprintf(bda_str, sizeof(bda_str), "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -16,6 +16,13 @@ static uint64_t strToMac(const std::string &str)
   uint8_t *mac = (uint8_t *)&result;
   sscanf(str.c_str(), "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
          &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+  return result;
+}
+// 地址转换为uint64_t
+static uint64_t macToUint64(const uint8_t mac[6])
+{
+  uint64_t result = 0;
+  memcpy(&result, mac, 6);
   return result;
 }
 
@@ -214,7 +221,7 @@ Device *DeviceManager::addDevice(uint8_t bleMAC[6])
   {
     Device *newDevice = &devices[deviceCount++];
     newDevice->setBleMAC(bleMAC);
-    bleMACToDevice[MACKey(bleMAC)] = newDevice;
+    bleMACToDevice[macToUint64(bleMAC)] = newDevice;
     return newDevice;
   }
   return nullptr;
@@ -222,9 +229,9 @@ Device *DeviceManager::addDevice(uint8_t bleMAC[6])
 
 Device *DeviceManager::getDeviceByBleMAC(uint8_t bleMAC[6])
 {
-  if (bleMACToDevice.contains(MACKey(bleMAC)))
+  if (bleMACToDevice.contains(macToUint64(bleMAC)))
   {
-    return bleMACToDevice[MACKey(bleMAC)];
+    return bleMACToDevice[macToUint64(bleMAC)];
   }
   return nullptr;
 }
@@ -237,9 +244,9 @@ Device *DeviceManager::getDeviceByBleMAC(const std::string bleMAC)
 
 Device *DeviceManager::getDeviceByWifiMAC(uint8_t wifiMAC[6])
 {
-  if (wifiMACToDevice.contains(MACKey(wifiMAC)))
+  if (wifiMACToDevice.contains(macToUint64(wifiMAC)))
   {
-    return wifiMACToDevice[MACKey(wifiMAC)];
+    return wifiMACToDevice[macToUint64(wifiMAC)];
   }
   return nullptr;
 }
@@ -264,18 +271,18 @@ void DeviceManager::bindDevice(uint8_t bleMAC[6], uint8_t wifiMAC[6])
   Device *device = getDeviceByBleMAC(bleMAC);
   if (device != nullptr)
   {
-    wifiMACToDevice[MACKey(wifiMAC)] = device;
+    wifiMACToDevice[macToUint64(wifiMAC)] = device;
     device->setWifiMAC(wifiMAC);
-    if (wifiMACToIP.contains(MACKey(wifiMAC)))
+    if (wifiMACToIP.contains(macToUint64(wifiMAC)))
     {
-      device->setWifiIP(wifiMACToIP[MACKey(wifiMAC)]);
+      device->setWifiIP(wifiMACToIP[macToUint64(wifiMAC)]);
     }
   }
 }
 
 void DeviceManager::bindWifiMACToIP(uint8_t wifiMAC[6], uint32_t wifiIP)
 {
-  wifiMACToIP[MACKey(wifiMAC)] = wifiIP;
+  wifiMACToIP[macToUint64(wifiMAC)] = wifiIP;
   Device *device = getDeviceByWifiMAC(wifiMAC);
   if (device != nullptr)
   {

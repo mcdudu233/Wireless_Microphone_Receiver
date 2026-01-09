@@ -815,12 +815,6 @@ void ui_setting_audio_page_rcb(uint8_t &bit, uint8_t &channel, uint32_t &rate, u
 void ui_setting_audio_page_scb(uint8_t bit, uint8_t channel, uint32_t rate, uint8_t volumn, uint8_t &volumn_mode, bool now)
 {
 }
-void ui_setting_usb_page_rcb(USBMode &mode)
-{
-}
-void ui_setting_usb_page_scb(USBMode mode, bool now)
-{
-}
 void ui_setting_rf_page_rcb(bool &mode)
 {
 }
