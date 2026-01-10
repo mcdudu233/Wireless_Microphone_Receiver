@@ -13,9 +13,9 @@ static std::string macToStr(const uint8_t mac[6])
 static uint64_t strToMac(const std::string &str)
 {
   uint64_t result;
-  uint8_t *mac = (uint8_t *)&result;
-  sscanf(str.c_str(), "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
-         &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+  uint8_t *pt = (uint8_t *)&result;
+  sscanf(str.c_str(), "%02x:%02x:%02x:%02x:%02x:%02x",
+         &pt[0], &pt[1], &pt[2], &pt[3], &pt[4], &pt[5]);
   return result;
 }
 // 地址转换为uint64_t

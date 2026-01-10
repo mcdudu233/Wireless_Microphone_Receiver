@@ -760,8 +760,8 @@ static void rf_receive_packet(const uint8_t *data)
       if (device != nullptr)
       {
         device->setBattery(packet->packet.clientStatus.battery);
-        logger::debugln("RF client status received, bleMAC=%s, wifiMAC=%s, wifiIP=%s, battery=%d%%",
-                        device->getBleMACString(), device->getWifiMACString(), device->getWifiIPString(), device->getBattery());
+        // logger::debugln("RF client status received, bleMAC=%s, wifiMAC=%s, wifiIP=%s, battery=%d%%",
+        //                 device->getBleMACString(), device->getWifiMACString(), device->getWifiIPString(), device->getBattery());
       }
     }
     break;
@@ -859,7 +859,7 @@ static void rf_handle(void *arg)
       transmitSpeed = transmitSpeedData;
       transmitSpeedData = 0;
       secondLastTime = secondNowTime;
-      logger::debugln("RF data speed %dKB/s", transmitSpeed / 1024);
+      // logger::debugln("RF data speed %dKB/s", transmitSpeed / 1024);
 
       /* 获取信号强度 */
       if (bleIsOpen)
@@ -875,7 +875,7 @@ static void rf_handle(void *arg)
           if (device != nullptr)
           {
             device->setRssi(station.rssi);
-            device->print();
+            // device->print();
           }
         }
       }
@@ -949,7 +949,8 @@ std::vector<std::string> ui_bt_get_linked()
     Device *devices = deviceManager.getAllDevices();
     for (uint8_t i = 0; i < size; i++)
     {
-      strs.push_back(devices[i].getBleMACString());
+      std::string str = devices[i].getBleMACString();
+      strs.push_back(str);
     }
   }
   return strs;
