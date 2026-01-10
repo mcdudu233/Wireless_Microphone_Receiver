@@ -131,7 +131,7 @@ void ui_main_init()
 // 设置按钮回调 -> 进入设置界面
 static void setting_widget_cb(lv_event_t *e)
 {
-    ui_setting_init();
+    ui_setting_init(main_widget);
 }
 
 // 创建设备卡片
@@ -227,11 +227,6 @@ void ui_free_main_widget()
         lv_obj_delete(main_widget);
         main_widget = NULL;
     }
-}
-
-void ui_set_hidden_main_widget(bool state)
-{
-    lv_obj_set_flag(main_widget, LV_OBJ_FLAG_HIDDEN, state);
 }
 
 // api
