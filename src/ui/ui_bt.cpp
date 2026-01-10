@@ -7,10 +7,11 @@ static lv_obj_t *bt_widget;
 static lv_group_t *g1; // list 俩个按钮
 static lv_group_t *g2; // list内部设备选项
 
+static void link_bt();
 static void bt_list_click_event_cb(lv_event_t *e); // bt_list 被点击
 static void list_event_handler(lv_event_t *e);     // bt_list 项被点击
-static void finish_button_cb(lv_event_t *e);       // 完成按钮回调 -> 主窗口
-static void link_button_cb(lv_event_t *e);         // 蓝牙连接按钮点击回调函数
+static void button_finish_cb(lv_event_t *e);       // 完成按钮回调 -> 主窗口
+static void button_setting_cb(lv_event_t *e);      // 设置按钮回调
 static uint8_t ui_list_get_select_num();
 static uint8_t ui_list_get_link_num();
 
@@ -19,6 +20,7 @@ void ui_bt_init()
     lv_obj_t *btn;
     lv_obj_t *label;
     bt_widget = ui_add_win();
+    lv_obj_set_user_data(bt_widget, (void *)"bt_list");
 
     g1 = lv_group_create(); // 外层group
     g2 = lv_group_create(); // 内层group list的内部按钮选项
@@ -48,11 +50,11 @@ void ui_bt_init()
     lv_obj_align_to(label, bt_list, LV_ALIGN_OUT_TOP_MID, 0, 0);
 
     // 连接按钮
-    btn = ui_add_button(bt_widget, "连接", 45, 25, &lv_font_harmonyos_14);
+    btn = ui_add_button(bt_widget, "设置", 45, 25, &lv_font_harmonyos_14);
     lv_obj_set_style_radius(btn, 5, 0);
     lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_BLUE), 0);
     lv_obj_align_to(btn, bt_list, LV_ALIGN_OUT_RIGHT_TOP, 5, 0);
-    lv_obj_add_event_cb(btn, link_button_cb, LV_EVENT_CLICKED, bt_list);
+    lv_obj_add_event_cb(btn, button_setting_cb, LV_EVENT_CLICKED, bt_list);
     lv_group_add_obj(g1, btn);
     lv_obj_t *last = btn;
 
@@ -61,7 +63,7 @@ void ui_bt_init()
     lv_obj_set_style_radius(btn, 5, 0);
     lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_GREEN), 0);
     lv_obj_align_to(btn, last, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
-    lv_obj_add_event_cb(btn, finish_button_cb, LV_EVENT_CLICKED, bt_widget);
+    lv_obj_add_event_cb(btn, button_finish_cb, LV_EVENT_CLICKED, bt_widget);
     lv_group_add_obj(g1, btn);
 
     // 设置list可以被聚焦，以便enter进入其中选择
@@ -75,8 +77,8 @@ void ui_bt_init()
     // lv_obj_scroll_to_view(lv_obj_get_child(bt_list, 0), LV_ANIM_OFF);
 }
 
-// 蓝牙连接按钮点击回调函数
-static void link_button_cb(lv_event_t *e)
+// 连接蓝牙函数
+static void link_bt()
 {
     lv_obj_t *btn;
     lv_obj_t *label;
@@ -115,9 +117,13 @@ static void link_button_cb(lv_event_t *e)
         }
     }
 }
+static void button_setting_cb(lv_event_t *e)
+{
+    ui_setting_init(bt_widget);
+}
 
 // 完成按钮点击回调 进入主窗口
-static void finish_button_cb(lv_event_t *e)
+static void button_finish_cb(lv_event_t *e)
 {
     uint8_t n = ui_list_get_link_num();
     if (n >= 1)
@@ -167,18 +173,9 @@ static void list_event_handler(lv_event_t *e)
         else // 之前为未选中
         {
             lv_obj_remove_state(obj, (lv_state_t)(current_state & ~LV_STATE_CHECKED));
-            uint8_t n = ui_list_get_select_num();
-            if (n > 1)
-            {
-                lv_obj_set_style_bg_color(obj, COLOR_SELECTED, LV_STATE_CHECKED);
-                lv_obj_remove_state(obj, LV_STATE_CHECKED);
-                ui_popwin_msgbox("一次只能选择一个", g1, bt_list);
-            }
-            else
-            {
-                ui_bind_group_to_all_encoders(g1); // 外层group
-                lv_group_focus_obj(bt_list);       // 重置焦点
-            }
+            ui_bind_group_to_all_encoders(g1); // 外层group
+            lv_group_focus_obj(bt_list);       // 重置焦点
+            link_bt();
         }
         lv_obj_remove_state(obj, (lv_state_t)(current_state & ~LV_STATE_CHECKED));
         lv_obj_clear_flag(bt_list, LV_OBJ_FLAG_SCROLLABLE);

@@ -11,7 +11,7 @@ typedef struct
     lv_obj_t *power_label;
     lv_obj_t *signal_label;
     lv_obj_t *tab;
-    char *device_mac;
+    std::string device_mac;
 
 } device_card_data;
 

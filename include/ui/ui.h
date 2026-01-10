@@ -28,7 +28,7 @@
 
 void ui_bt_init();
 void ui_main_init();
-void ui_setting_init();
+void ui_setting_init(lv_obj_t *ui_form);
 
 void ui_bind_group_to_all_encoders(lv_group_t *g);
 
@@ -40,5 +40,4 @@ lv_obj_t **ui_popwin(bool has_bg = true, lv_group_t *g = nullptr, lv_obj_t *obj 
 lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g = nullptr, lv_obj_t *obj = nullptr, const void *icon = &ui_img_tips, const char *title = "提示:", bool is_from_svg = false, const char *btn1_title = nullptr, lv_event_cb_t event_cb1 = nullptr, void *user_data1 = NULL, const char *btn2_title = nullptr, lv_event_cb_t event_cb2 = nullptr, void *user_data2 = NULL);
 
 void ui_free_main_widget();
-void ui_set_hidden_main_widget(bool state);
 void ui_set_bar_val(void *bar, int32_t val);
