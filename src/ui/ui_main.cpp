@@ -7,8 +7,8 @@ static lv_style_t style_indic_h; // 横向bar样式
 static lv_obj_t *info_widget;
 static lv_obj_t *main_widget;
 static lv_obj_t *transmit_speed_label;
-static lv_obj_t *tabview;                                                                                       // 最多4个                                                                              // 纵向bar样式
-static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac, char *icon, bool color_test); // 创建自定义card容器组件
+static lv_obj_t *tabview;                                                                           // 最多4个                                                                              // 纵向bar样式
+static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac, bool color_test); // 创建自定义card容器组件
 
 static std::vector<std::string> linked_devices;
 static std::vector<device_card_data *> cards;
@@ -45,15 +45,14 @@ void ui_main_init()
     lv_tabview_set_tab_bar_size(tabview, 20);
     lv_obj_align(tabview, LV_ALIGN_CENTER, 0, 0);
 
-    char buf[13];
     int i = 0;
-    lv_snprintf(buf, 13, "#0000FF %s#", LV_SYMBOL_BLUETOOTH);
+
     linked_devices = ui_bt_get_linked();
     for (std::string dev : linked_devices)
     {
         LV_LOG_USER(dev.c_str());
         lv_obj_t *tab = lv_tabview_add_tab(tabview, std::to_string(i + 1).c_str());
-        lv_obj_t *card = ui_create_device_card(tab, dev, buf, false);
+        lv_obj_t *card = ui_create_device_card(tab, dev, false);
         lv_obj_set_style_pad_all(tab, 0, 0);
         lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
         device_card_data *data = (device_card_data *)lv_obj_get_user_data(card);
@@ -95,13 +94,13 @@ void ui_main_init()
     img = lv_label_create(main_widget);
     lv_label_set_text(img, LV_SYMBOL_WIFI);
     lv_obj_set_style_text_font(img, &lv_font_harmonyos_12, 0);
-    lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 2, 0);
+    lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 3, 0);
     last = img;
-    img = lv_label_create(main_widget);
-    lv_label_set_text(img, LV_SYMBOL_BLUETOOTH);               // 使用内置的蓝牙符号
-    lv_obj_set_style_text_font(img, &lv_font_harmonyos_12, 0); // 设置合适的字体大小
-    lv_obj_set_style_text_color(img, lv_palette_main(LV_PALETTE_BLUE), 0);
-    lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 4, 0);
+    img = lv_image_create(main_widget);
+    lv_image_set_src(img, &lv_img_bluetooth);
+    lv_img_set_zoom(img, 32);
+    lv_obj_set_size(img, 16, 16);
+    lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 0, 0);
 
     ui_bind_group_to_all_encoders(lv_group_get_default());
 
@@ -136,7 +135,7 @@ static void setting_widget_cb(lv_event_t *e)
 }
 
 // 创建设备卡片
-static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac, char *icon, bool color_test)
+static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac, bool color_test)
 {
     device_card_data *data = (device_card_data *)lv_malloc(sizeof(device_card_data));
     LV_ASSERT_MALLOC(data);
