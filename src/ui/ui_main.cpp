@@ -50,7 +50,7 @@ void ui_main_init()
     linked_devices = ui_bt_get_linked();
     for (std::string dev : linked_devices)
     {
-        LV_LOG_USER(dev.c_str());
+        logger::infoln(dev.c_str());
         lv_obj_t *tab = lv_tabview_add_tab(tabview, std::to_string(i + 1).c_str());
         lv_obj_t *card = ui_create_device_card(tab, dev, false);
         lv_obj_set_style_pad_all(tab, 0, 0);
