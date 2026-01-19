@@ -64,6 +64,7 @@ void ui_setting_init(lv_obj_t *ui_from)
     from_data = (char *)lv_obj_get_user_data(last_widget);
     lv_obj_set_flag(last_widget, LV_OBJ_FLAG_HIDDEN, true);
 
+    ui_bind_group_to_all_encoders(lv_group_get_default());
     setting_widget = ui_add_win();
     menu = lv_menu_create(setting_widget);
     lv_obj_set_style_bg_color(menu, lv_color_hex(0xF5F7FA), 0);
@@ -264,6 +265,7 @@ static void back_cb(lv_event_t *e)
     if (obj && lv_menu_back_button_is_root(menu, obj))
     {
         lv_obj_set_flag(last_widget, LV_OBJ_FLAG_HIDDEN, false);
+        lv_obj_send_event(last_widget, (lv_event_code_t)(LV_EVENT_LAST + 1), NULL);
         lv_timer_delete(sys_info_timer);
         lv_obj_del(setting_widget);
     }

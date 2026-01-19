@@ -20,10 +20,16 @@ void ui_bt_init()
     lv_obj_t *btn;
     lv_obj_t *label;
     bt_widget = ui_add_win();
+
     lv_obj_set_user_data(bt_widget, (void *)"bt_list");
 
     g1 = lv_group_create(); // 外层group
     g2 = lv_group_create(); // 内层group list的内部按钮选项
+    lv_obj_add_event_cb(bt_widget, [](lv_event_t *e)
+                        {
+        lv_group_t* g = (lv_group_t*)lv_event_get_user_data(e);
+        ui_bind_group_to_all_encoders(g);
+        logger::debugln("从设置回到蓝牙窗口"); }, (lv_event_code_t)(LV_EVENT_LAST + 1), g1);
 
     lv_obj_set_style_bg_color(bt_widget, lv_color_hex(0xEEF2F5), 0);
 

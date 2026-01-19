@@ -160,13 +160,13 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac
     data->left_voice_bar = lv_bar_create(card);
     lv_obj_add_style(data->left_voice_bar, &style_indic_h, LV_PART_INDICATOR);
     lv_obj_set_size(data->left_voice_bar, 160 * 0.6 - 15, 10);
-    lv_obj_align_to(data->left_voice_bar, left_label, LV_ALIGN_OUT_BOTTOM_RIGHT, 95, 0);
+    lv_obj_align_to(data->left_voice_bar, left_label, LV_ALIGN_OUT_RIGHT_MID, 5, 3);
     lv_bar_set_range(data->left_voice_bar, 0, 100);
 
     data->right_voice_bar = lv_bar_create(card);
     lv_obj_add_style(data->right_voice_bar, &style_indic_h, LV_PART_INDICATOR);
     lv_obj_set_size(data->right_voice_bar, 160 * 0.6 - 15, 10);
-    lv_obj_align_to(data->right_voice_bar, right_label, LV_ALIGN_OUT_BOTTOM_RIGHT, 95, 0);
+    lv_obj_align_to(data->right_voice_bar, right_label, LV_ALIGN_OUT_RIGHT_MID, 5, 3);
     lv_bar_set_range(data->right_voice_bar, 0, 100);
 
     data->power_label = lv_label_create(card);
