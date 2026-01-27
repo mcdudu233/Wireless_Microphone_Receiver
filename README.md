@@ -1,8 +1,8 @@
-# 无线领夹式麦克风-发射器 (Wireless Microphone Transmitter)
+# 无线领夹式麦克风-接收器 (Wireless Microphone Receiver)
 
-本文件夹是开源无线领夹式麦克风的发射器的代码，完整开源项目见[根目录](https://github.com/mcdudu233/Wireless_Microphone.git)。
+本文件夹是开源无线领夹式麦克风的接收器的代码，完整开源项目见[根目录](https://github.com/mcdudu233/Wireless_Microphone.git)。
 
-发射器主要用于采集和传输音频，因此代码主要实现了用 I2S 采集 PCM1822 的音频数据，并用 ESP32-S3 自带的 WIFI 或 BLE 传输无损的音频数据。音频数据采用了缓冲区进行储存，并用代码完成录制频率、比特数和通道数等等参数的调整。受制于硬件限制，发射器最高传输 192kHZ(32bit) 的无损麦克风音频数据。
+接收器主要用于接收、输出和录制音频，因此代码主要实现了用 ESP32-S3 自带的 WIFI 或 BLE 接受无损的音频数据，还支持用 I2S 协议或者 USB 音频协议播放音频数据，和通过 TF 卡录制音频等等功能。。受制于硬件限制，接收器耳机孔最高支持 384kHZ(32bit) 的音频输出，作为 USB 音频设备最高支持 192kHz(16bit) 输出。
 
 ## 目录结构
 
