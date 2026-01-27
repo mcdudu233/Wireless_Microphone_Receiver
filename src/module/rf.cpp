@@ -385,7 +385,7 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
             device->setBleChannel(nullptr);
             // 添加新设备到界面
             ui_bt_update(device->getBleMACString());
-            logger::debugln("BLE find new device: %s.", device->getBleMACString());
+            logger::debugln("BLE find new device: %s.", device->getBleMACString().c_str());
           }
         }
       }
@@ -637,7 +637,7 @@ static bool ble_connect_to_device(const std::string &mac)
       rc = ble_gap_connect(own_addr_type, &peer_addr, BLE_HS_FOREVER, NULL, ble_gap_handler, NULL);
       if (rc != 0)
       {
-        logger::warnln("Error: Failed to connect to device, address is %s.", mac);
+        logger::warnln("Error: Failed to connect to device, address is %s.", mac.c_str());
         return false;
       }
       // if (bleScanning)
@@ -646,10 +646,10 @@ static bool ble_connect_to_device(const std::string &mac)
       //   ble_start_scanning();
       // }
 
-      logger::debugln("BLE connecting to server %s.", mac);
+      logger::debugln("BLE connecting to server %s.", mac.c_str());
       return true;
     }
-    logger::warnln("BLE connect failed, because not found address %s.", mac);
+    logger::warnln("BLE connect failed, because not found address %s.", mac.c_str());
     return false;
   }
   logger::warnln("BLE connect failed, because BLE not open.");
@@ -672,10 +672,10 @@ static bool ble_disconnect_to_device(const std::string &mac)
         ble_gap_terminate(device->getBleHandle(), BLE_ERR_REM_USER_CONN_TERM);
       }
 
-      logger::debugln("BLE disconnecting to server %s.", mac);
+      logger::debugln("BLE disconnecting to server %s.", mac.c_str());
       return true;
     }
-    logger::warnln("BLE disconnect failed, because not found address %s.", mac);
+    logger::warnln("BLE disconnect failed, because not found address %s.", mac.c_str());
     return false;
   }
   logger::warnln("BLE disconnect failed, because BLE not open.");
@@ -978,7 +978,7 @@ int8_t ui_info_get_power(const std::string &mac)
   {
     return device->getBattery();
   }
-  logger::warnln("Screen get wrong MAC by %s", mac);
+  logger::warnln("Screen get wrong MAC by %s", mac.c_str());
   return 100;
 }
 
@@ -989,7 +989,7 @@ int8_t ui_info_get_signal(const std::string &mac)
   {
     return device->getRssi();
   }
-  logger::warnln("Screen get wrong MAC by %s", mac);
+  logger::warnln("Screen get wrong MAC by %s", mac.c_str());
   return 100;
 }
 /****************************/

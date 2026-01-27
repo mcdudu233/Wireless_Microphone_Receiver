@@ -33,9 +33,11 @@ lv_obj_t *ui_add_button(lv_obj_t *parent, std::string title, int32_t w, int32_t 
 }
 
 // 添加列表按钮
-lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb, const lv_font_t *font, std::optional<lv_color_t> bg_color)
+lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb, const lv_font_t *font, lv_palette_t bg_color)
 {
     lv_obj_t *btn = lv_list_add_button(list, NULL, content.c_str());
+    lv_obj_set_style_pad_all(btn, 0, 0);
+
     // lv_obj_set_style_pad_all(btn, 1, 0);
 
     // lv_obj_set_size(btn,lv_pct(90),15);
@@ -44,9 +46,9 @@ lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb,
         lv_obj_set_style_text_font(btn, font, 0);
     }
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
-    if (bg_color.has_value())
+    if (bg_color != LV_PALETTE_NONE)
     {
-        lv_obj_set_style_bg_color(btn, bg_color.value(), 0);
+        lv_obj_set_style_bg_color(btn, lv_palette_main(bg_color), 0);
     }
     return btn;
 }
