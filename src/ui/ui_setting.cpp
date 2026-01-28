@@ -802,18 +802,3 @@ static void save_config(uint8_t &p, bool now)
         break;
     }
 }
-
-// audio页面读取回调
-void ui_setting_audio_page_rcb(uint8_t &bit, uint8_t &channel, uint32_t &rate, uint8_t &volumn, uint8_t &volumn_mode)
-{
-}
-// audio页面保存回调
-void ui_setting_audio_page_scb(uint8_t bit, uint8_t channel, uint32_t rate, uint8_t volumn, uint8_t &volumn_mode, bool now)
-{
-}
-void ui_setting_rf_page_rcb(bool &mode)
-{
-}
-void ui_setting_rf_page_scb(bool mode, bool now)
-{
-}
