@@ -9,6 +9,9 @@ static lv_obj_t *last_enter_btn = NULL; // 记录进入子页面所用的条目
 static lv_timer_t *sys_info_timer;
 static lv_style_t scroll_style;
 
+static lv_obj_t *file_list;
+static lv_obj_t *file_path;
+
 static bool enter_bottom = false;
 static lv_obj_t *root_page_ref = NULL;
 
@@ -98,7 +101,7 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_t *sub_usb_page = ui_create_sub_page(menu, "USB传输设置");
     lv_obj_set_user_data(sub_usb_page, (void *)e_page::usb_page);
     lv_obj_t *sub_file_page = ui_create_sub_page(menu, "文件系统管理");
-    lv_obj_set_user_data(sub_usb_page, (void *)e_page::file_page);
+    lv_obj_set_user_data(sub_file_page, (void *)e_page::file_page);
     lv_obj_t *sub_system_page = ui_create_sub_page(menu, "系统信息");
     lv_obj_set_user_data(sub_system_page, (void *)e_page::system_page);
     lv_obj_t *sub_audio_page = ui_create_sub_page(menu, "音频设置");
@@ -186,6 +189,23 @@ void ui_setting_init(lv_obj_t *ui_from)
                        &dd_rf_mode);
     // lv_obj_add_event_cb(dd_rf_mode, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)6);
 
+    lv_obj_t *file_widget = lv_obj_create(sub_file_page);
+    lv_obj_set_size(file_widget,lv_pct(100),lv_pct(100));
+    file_path = lv_label_create(file_widget);
+    lv_obj_align(file_path, LV_ALIGN_TOP_MID, 0, 3);
+    lv_label_set_text_fmt(file_path, "路径:%s", "A:/...");
+    lv_obj_set_style_text_font(file_path, &lv_font_harmonyos_12, 0);
+    file_list = lv_list_create(file_widget);
+    lv_obj_align(file_list, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_set_width(file_list, lv_pct(95));
+    lv_obj_set_height(file_list, lv_pct(95));
+    lv_obj_t *file = lv_list_add_button(file_list, LV_SYMBOL_LEFT, "返回");
+    lv_obj_set_style_bg_color(file, lv_palette_main(LV_PALETTE_YELLOW), 0);
+    file = lv_list_add_button(file_list, LV_SYMBOL_FILE, "文件2");
+    lv_obj_set_style_bg_color(file, lv_palette_main(LV_PALETTE_YELLOW), 0);
+    file = lv_list_add_button(file_list, LV_SYMBOL_FILE, "文件3");
+    file = lv_list_add_button(file_list, LV_SYMBOL_FILE, "文件4");
+
     lv_obj_t *root_page = lv_menu_page_create(menu, "设置");
     root_page_ref = root_page; // 保存引用
     lv_obj_add_style(root_page, &scroll_style, LV_PART_SCROLLBAR);
@@ -227,6 +247,15 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
+    // 文件系统管理
+    cont = ui_create_text(root_page, &ui_img_file, "文件系统管理",NULL,true);
+    lv_group_add_obj(lv_group_get_default(), cont);
+    lv_menu_set_load_page_event(menu, cont, sub_file_page);
+    lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_file_page);
+    lv_obj_set_style_translate_x(cont, 100, 0);
+    lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
+
     // section = lv_menu_section_create(root_page);
     cont = ui_create_text(root_page, &ui_img_system_info, "系统信息", nullptr, true);
     lv_group_add_obj(lv_group_get_default(), cont);
@@ -244,7 +273,6 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
-    // TODO: 文件系统页面
     //  lv_menu_set_sidebar_page(menu, root_page);
 
     // lv_obj_send_event(lv_obj_get_child(lv_obj_get_child(lv_menu_get_cur_sidebar_page(menu), 0), 0), LV_EVENT_CLICKED,
@@ -448,11 +476,16 @@ static void enter_subpage_cb(lv_event_t *e)
     last_enter_btn = lv_event_get_target_obj(e);
     lv_obj_t *page = (lv_obj_t *)lv_event_get_user_data(e);
     uint8_t p = (uint8_t)(intptr_t)lv_obj_get_user_data(page);
-    if (p == e_page::system_page)
+    logger::debugln("进入页面");
+    switch (p)
+    {
+
+    case e_page::system_page:
     {
         lv_timer_resume(sys_info_timer);
+        break;
     }
-    else if (p == e_page::audio_page)
+    case e_page::audio_page:
     {
         uint8_t l_bit = 16, l_channel = 2, l_volumn = 30, l_volumn_mode = USB_MODE_AUDIO;
         uint32_t l_rate = 48000;
@@ -510,8 +543,9 @@ static void enter_subpage_cb(lv_event_t *e)
         {
             lv_slider_set_value(slider_audio_volumn, l_volumn, LV_ANIM_OFF);
         }
+        break;
     }
-    else if (p == e_page::usb_page)
+    case e_page::usb_page:
     {
         USBMode mode = USB_MODE_NONE;
         ui_setting_usb_page_rcb(mode);
@@ -532,12 +566,20 @@ static void enter_subpage_cb(lv_event_t *e)
             break;
         }
         lv_dropdown_set_selected(dd_usb_mode, sel);
+        break;
     }
-    else if (p == e_page::rf_page)
+    case e_page::rf_page:
     {
-        bool mode = false; // false: BLE, true: WIFI
-        ui_setting_rf_page_rcb(mode);
-        lv_dropdown_set_selected(dd_rf_mode, mode ? 1 : 0);
+        bool rfmode = false; // false: BLE, true: WIFI
+        ui_setting_rf_page_rcb(rfmode);
+        lv_dropdown_set_selected(dd_rf_mode, rfmode ? 1 : 0);
+        break;
+    }
+    case e_page::file_page:
+    {
+        logger::debugln("进入文件管理系统");
+        break;
+    }
     }
 
     lv_obj_set_user_data(last_enter_btn, page); // 记录btn对应的page
@@ -567,6 +609,7 @@ static void sys_info_timer_cb(lv_timer_t *)
     lv_label_set_text_fmt(cpu2, "CPU2   #626367 %.2f%%#", l_cpu2);
     lv_label_set_text_fmt(iram, "IRAM   #626367 %d/%dKB#", l_iram / 1024 / 8, l_iram_max / 1024 / 8);
     lv_label_set_text_fmt(psram, "PSRAM   #626367 %d/%dKB#", l_psram / 1024 / 8, l_psram_max / 1024 / 8);
+    logger::debug("cpu1 %.2f,cpu2 %.2f,iram %d/%d,psram %d/%d",l_cpu1,l_cpu2,l_iram,l_iram_max,l_psram,l_psram_max);
     // lv_label_set_text_fmt(sd, "SD   #626367 %dbit#", l_sd);
 }
 // 返回按钮焦点事件回调
