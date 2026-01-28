@@ -8,19 +8,19 @@
 
 本目录下：
 
-- [components](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/components) --> 依赖组件目录
-- [config](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/config) --> 配置目录
-  - [board.json](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/config/board.json) --> 板子配置
-  - [partition.csv](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/config/partition.csv) --> 分区表配置
-- [include](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/include) --> 头文件目录
-- [src](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/src) --> 源代码目录
-- [test](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/test) --> 测试文件目录 (无)
-- [lib](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/lib) --> 库文件目录 (无)
-- [.gitignore](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/.gitignore) --> Git 忽略文件
-- [CMakeLists.txt](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/CMakeLists.txt) --> CMake 配置文件 (不需要动)
-- [platformio.ini](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/platformio.ini) --> PlatformIO 配置文件 (框架, 依赖库, 编译标志)
-- [LICENSE](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/LICENSE) --> 使用协议
-- [README.md](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Transmitter/README.md) --> 介绍
+- [components](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/components) --> 依赖组件目录
+- [config](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/config) --> 配置目录
+  - [board.json](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/config/board.json) --> 板子配置
+  - [partition.csv](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/config/partition.csv) --> 分区表配置
+- [include](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/include) --> 头文件目录
+- [src](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/src) --> 源代码目录
+- [test](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/test) --> 测试文件目录 (无)
+- [lib](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/lib) --> 库文件目录 (无)
+- [.gitignore](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/.gitignore) --> Git 忽略文件
+- [CMakeLists.txt](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/CMakeLists.txt) --> CMake 配置文件 (不需要动)
+- [platformio.ini](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/platformio.ini) --> PlatformIO 配置文件 (框架, 依赖库, 编译标志)
+- [LICENSE](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/LICENSE) --> 使用协议
+- [README.md](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/README.md) --> 介绍
 
 ## 下载&编译
 

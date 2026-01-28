@@ -782,12 +782,6 @@ void rf::reconfigure()
   strcpy(configDevice.packet.name, WIFI_NAME);
   strcpy(configDevice.packet.password, WIFI_PASSWORD);
 
-  config::config.audio.autoVolumn = false;
-  config::config.audio.peekVolumn = true;
-  config::config.audio.volumn = 30;
-  config::config.audio.bit = 24;
-  config::config.audio.rate = 96000;
-
   configAudio.packet.channel = config::config.audio.channel;
   configAudio.packet.rate = config::config.audio.rate;
   configAudio.packet.bit = config::config.audio.bit;
@@ -991,5 +985,68 @@ int8_t ui_info_get_signal(const std::string &mac)
   }
   logger::warnln("Screen get wrong MAC by %s", mac.c_str());
   return 100;
+}
+
+void ui_setting_audio_page_rcb(uint8_t &bit, uint8_t &channel, uint32_t &rate, uint8_t &volumn, uint8_t &volumn_mode)
+{
+  bit = config::config.audio.bit;
+  channel = config::config.audio.channel;
+  rate = config::config.audio.rate;
+  volumn = config::config.audio.volumn;
+  if (config::config.audio.autoVolumn)
+  {
+    volumn_mode = 0;
+  }
+  else if (config::config.audio.peekVolumn)
+  {
+    volumn_mode = 1;
+  }
+  else
+  {
+    volumn_mode = 2;
+  }
+}
+
+void ui_setting_audio_page_scb(uint8_t bit, uint8_t channel, uint32_t rate, uint8_t volumn, uint8_t &volumn_mode, bool now)
+{
+  config::config.audio.bit = bit;
+  config::config.audio.channel = channel;
+  config::config.audio.rate = rate;
+  config::config.audio.volumn = volumn;
+  if (volumn_mode == 0)
+  {
+    config::config.audio.autoVolumn = true;
+    config::config.audio.peekVolumn = false;
+  }
+  else if (volumn_mode == 1)
+  {
+    config::config.audio.autoVolumn = false;
+    config::config.audio.peekVolumn = true;
+  }
+  else
+  {
+    config::config.audio.autoVolumn = false;
+    config::config.audio.peekVolumn = false;
+  }
+  config::save();
+
+  if (now)
+  {
+  }
+}
+
+void ui_setting_rf_page_rcb(bool &mode)
+{
+  mode = config::config.rf.mode;
+}
+
+void ui_setting_rf_page_scb(bool mode, bool now)
+{
+  config::config.rf.mode = mode;
+  config::save();
+
+  if (now)
+  {
+  }
 }
 /****************************/
