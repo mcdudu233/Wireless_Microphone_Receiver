@@ -36,5 +36,5 @@ extern "C" void app_main()
   tf::setup();
   ui_loading_set_part("TF卡");
   ui_loading_set_percent(100);
-  logger::infoln("All modules are started now!");
+  LOGGER_INFO("All modules are started now!");
 }

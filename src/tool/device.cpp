@@ -209,7 +209,7 @@ std::string Device::getWifiIPString() const
 }
 void Device::print()
 {
-  logger::debugln("Device{%d}: Battery=%d%%, RSSI=%d dBm, BLE Connected=%s, BLE MAC=%s, BLE Handle=%d, WiFi Connected=%s, WiFi MAC=%s, WiFi IP=%s",
+  LOGGER_INFO("Device{%d}: Battery=%d%%, RSSI=%d dBm, BLE Connected=%s, BLE MAC=%s, BLE Handle=%d, WiFi Connected=%s, WiFi MAC=%s, WiFi IP=%s",
                   id, battery, rssi,
                   bleConnected ? "Yes" : "No", getBleMACString().c_str(), bleHandle,
                   wifiConnected ? "Yes" : "No", getWifiMACString().c_str(), getWifiIPString().c_str());

@@ -61,12 +61,12 @@ static void audioHandle(void *arg)
       plugin = isPlugin;
       if (isPlugin)
       {
-        logger::infoln("Audio Decoder found 3.5mm plug in!");
+        LOGGER_INFO("Audio Decoder found 3.5mm plug in!");
         audio::decoder::on(config::config.audio.rate, config::config.audio.bit, config::config.audio.channel);
       }
       else
       {
-        logger::infoln("Audio Decoder found 3.5mm plug out!");
+        LOGGER_INFO("Audio Decoder found 3.5mm plug out!");
         audio::decoder::off();
       }
     }
@@ -79,17 +79,17 @@ static void audioHandle(void *arg)
       {
         audio::decoder::off();
         audio::decoder::on(config::config.audio.rate, config::config.audio.bit, config::config.audio.channel);
-        logger::debugln("Audio Decoder found audio config changed.");
+        LOGGER_INFO("Audio Decoder found audio config changed.");
       }
 
       // 获取数据
       data = audio::buffer::getDecoderData();
       if (data != nullptr)
       {
-        // logger::infoln("Audio Decoder num=%d size=%d!", data->num, data->size);
+        // LOGGER_INFO("Audio Decoder num=%d size=%d!", data->num, data->size);
         if (i2s_channel_write(i2s_tx_handle, data->data, data->size, NULL, AUDIO_DECODER_POLLING_CYCLE * 2) != ESP_OK)
         {
-          logger::infoln("Audio Decoder write fail!");
+          LOGGER_INFO("Audio Decoder write fail!");
           // last_fail++;
         }
         // else
@@ -112,7 +112,7 @@ static void audioHandle(void *arg)
 
 void audio::decoder::setup()
 {
-  logger::debugln("Audio Decoder is starting...");
+  LOGGER_INFO("Audio Decoder is starting...");
   pinMode(AUDIO_DECODER_MUTE, OUTPUT);
   pinMode(AUDIO_DECODER_FLT, OUTPUT);
   digitalWrite(AUDIO_DECODER_MUTE, LOW);
@@ -120,7 +120,7 @@ void audio::decoder::setup()
   // 启动插入检测
   pinMode(AUDIO_DECODER_ON, INPUT);
   xTaskCreatePinnedToCore(audioHandle, "audio_decoder_handle", TASK_AUDIO_DECODER_STACK, NULL, TASK_AUDIO_DECODER_PRIORITY, NULL, TASK_AUDIO_DECODER_CORE);
-  logger::debugln("Audio Decoder is started!");
+  LOGGER_INFO("Audio Decoder is started!");
 }
 
 void audio::decoder::on(uint32_t rate, uint32_t bit, uint8_t channel)
@@ -145,7 +145,7 @@ void audio::decoder::on(uint32_t rate, uint32_t bit, uint8_t channel)
   i2s_channel_enable(i2s_tx_handle);
   powerOn = true;
   setMute(false);
-  logger::debugln("Audio Decoder is on.");
+  LOGGER_INFO("Audio Decoder is on.");
 }
 
 void audio::decoder::off()
@@ -154,7 +154,7 @@ void audio::decoder::off()
   i2s_channel_disable(i2s_tx_handle);
   i2s_del_channel(i2s_tx_handle);
   powerOn = false;
-  logger::debugln("Audio Decoder is off.");
+  LOGGER_INFO("Audio Decoder is off.");
 }
 
 bool audio::decoder::isOn()

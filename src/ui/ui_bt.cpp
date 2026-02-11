@@ -27,9 +27,11 @@ void ui_bt_init()
     g2 = lv_group_create(); // 内层group list的内部按钮选项
     lv_obj_add_event_cb(bt_widget, [](lv_event_t *e)
                         {
-        lv_group_t* g = (lv_group_t*)lv_event_get_user_data(e);
-        ui_bind_group_to_all_encoders(g);
-        logger::debugln("从设置回到蓝牙窗口"); }, (lv_event_code_t)(LV_EVENT_LAST + 1), g1);
+                            lv_group_t *g = (lv_group_t *)lv_event_get_user_data(e);
+                            ui_bind_group_to_all_encoders(g);
+                            // logger::debugln("从设置回到蓝牙窗口");
+                        },
+                        (lv_event_code_t)(LV_EVENT_LAST + 1), g1);
 
     lv_obj_set_style_bg_color(bt_widget, lv_color_hex(0xEEF2F5), 0);
 
@@ -108,7 +110,7 @@ static void link_bt()
         {
             label = lv_obj_get_child(btn, 0);
             char *bt_name = lv_label_get_text(label); // 待链接蓝牙的名称
-            logger::infoln("正在连接蓝牙%s", bt_name);
+            // logger::infoln("正在连接蓝牙%s", bt_name);
             bool state = ui_bt_link(bt_name);
             if (state) // 链接成功
             {
@@ -146,7 +148,7 @@ static void list_event_handler(lv_event_t *e)
     if (code == LV_EVENT_CLICKED)
     {
         lv_state_t current_state = lv_obj_get_state(obj);
-        logger::infoln("state:%d", current_state);
+        // logger::infoln("state:%d", current_state);
         const char *bt_name = lv_list_get_button_text(bt_list, obj);
         ui_bind_group_to_all_encoders(g1);            // 外层group
         lv_group_focus_obj(bt_list);                  // 重置焦点
@@ -157,7 +159,7 @@ static void list_event_handler(lv_event_t *e)
             if (lv_obj_get_user_data(obj) == BT_LINKED) // 判断是否连接，如果是则断开连接
             {
                 bool ret = ui_bt_unlink(bt_name);
-                logger::infoln("断开连接");
+                // logger::infoln("断开连接");
                 if (!ret)
                 {
                     lv_obj_add_state(obj, LV_STATE_CHECKED);
@@ -181,7 +183,7 @@ static void list_event_handler(lv_event_t *e)
         }
         lv_obj_remove_state(obj, (lv_state_t)(current_state & ~LV_STATE_CHECKED));
         lv_obj_clear_flag(bt_list, LV_OBJ_FLAG_SCROLLABLE);
-        logger::infoln("Clicked: %s", bt_name);
+        // logger::infoln("Clicked: %s", bt_name);
     }
 }
 
@@ -189,7 +191,7 @@ static void bt_list_click_event_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t *list = (lv_obj_t *)lv_event_get_target(e);
-    logger::infoln("list点击");
+    // logger::infoln("list点击");
     ui_bind_group_to_all_encoders(g2); // 进入内层
     lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
     // 若列表尚无子项，避免空指针聚焦
@@ -233,14 +235,14 @@ void ui_bt_update(const std::string &mac, bool is_link)
         lv_obj_set_style_bg_color(btn, COLOR_LINKED, LV_STATE_CHECKED); // 设置连接状态
         lv_obj_set_user_data(btn, BT_LINKED);
         lv_obj_add_state(btn, LV_STATE_CHECKED);
-        logger::infoln("设置蓝牙:%s 已连接状态", mac.c_str());
+        // logger::infoln("设置蓝牙:%s 已连接状态", mac.c_str());
     }
     else
     {
         lv_obj_set_style_bg_color(btn, COLOR_SELECTED, LV_STATE_CHECKED);
         lv_obj_set_user_data(btn, BT_UNLINKED);
         lv_obj_remove_state(btn, (lv_state_t)(LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY));
-        logger::infoln("设置蓝牙:%s 未连接状态", mac.c_str());
+        // logger::infoln("设置蓝牙:%s 未连接状态", mac.c_str());
     }
     LV_UNLOCK();
 }
