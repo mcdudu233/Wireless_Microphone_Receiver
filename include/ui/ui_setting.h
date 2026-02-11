@@ -7,7 +7,7 @@
 #define WEBSITE "www.mcso.top/mic"
 
 // 获取系统信息调用
-void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, uint64_t &iram_current, uint64_t &psram_current, uint64_t l_iram_max, uint64_t l_psram_max);
+void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, size_t &iram_current, size_t &psram_current, size_t &l_iram_max, size_t &l_psram_max);
 
 // 更新新的配置时调用
 
