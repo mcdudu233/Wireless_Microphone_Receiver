@@ -1,12 +1,6 @@
 #pragma once
 
-enum USBMode
-{
-  USB_MODE_NONE = 0,
-  USB_MODE_JTAG = 1,
-  USB_MODE_AUDIO = 2,
-  USB_MODE_SD = 3,
-};
+#include "config.h"
 
 namespace usb
 {

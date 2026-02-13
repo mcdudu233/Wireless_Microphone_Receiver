@@ -16,13 +16,13 @@ static DeviceManager deviceManager;
 static struct
 {
   uint8_t type = PACKET_TYPE_SERVER_CONTROL_DEVICE;
-  ServerControlDevicePacket packet;
+  ServerControlRFPacket packet;
 } configDevice;
-static struct
-{
-  uint8_t type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
-  ServerControlAudioPacket packet;
-} configAudio;
+// static struct
+// {
+//   uint8_t type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+//   ServerControlAudioPacket packet;
+// } configAudio;
 
 // 计算音频传输速度
 static uint32_t transmitSpeed = 0;
@@ -161,6 +161,7 @@ static wifi_config_t wifiConfig = {
         .ssid_len = strlen(WIFI_NAME),
         .channel = WIFI_CHANNEL,
         .authmode = WIFI_AUTH_WPA2_PSK,
+        .ssid_hidden = 1,
         .max_connection = RF_MAX_CONNECTION,
         .pmf_cfg = {
             .required = true,
@@ -268,10 +269,9 @@ static void ble_start_scanning();
 static void ble_stop_scanning();
 
 // L2CAP 事件
-static int ble_l2cap_handler(struct ble_l2cap_event *event, void *arg)
+static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
 {
   int rc;
-  struct ble_l2cap_chan_info chan_info;
   Device *device = (Device *)arg;
 
   switch (event->type)
@@ -281,6 +281,7 @@ static int ble_l2cap_handler(struct ble_l2cap_event *event, void *arg)
   {
     if (event->connect.status == 0)
     {
+      ble_l2cap_chan_info chan_info;
       rc = ble_l2cap_get_chan_info(event->connect.chan, &chan_info);
       if (rc != 0)
       {
@@ -292,9 +293,9 @@ static int ble_l2cap_handler(struct ble_l2cap_event *event, void *arg)
       // 更新界面
       ui_bt_update(device->getBleMACString(), true);
       LOGGER_INFO("BLE LE COC connected, conn: %d, our_mps: %d, our_mtu: %d, peer_mps: %d, peer_mtu: %d\n",
-                      event->connect.conn_handle,
-                      chan_info.our_l2cap_mtu, chan_info.our_coc_mtu,
-                      chan_info.peer_l2cap_mtu, chan_info.peer_coc_mtu);
+                  event->connect.conn_handle,
+                  chan_info.our_l2cap_mtu, chan_info.our_coc_mtu,
+                  chan_info.peer_l2cap_mtu, chan_info.peer_coc_mtu);
     }
     else
     {
@@ -313,7 +314,7 @@ static int ble_l2cap_handler(struct ble_l2cap_event *event, void *arg)
     break;
   }
 
-    // 接收到数据事件
+  // 接收到数据事件
   case BLE_L2CAP_EVENT_COC_DATA_RECEIVED:
   {
     if (event->receive.sdu_rx != NULL)
@@ -337,17 +338,25 @@ static int ble_l2cap_handler(struct ble_l2cap_event *event, void *arg)
 }
 
 // GAP 事件
-static int ble_gap_handler(struct ble_gap_event *event, void *arg)
+static void ble_mac_reverse(uint8_t dest[6], uint8_t src[6])
+{
+  // 翻转MAC地址字节序
+  for (int i = 0; i < 6; i++)
+  {
+    dest[i] = src[5 - i];
+  }
+}
+static int ble_gap_handler(ble_gap_event *event, void *arg)
 {
   int rc;
-  struct ble_gap_conn_desc desc;
-  struct ble_hs_adv_fields fields;
 
   switch (event->type)
   {
   // 发现设备事件
   case BLE_GAP_EVENT_DISC:
   {
+    // 解析公告数据
+    ble_hs_adv_fields fields;
     rc = ble_hs_adv_parse_fields(&fields, event->disc.data, event->disc.length_data);
     if (rc != 0)
     {
@@ -365,13 +374,8 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
       name[fields.name_len] = '\0';
       if (strcmp(name, BLE_NAME) == 0)
       {
-        // 翻转MAC地址字节序
         uint8_t mac[6];
-        for (int i = 0; i < 6; i++)
-        {
-          mac[i] = event->disc.addr.val[5 - i];
-        }
-
+        ble_mac_reverse(mac, event->disc.addr.val);
         Device *device = deviceManager.getDeviceByBleMAC(mac);
         if (device == nullptr)
         {
@@ -379,10 +383,10 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
           if (device != nullptr)
           {
             device->setBleConnected(false);
-            device->setBleDoConnect(true);
             device->setWifiConnected(false);
             device->setBleHandle(0);
             device->setBleChannel(nullptr);
+            device->setRssi(event->disc.rssi);
             // 添加新设备到界面
             ui_bt_update(device->getBleMACString());
             LOGGER_INFO("BLE find new device: %s.", device->getBleMACString().c_str());
@@ -398,6 +402,7 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
   {
     if (event->connect.status == 0)
     {
+      ble_gap_conn_desc desc;
       rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
       if (rc != 0)
       {
@@ -405,19 +410,15 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
         break;
       }
 
-      // 翻转MAC地址字节序
       uint8_t mac[6];
-      for (int i = 0; i < 6; i++)
-      {
-        mac[i] = desc.peer_id_addr.val[5 - i];
-      }
+      ble_mac_reverse(mac, desc.peer_id_addr.val);
       Device *device = deviceManager.getDeviceByBleMAC(mac);
       if (device != nullptr)
       {
         device->setBleHandle(event->connect.conn_handle);
 
         // 连接到 L2CAP
-        struct os_mbuf *sdu_rx;
+        os_mbuf *sdu_rx;
         sdu_rx = os_mbuf_get_pkthdr(&bleBufferpool, 0);
         rc = ble_l2cap_connect(device->getBleHandle(), BLE_L2CAP_PSM, BLE_L2CAP_MTU, sdu_rx, ble_l2cap_handler, device);
         if (rc != 0)
@@ -431,9 +432,9 @@ static int ble_gap_handler(struct ble_gap_event *event, void *arg)
       }
       else
       {
-        LOGGER_WARN("BLE device not found for MAC: %d:%d:%d:%d:%d:%d",
-                       mac[0], mac[1], mac[2],
-                       mac[3], mac[4], mac[5]);
+        LOGGER_WARN("BLE device not found for MAC: %2x:%2x:%2x:%2x:%2x:%2x",
+                    mac[0], mac[1], mac[2],
+                    mac[3], mac[4], mac[5]);
       }
     }
     else
@@ -746,24 +747,13 @@ static void rf_receive_packet(const uint8_t *data)
   // 客户端状态
   case PACKET_TYPE_CLIENT_STATUS:
   {
-    uint64_t bleMACNone = PACKET_CLIENT_STATUS_BLE_MAC_NONE;
-    uint64_t wifiMACNone = PACKET_CLIENT_STATUS_WIFI_MAC_NONE;
-    uint8_t *bleMAC = packet->packet.clientStatus.bleMAC;
-    uint8_t *wifiMAC = packet->packet.clientStatus.wifiMAC;
-    if (memcmp(bleMAC, &bleMACNone, 6) != 0)
-    {
-      if (memcmp(wifiMAC, &wifiMACNone, 6) != 0)
-      {
-        deviceManager.bindDevice(bleMAC, wifiMAC);
-      }
-      Device *device = deviceManager.getDeviceByBleMAC(bleMAC);
-      if (device != nullptr)
-      {
-        device->setBattery(packet->packet.clientStatus.battery);
-        // LOGGER_INFO("RF client status received, bleMAC=%s, wifiMAC=%s, wifiIP=%s, battery=%d%%",
-        //                 device->getBleMACString(), device->getWifiMACString(), device->getWifiIPString(), device->getBattery());
-      }
-    }
+    // Device *device = deviceManager.getDeviceByWifiMAC;
+    // if (device != nullptr)
+    // {
+    //   device->setBattery(packet->packet.clientStatus.battery);
+    //   // LOGGER_INFO("RF client status received, bleMAC=%s, wifiMAC=%s, wifiIP=%s, battery=%d%%",
+    //   //                 device->getBleMACString(), device->getWifiMACString(), device->getWifiIPString(), device->getBattery());
+    // }
     break;
   }
 
@@ -773,21 +763,6 @@ static void rf_receive_packet(const uint8_t *data)
     break;
   }
   }
-}
-
-void rf::reconfigure()
-{
-  // 刷新配置
-  configDevice.packet.mode = config::config.rf.mode;
-  strcpy(configDevice.packet.name, WIFI_NAME);
-  strcpy(configDevice.packet.password, WIFI_PASSWORD);
-
-  configAudio.packet.channel = config::config.audio.channel;
-  configAudio.packet.rate = config::config.audio.rate;
-  configAudio.packet.bit = config::config.audio.bit;
-  configAudio.packet.autoVolumn = config::config.audio.autoVolumn;
-  configAudio.packet.peekVolumn = config::config.audio.peekVolumn;
-  configAudio.packet.volumn = config::config.audio.volumn;
 }
 
 static unsigned long secondLastTime = millis(); // 每秒时间点
@@ -879,7 +854,6 @@ static void rf_handle(void *arg)
 
 void rf::setup()
 {
-  reconfigure();
   ble_open();
   // 启动发送接收线程
   xTaskCreatePinnedToCore(rf_handle, "rf_handle", TASK_RF_STACK, NULL, TASK_RF_PRIORITY, NULL, TASK_RF_CORE);
@@ -915,19 +889,18 @@ void ui_bt_search()
 }
 void ui_bt_pause_search()
 {
-  rf::reconfigure();
   Device *devices = deviceManager.getAllDevices();
   for (uint8_t i = 0; i < deviceManager.size(); i++)
   {
     Device device = devices[i];
-    configAudio.packet.start = true;
-    ble_send(device, (uint8_t *)&configAudio, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+    // configAudio.packet.start = true;
+    // ble_send(device, (uint8_t *)&configAudio, PACKET_SERVER_CONTROL_AUDIO_SIZE);
 
     wifi_open();
-    configDevice.packet.startWiFi = true;
-    configDevice.packet.startBLE = false;
-    configDevice.packet.start = true;
-    ble_send(device, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_DEVICE_SIZE);
+    configDevice.packet.mode = RF_MODE_WIFI;
+    strcpy(configDevice.packet.ssid, WIFI_NAME);
+    strcpy(configDevice.packet.password, WIFI_PASSWORD);
+    ble_send(device, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_RF_SIZE);
   }
 
   delay(1000);
@@ -989,50 +962,50 @@ int8_t ui_info_get_signal(const std::string &mac)
 
 void ui_setting_audio_page_rcb(uint8_t &bit, uint8_t &channel, uint32_t &rate, uint8_t &volumn, uint8_t &volumn_mode)
 {
-  bit = config::config.audio.bit;
-  channel = config::config.audio.channel;
-  rate = config::config.audio.rate;
-  volumn = config::config.audio.volumn;
-  if (config::config.audio.autoVolumn)
-  {
-    volumn_mode = 0;
-  }
-  else if (config::config.audio.peekVolumn)
-  {
-    volumn_mode = 1;
-  }
-  else
-  {
-    volumn_mode = 2;
-  }
+  // bit = config::config.audio.bit;
+  // channel = config::config.audio.channel;
+  // rate = config::config.audio.rate;
+  // volumn = config::config.audio.volumn;
+  // if (config::config.audio.autoVolumn)
+  // {
+  //   volumn_mode = 0;
+  // }
+  // else if (config::config.audio.peekVolumn)
+  // {
+  //   volumn_mode = 1;
+  // }
+  // else
+  // {
+  //   volumn_mode = 2;
+  // }
 }
 
 void ui_setting_audio_page_scb(uint8_t bit, uint8_t channel, uint32_t rate, uint8_t volumn, uint8_t &volumn_mode, bool now)
 {
-  config::config.audio.bit = bit;
-  config::config.audio.channel = channel;
-  config::config.audio.rate = rate;
-  config::config.audio.volumn = volumn;
-  if (volumn_mode == 0)
-  {
-    config::config.audio.autoVolumn = true;
-    config::config.audio.peekVolumn = false;
-  }
-  else if (volumn_mode == 1)
-  {
-    config::config.audio.autoVolumn = false;
-    config::config.audio.peekVolumn = true;
-  }
-  else
-  {
-    config::config.audio.autoVolumn = false;
-    config::config.audio.peekVolumn = false;
-  }
-  config::save();
+  // config::config.audio.bit = bit;
+  // config::config.audio.channel = channel;
+  // config::config.audio.rate = rate;
+  // config::config.audio.volumn = volumn;
+  // if (volumn_mode == 0)
+  // {
+  //   config::config.audio.autoVolumn = true;
+  //   config::config.audio.peekVolumn = false;
+  // }
+  // else if (volumn_mode == 1)
+  // {
+  //   config::config.audio.autoVolumn = false;
+  //   config::config.audio.peekVolumn = true;
+  // }
+  // else
+  // {
+  //   config::config.audio.autoVolumn = false;
+  //   config::config.audio.peekVolumn = false;
+  // }
+  // config::save();
 
-  if (now)
-  {
-  }
+  // if (now)
+  // {
+  // }
 }
 
 void ui_setting_rf_page_rcb(bool &mode)
@@ -1042,11 +1015,11 @@ void ui_setting_rf_page_rcb(bool &mode)
 
 void ui_setting_rf_page_scb(bool mode, bool now)
 {
-  config::config.rf.mode = mode;
-  config::save();
+  // config::config.rf.mode = mode;
+  // config::save();
 
-  if (now)
-  {
-  }
+  // if (now)
+  // {
+  // }
 }
 /****************************/
