@@ -12,18 +12,6 @@
 // 缓存的设备
 static DeviceManager deviceManager;
 
-// 整体配置
-static struct
-{
-  uint8_t type = PACKET_TYPE_SERVER_CONTROL_DEVICE;
-  ServerControlRFPacket packet;
-} configDevice;
-// static struct
-// {
-//   uint8_t type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
-//   ServerControlAudioPacket packet;
-// } configAudio;
-
 // 计算音频传输速度
 static uint32_t transmitSpeed = 0;
 static uint32_t transmitSpeedData = 0;
@@ -186,12 +174,30 @@ static void wifi_event_handle(void *arg, esp_event_base_t event_base, int32_t ev
   if (event_id == WIFI_EVENT_AP_STACONNECTED)
   {
     wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
-    LOGGER_INFO("station " MACSTR " join, AID=%d", MAC2STR(event->mac), event->aid);
+    Device *device = deviceManager.getDeviceByWifiMAC(event->mac);
+    if (device != nullptr)
+    {
+      device->setWifiConnected(true);
+      LOGGER_INFO("WiFi station " MACSTR " join, AID=%d", MAC2STR(event->mac), event->aid);
+    }
+    else
+    {
+      LOGGER_WARN("WiFi can't find device by MAC " MACSTR, MAC2STR(event->mac));
+    }
   }
   else if (event_id == WIFI_EVENT_AP_STADISCONNECTED)
   {
     wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-    LOGGER_INFO("station " MACSTR " leave, AID=%d, reason=%d", MAC2STR(event->mac), event->aid, event->reason);
+    Device *device = deviceManager.getDeviceByWifiMAC(event->mac);
+    if (device != nullptr)
+    {
+      device->setWifiConnected(false);
+      LOGGER_INFO("WiFi station " MACSTR " leave, AID=%d, reason=%d", MAC2STR(event->mac), event->aid, event->reason);
+    }
+    else
+    {
+      LOGGER_WARN("WiFi can't find device by MAC " MACSTR, MAC2STR(event->mac));
+    }
   }
 }
 
@@ -258,6 +264,21 @@ static bool wifi_open()
 
 static bool bleIsOpen = false;
 static bool bleScanning = false;
+// 连接参数
+static ble_gap_upd_params bleConnectionParams = {
+    /** Minimum value for connection interval in 1.25ms units */
+    .itvl_min = BLE_ITVL_MIN,
+    /** Maximum value for connection interval in 1.25ms units */
+    .itvl_max = BLE_ITVL_MAX,
+    /** Connection latency */
+    .latency = BLE_LATENCY,
+    /** Supervision timeout in 10ms units */
+    .supervision_timeout = BLE_SUPERVISION_TIMEOUT,
+    /** Minimum length of connection event in 0.625ms units */
+    .min_ce_len = BLE_CE_LEN_MIN,
+    /** Maximum length of connection event in 0.625ms units */
+    .max_ce_len = BLE_CE_LEN_MAX,
+};
 // 储存池
 struct bleReceive
 {
@@ -282,25 +303,26 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
   {
     if (event->connect.status == 0)
     {
+      // 更新界面和连接信息
+      device->setBleChannel(event->connect.chan);
+      device->setBleConnected(true);
+      ui_bt_update(device->getBleMACString(), true);
+
       ble_l2cap_chan_info chan_info;
       rc = ble_l2cap_get_chan_info(event->connect.chan, &chan_info);
       if (rc != 0)
       {
-        LOGGER_WARN("BLE ble_l2cap_get_chan_info error: %d\n", rc);
+        LOGGER_WARN("BLE ble_l2cap_get_chan_info error: %d", rc);
         break;
       }
-      device->setBleChannel(event->connect.chan);
-      device->setBleConnected(true);
-      // 更新界面
-      ui_bt_update(device->getBleMACString(), true);
-      LOGGER_INFO("BLE LE COC connected, conn: %d, our_mps: %d, our_mtu: %d, peer_mps: %d, peer_mtu: %d\n",
+      LOGGER_INFO("BLE LE COC connected, conn: %d, our_mps: %d, our_mtu: %d, peer_mps: %d, peer_mtu: %d",
                   event->connect.conn_handle,
                   chan_info.our_l2cap_mtu, chan_info.our_coc_mtu,
                   chan_info.peer_l2cap_mtu, chan_info.peer_coc_mtu);
     }
     else
     {
-      LOGGER_WARN("BLE LE COC error: %d\n", event->connect.status);
+      LOGGER_WARN("BLE LE COC error: %d", event->connect.status);
       break;
     }
     break;
@@ -321,7 +343,7 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
     // 接受连接
     os_mbuf *sdu_rx;
     sdu_rx = os_msys_get_pkthdr(BLE_L2CAP_MTU, 0);
-    if (!sdu_rx)
+    if (sdu_rx == NULL)
     {
       LOGGER_WARN("BLE L2CAP accept no memory!");
       break;
@@ -357,7 +379,7 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
     // 响应数据 准备接收下一个数据包
     os_mbuf *sdu_rx;
     sdu_rx = os_msys_get_pkthdr(BLE_L2CAP_MTU, 0);
-    if (!sdu_rx)
+    if (sdu_rx == NULL)
     {
       LOGGER_WARN("BLE L2CAP accept no memory!");
       break;
@@ -368,6 +390,7 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
       LOGGER_WARN("BLE L2CAP accept failed!");
       break;
     }
+    break;
   }
 
   default:
@@ -443,11 +466,24 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
   {
     if (event->connect.status == 0)
     {
+      // 设置蓝牙控制器包长提升性能
+      rc = ble_hs_hci_util_set_data_len(event->connect.conn_handle, BLE_PACKET_LENGTH, BLE_PACKET_TIME);
+      if (rc != 0)
+      {
+        LOGGER_WARN("BLE set packet length failed; rc = %d", rc);
+      }
+      // 更新连接参数提升性能
+      rc = ble_gap_update_params(event->connect.conn_handle, &bleConnectionParams);
+      if (rc != 0)
+      {
+        LOGGER_WARN("BLE failed to update params; rc = %d", rc);
+      }
+
       ble_gap_conn_desc desc;
       rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
       if (rc != 0)
       {
-        LOGGER_WARN("BLE failed to ble_gap_conn_find; rc=%d\n", rc);
+        LOGGER_WARN("BLE failed to ble_gap_conn_find; rc=%d", rc);
         break;
       }
 
@@ -461,10 +497,15 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
         // 连接到 L2CAP
         os_mbuf *sdu_rx;
         sdu_rx = os_msys_get_pkthdr(BLE_L2CAP_MTU, 0);
+        if (sdu_rx == NULL)
+        {
+          LOGGER_WARN("BLE failed to os_msys_get_pkthdr");
+          break;
+        }
         rc = ble_l2cap_connect(device->getBleHandle(), BLE_L2CAP_PSM, BLE_L2CAP_MTU, sdu_rx, ble_l2cap_handler, device);
         if (rc != 0)
         {
-          LOGGER_WARN("BLE failed to ble_l2cap_connect; rc=%d\n", rc);
+          LOGGER_WARN("BLE failed to ble_l2cap_connect; rc=%d", rc);
           break;
         }
 
@@ -480,8 +521,24 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
     }
     else
     {
-      LOGGER_WARN("BLE Connection failed; status=%d\n", event->connect.status);
+      LOGGER_WARN("BLE Connection failed; status=%d", event->connect.status);
     }
+    break;
+  }
+
+  // 连接参数更新事件
+  case BLE_GAP_EVENT_CONN_UPDATE:
+  {
+    ble_gap_conn_desc desc;
+    rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
+    if (rc != 0)
+    {
+      LOGGER_WARN("BLE connection updated, but ble_gap_conn_find desc failed!");
+    }
+    LOGGER_INFO("BLE connection updated; status=%d handle=%d conn_itvl=%d conn_latency=%d supervision_timeout=%d encrypted=%d authenticated=%d bonded=%d",
+                event->conn_update.status, desc.conn_handle,
+                desc.conn_itvl, desc.conn_latency, desc.supervision_timeout,
+                desc.sec_state.encrypted, desc.sec_state.authenticated, desc.sec_state.bonded);
     break;
   }
 
@@ -583,7 +640,7 @@ static void ble_stop_scanning()
     rc = ble_gap_disc_cancel();
     if (rc != 0)
     {
-      LOGGER_WARN("BLE cancel discovery failed; rc=%d\n", rc);
+      LOGGER_WARN("BLE cancel discovery failed; rc=%d", rc);
       return;
     }
 
@@ -605,7 +662,7 @@ static void ble_start_scanning()
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
     if (rc != 0)
     {
-      LOGGER_WARN("BLE error determining address type; rc=%d\n", rc);
+      LOGGER_WARN("BLE error determining address type; rc=%d", rc);
       return;
     }
 
@@ -620,7 +677,7 @@ static void ble_start_scanning()
     rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params, ble_gap_handler, NULL);
     if (rc != 0)
     {
-      LOGGER_WARN("BLE error initiating GAP discovery procedure; rc=%d\n", rc);
+      LOGGER_WARN("BLE error initiating GAP discovery procedure; rc=%d", rc);
     }
 
     bleScanning = true;
@@ -915,21 +972,78 @@ void ui_bt_search()
 void ui_bt_pause_search()
 {
   Device *devices = deviceManager.getAllDevices();
-  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  switch (config::config.rf.mode)
   {
-    Device device = devices[i];
-    // configAudio.packet.start = true;
-    // ble_send(device, (uint8_t *)&configAudio, PACKET_SERVER_CONTROL_AUDIO_SIZE);
-
-    wifi_open();
-    configDevice.packet.mode = RF_MODE_WIFI;
-    strcpy(configDevice.packet.ssid, WIFI_NAME);
-    strcpy(configDevice.packet.password, WIFI_PASSWORD);
-    ble_send(device, (uint8_t *)&configDevice, PACKET_SERVER_CONTROL_RF_SIZE);
+  case RF_MODE_BLE:
+  {
+    LOGGER_INFO("RF start BLE audio transmission");
+    for (uint8_t i = 0; i < deviceManager.size(); i++)
+    {
+      Device &device = devices[i];
+      if (device.isBleConnected())
+      {
+        // 开启设备的音频传输
+        Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_AUDIO_SIZE);
+        packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+        packet->packet.serverControlAudio.start = true;
+        packet->packet.serverControlAudio.channel = config::config.audio.channel;
+        packet->packet.serverControlAudio.rate = config::config.audio.rate;
+        packet->packet.serverControlAudio.bit = config::config.audio.bit;
+        packet->packet.serverControlAudio.mode = config::config.audio.mode;
+        packet->packet.serverControlAudio.gain = config::config.audio.gain;
+        ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+        free(packet);
+      }
+    }
+    break;
   }
+  case RF_MODE_WIFI:
+  {
+    LOGGER_INFO("RF start WiFi audio transmission");
+    wifi_open();
 
-  delay(1000);
-  ble_close();
+    for (uint8_t i = 0; i < deviceManager.size(); i++)
+    {
+      Device &device = devices[i];
+      if (device.isBleConnected())
+      {
+        // 让设备以 WiFi 模式接入
+        Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_RF_SIZE);
+        packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
+        packet->packet.serverControlRF.mode = RF_MODE_WIFI;
+        // TODO: WiFi 名字和密码随机加密
+        strcpy(packet->packet.serverControlRF.ssid, WIFI_NAME);
+        strcpy(packet->packet.serverControlRF.password, WIFI_PASSWORD);
+        ble_send(device, (uint8_t *)&packet, PACKET_SERVER_CONTROL_RF_SIZE);
+        free(packet);
+
+        // 等待设备通过 WiFi 连接成功
+        while (!device.isWifiConnected())
+        {
+          delay(100);
+        }
+
+        // 开启设备音频传输
+        netbuf *buf = netbuf_new();
+        if (buf != NULL)
+        {
+          Packet *packet = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+          packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+          packet->packet.serverControlAudio.start = true;
+          packet->packet.serverControlAudio.channel = config::config.audio.channel;
+          packet->packet.serverControlAudio.rate = config::config.audio.rate;
+          packet->packet.serverControlAudio.bit = config::config.audio.bit;
+          packet->packet.serverControlAudio.mode = config::config.audio.mode;
+          packet->packet.serverControlAudio.gain = config::config.audio.gain;
+          socket_send(device.getWifiIP(), buf);
+        }
+      }
+    }
+
+    ble_close();
+    break;
+  }
+  }
 }
 
 std::vector<std::string> ui_bt_get_linked()
