@@ -6,7 +6,7 @@
 #define CONFIG_NAME "config"
 #define CONFIG_DATA_NAME "config"
 #define CONFIG_VERSION_NAME "version"
-#define CONFIG_VERSION_VALUE 0x000A // 前两位大版本号 后两位小版本号
+#define CONFIG_VERSION_VALUE 0x000B // 前两位大版本号 后两位小版本号
 
 // 多线程任务配置
 #define TASK_SYSTEM_CORE 1
@@ -116,7 +116,7 @@ namespace config
     // 协议配置
     struct
     {
-      RFMode mode = RF_MODE_BLE;
+      RFMode mode = RF_MODE_WIFI;
     } rf;
     // USB配置
     struct

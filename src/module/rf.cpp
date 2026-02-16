@@ -1014,7 +1014,7 @@ void ui_bt_pause_search()
         // TODO: WiFi 名字和密码随机加密
         strcpy(packet->packet.serverControlRF.ssid, WIFI_NAME);
         strcpy(packet->packet.serverControlRF.password, WIFI_PASSWORD);
-        ble_send(device, (uint8_t *)&packet, PACKET_SERVER_CONTROL_RF_SIZE);
+        ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
         free(packet);
 
         // 等待设备通过 WiFi 连接成功

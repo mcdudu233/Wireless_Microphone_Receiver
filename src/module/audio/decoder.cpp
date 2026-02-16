@@ -30,9 +30,9 @@ static const i2s_std_gpio_config_t i2s_gpio_cfg = {
     }};
 
 static i2s_chan_handle_t i2s_tx_handle;
-static uint8_t i2s_channel;
-static uint32_t i2s_rate;
-static i2s_data_bit_width_t i2s_bit;
+static AudioChannel i2s_channel;
+static AudioRate i2s_rate;
+static AudioBit i2s_bit;
 static bool powerOn = false;
 static bool plugin = false;
 
@@ -123,22 +123,33 @@ void audio::decoder::setup()
   LOGGER_INFO("Audio Decoder is started!");
 }
 
-void audio::decoder::on(uint32_t rate, uint32_t bit, uint8_t channel)
+void audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
 {
   // 启动 i2s
   i2s_rate = rate;
-  i2s_bit = (i2s_data_bit_width_t)bit;
+  i2s_bit = bit;
   i2s_channel = channel;
   i2s_new_channel(&i2s_chan_cfg, &i2s_tx_handle, NULL);
   i2s_std_config_t std_cfg = {
       .clk_cfg = {
-          .sample_rate_hz = i2s_rate,
+          .sample_rate_hz = (uint32_t)i2s_rate,
           .clk_src = I2S_CLK_SRC_PLL_240M,
           .ext_clk_freq_hz = 0,
-          .mclk_multiple = ((i2s_bit == 24) ? I2S_MCLK_MULTIPLE_576 : I2S_MCLK_MULTIPLE_512),
+          .mclk_multiple = ((i2s_bit == AUDIO_BIT_24) ? I2S_MCLK_MULTIPLE_576 : I2S_MCLK_MULTIPLE_512),
           .bclk_div = 0,
       },
-      .slot_cfg = {.data_bit_width = i2s_bit, .slot_bit_width = (i2s_slot_bit_width_t)i2s_bit, .slot_mode = (i2s_slot_mode_t)i2s_channel, .slot_mask = I2S_STD_SLOT_BOTH, .ws_width = i2s_bit, .ws_pol = false, .bit_shift = true, .left_align = true, .big_endian = false, .bit_order_lsb = false},
+      .slot_cfg = {
+          .data_bit_width = (i2s_data_bit_width_t)i2s_bit,
+          .slot_bit_width = (i2s_slot_bit_width_t)i2s_bit,
+          .slot_mode = (i2s_slot_mode_t)i2s_channel,
+          .slot_mask = I2S_STD_SLOT_BOTH,
+          .ws_width = (uint32_t)i2s_bit,
+          .ws_pol = false,
+          .bit_shift = true,
+          .left_align = true,
+          .big_endian = false,
+          .bit_order_lsb = false,
+      },
       .gpio_cfg = i2s_gpio_cfg,
   };
   i2s_channel_init_std_mode(i2s_tx_handle, &std_cfg);
