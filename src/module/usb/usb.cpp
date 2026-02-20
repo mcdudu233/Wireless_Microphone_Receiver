@@ -100,7 +100,7 @@ void usb::off()
     vTaskDelete(usb_task);
     if (!tusb_teardown())
     {
-      logger::warnln("USB device stack deinit fail!");
+      LOGGER_WARN("USB device stack deinit fail!");
       return;
     }
     usb_tusb_on = false;
@@ -110,7 +110,7 @@ void usb::off()
   esp_err_t ret = usb_del_phy(usb_phy);
   if (ret != ESP_OK)
   {
-    logger::warnln("USB PHY delete fail!");
+    LOGGER_WARN("USB PHY delete fail!");
     return;
   }
   usb_on = false;
@@ -129,7 +129,7 @@ static void usb_jtag_mode()
   esp_err_t ret = usb_new_phy(&phy_conf, &usb_phy);
   if (ret != ESP_OK)
   {
-    logger::warnln("USB PHY init fail!");
+    LOGGER_WARN("USB PHY init fail!");
     return;
   }
   usb_on = true;
@@ -147,7 +147,7 @@ static void usb_audio_mode()
   esp_err_t ret = usb_new_phy(&phy_conf, &usb_phy);
   if (ret != ESP_OK)
   {
-    logger::warnln("USB PHY init fail!");
+    LOGGER_WARN("USB PHY init fail!");
     return;
   }
   usb_on = true;
@@ -155,7 +155,7 @@ static void usb_audio_mode()
   // 初始化TUSB
   if (!tusb_init())
   {
-    logger::warnln("USB device stack init fail!");
+    LOGGER_WARN("USB device stack init fail!");
     return;
   }
   usb_tusb_on = true;
@@ -191,23 +191,23 @@ void ui_setting_usb_page_scb(USBMode mode, bool now)
 // Invoked when device is mounted
 void tud_mount_cb(void)
 {
-  logger::infoln("USB mounted");
+  LOGGER_INFO("USB mounted");
 }
 // Invoked when device is unmounted
 void tud_umount_cb(void)
 {
-  logger::infoln("USB unmounted");
+  LOGGER_INFO("USB unmounted");
 }
 // Invoked when usb bus is suspended
 // remote_wakeup_en : if host allow us to perform remote wakeup
 // Within 7ms, device must draw an average of current less than 2.5 mA from bus
 void tud_suspend_cb(bool remote_wakeup_en)
 {
-  logger::infoln("USB suspended");
+  LOGGER_INFO("USB suspended");
 }
 // Invoked when usb bus is resumed
 void tud_resume_cb(void)
 {
-  logger::infoln("USB resumed");
+  LOGGER_INFO("USB resumed");
 }
 /******************************************/

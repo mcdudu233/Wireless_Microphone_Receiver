@@ -1,9 +1,18 @@
 #pragma once
 
+#include "config.h"
+
 #define RF_MAX_CONNECTION 4
 // 蓝牙
 #define BLE_NAME "MicTx"
-#define BLE_L2CAP_UUID 0x1812
+#define BLE_PACKET_LENGTH 251
+#define BLE_PACKET_TIME 2120
+#define BLE_ITVL_MIN 6
+#define BLE_ITVL_MAX 6
+#define BLE_LATENCY 0
+#define BLE_SUPERVISION_TIMEOUT 300
+#define BLE_CE_LEN_MIN 12
+#define BLE_CE_LEN_MAX 30
 #define BLE_L2CAP_PSM 0x1001
 #define BLE_L2CAP_MTU 512
 // WIFI
@@ -16,38 +25,36 @@
 
 // 客户端状态
 #define PACKET_CLIENT_STATUS_SIZE (sizeof(uint8_t) + sizeof(ClientStatusPacket))
-#define PACKET_CLIENT_STATUS_BLE_MAC_NONE 0
-#define PACKET_CLIENT_STATUS_WIFI_MAC_NONE 0
+enum PacketClientStatus : uint8_t
+{
+  PACKET_CLIENT_STATUS_OK = 0,
+  PACKET_CLIENT_STATUS_ERROR_UNKNOW = 255,
+};
 struct __attribute__((packed)) ClientStatusPacket
 {
-  uint8_t bleMAC[6] = {PACKET_CLIENT_STATUS_BLE_MAC_NONE};
-  uint8_t wifiMAC[6] = {PACKET_CLIENT_STATUS_WIFI_MAC_NONE};
-  uint8_t battery = 0x00;
+  PacketClientStatus status;
+  uint8_t battery;
 };
 
 // 服务端控制设备
-#define PACKET_SERVER_CONTROL_DEVICE_SIZE (sizeof(uint8_t) + sizeof(ServerControlDevicePacket))
-struct __attribute__((packed)) ServerControlDevicePacket
+#define PACKET_SERVER_CONTROL_RF_SIZE (sizeof(uint8_t) + sizeof(ServerControlRFPacket))
+struct __attribute__((packed)) ServerControlRFPacket
 {
-  bool start = false;
-  bool startWiFi = false;
-  bool startBLE = true;
-  bool mode = false; // true: WiFi模式; false: BLE模式
-  char name[32] = "";
-  char password[32] = "";
+  RFMode mode;
+  RFText ssid;
+  RFText password;
 };
 
 // 服务端控制音频
 #define PACKET_SERVER_CONTROL_AUDIO_SIZE (sizeof(uint8_t) + sizeof(ServerControlAudioPacket))
 struct __attribute__((packed)) ServerControlAudioPacket
 {
-  bool start = false;
-  uint8_t channel = 2;
-  uint32_t rate = 48000;
-  uint8_t bit = 16;
-  bool autoVolumn = false;
-  bool peekVolumn = false;
-  uint8_t volumn = 0;
+  bool start;
+  AudioChannel channel;
+  AudioRate rate;
+  AudioBit bit;
+  AudioMode mode;
+  AudioGain gain;
 };
 
 // WIFI传输包
@@ -73,19 +80,19 @@ struct __attribute__((packed)) BLEAudioPacket
 };
 
 // 统一协议
-enum PacketType
+enum PacketType : uint8_t
 {
   PACKET_TYPE_WIFI_AUDIO = 0,
   PACKET_TYPE_BLE_AUDIO = 1,
   PACKET_TYPE_CLIENT_ACK = 2,
   PACKET_TYPE_SERVER_ACK = 3,
   PACKET_TYPE_CLIENT_STATUS = 4,
-  PACKET_TYPE_SERVER_CONTROL_DEVICE = 5,
+  PACKET_TYPE_SERVER_CONTROL_RF = 5,
   PACKET_TYPE_SERVER_CONTROL_AUDIO = 6,
 };
 struct __attribute__((packed)) Packet
 {
-  uint8_t type; // 标识是哪个包
+  PacketType type; // 标识是哪个包
   union
   {
     // 音频包
@@ -93,7 +100,7 @@ struct __attribute__((packed)) Packet
     BLEAudioPacket audioDataBLE;
     // 状态配置包
     ClientStatusPacket clientStatus;
-    ServerControlDevicePacket serverControlDevice;
+    ServerControlRFPacket serverControlRF;
     ServerControlAudioPacket serverControlAudio;
   } packet;
 };
@@ -101,5 +108,4 @@ struct __attribute__((packed)) Packet
 namespace rf
 {
   void setup();
-  void reconfigure();
 }

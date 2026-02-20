@@ -28,7 +28,7 @@ static uint64_t macToUint64(const uint8_t mac[6])
 
 Device::Device()
     : id(0), battery(100), rssi(0),
-      bleConnected(false), bleDoConnect(true), bleMAC{0},
+      bleConnected(false), bleMAC{0},
       bleHandle(0), bleChannel(nullptr),
       wifiConnected(false), wifiMAC{0}, wifiIP(0) {}
 
@@ -36,7 +36,7 @@ Device::Device(uint8_t battery, int8_t rssi,
                bool bleConnected, bool bleDoConnect, uint8_t *bleMAC, uint16_t bleHandle, ble_l2cap_chan *bleChannel,
                bool wifiConnected, uint8_t *wifiMAC, uint32_t wifiIP)
     : id(0), battery(battery), rssi(rssi),
-      bleConnected(bleConnected), bleDoConnect(bleDoConnect), bleMAC{0},
+      bleConnected(bleConnected), bleMAC{0},
       bleHandle(bleHandle), bleChannel(bleChannel),
       wifiConnected(wifiConnected), wifiMAC{0}, wifiIP(wifiIP)
 {
@@ -46,7 +46,7 @@ Device::Device(uint8_t battery, int8_t rssi,
 
 Device::Device(const Device &other)
     : id(other.id), battery(other.battery), rssi(other.rssi),
-      bleConnected(other.bleConnected), bleDoConnect(other.bleDoConnect), bleHandle(other.bleHandle),
+      bleConnected(other.bleConnected), bleHandle(other.bleHandle),
       bleChannel(other.bleChannel),
       wifiConnected(other.wifiConnected), wifiIP(other.wifiIP)
 {
@@ -56,7 +56,7 @@ Device::Device(const Device &other)
 
 Device::Device(Device &&other) noexcept
     : id(other.id), battery(other.battery), rssi(other.rssi),
-      bleConnected(other.bleConnected), bleDoConnect(other.bleDoConnect), bleHandle(other.bleHandle),
+      bleConnected(other.bleConnected), bleHandle(other.bleHandle),
       bleChannel(other.bleChannel),
       wifiConnected(other.wifiConnected), wifiIP(other.wifiIP)
 {
@@ -72,7 +72,6 @@ Device &Device::operator=(const Device &other)
     battery = other.battery;
     rssi = other.rssi;
     bleConnected = other.bleConnected;
-    bleDoConnect = other.bleDoConnect;
     memcpy(this->bleMAC, other.bleMAC, 6);
     bleHandle = other.bleHandle;
     bleChannel = other.bleChannel;
@@ -91,7 +90,6 @@ Device &Device::operator=(Device &&other) noexcept
     battery = other.battery;
     rssi = other.rssi;
     bleConnected = other.bleConnected;
-    bleDoConnect = other.bleDoConnect;
     memcpy(this->bleMAC, other.bleMAC, 6);
     bleHandle = other.bleHandle;
     bleChannel = other.bleChannel;
@@ -130,14 +128,6 @@ bool Device::isBleConnected() const
 void Device::setBleConnected(bool connected)
 {
   bleConnected = connected;
-}
-bool Device::isBleDoConnect() const
-{
-  return bleDoConnect;
-}
-void Device::setBleDoConnect(bool doConnect)
-{
-  bleDoConnect = doConnect;
 }
 uint8_t *Device::getBleMAC()
 {
@@ -209,10 +199,10 @@ std::string Device::getWifiIPString() const
 }
 void Device::print()
 {
-  logger::debugln("Device{%d}: Battery=%d%%, RSSI=%d dBm, BLE Connected=%s, BLE MAC=%s, BLE Handle=%d, WiFi Connected=%s, WiFi MAC=%s, WiFi IP=%s",
-                  id, battery, rssi,
-                  bleConnected ? "Yes" : "No", getBleMACString().c_str(), bleHandle,
-                  wifiConnected ? "Yes" : "No", getWifiMACString().c_str(), getWifiIPString().c_str());
+  LOGGER_INFO("Device{%d}: Battery=%d%%, RSSI=%d dBm, BLE Connected=%s, BLE MAC=%s, BLE Handle=%d, WiFi Connected=%s, WiFi MAC=%s, WiFi IP=%s",
+              id, battery, rssi,
+              bleConnected ? "Yes" : "No", getBleMACString().c_str(), bleHandle,
+              wifiConnected ? "Yes" : "No", getWifiMACString().c_str(), getWifiIPString().c_str());
 }
 
 Device *DeviceManager::addDevice(uint8_t bleMAC[6])
@@ -222,6 +212,15 @@ Device *DeviceManager::addDevice(uint8_t bleMAC[6])
     Device *newDevice = &devices[deviceCount++];
     newDevice->setBleMAC(bleMAC);
     bleMACToDevice[macToUint64(bleMAC)] = newDevice;
+
+    // BLE MAC 转换成 WIFI MAC
+    // https://docs.espressif.com/projects/esp-idf/zh_CN/stable/esp32s3/api-reference/system/misc_system_api.html#mac
+    uint8_t wifiMAC[6];
+    memcpy(wifiMAC, bleMAC, 6);
+    wifiMAC[5] -= 0x02;
+    newDevice->setWifiMAC(wifiMAC);
+    wifiMACToDevice[macToUint64(wifiMAC)] = newDevice;
+
     return newDevice;
   }
   return nullptr;
@@ -266,27 +265,13 @@ Device *DeviceManager::getDeviceByWifiIP(uint32_t wifiIP)
   return nullptr;
 }
 
-void DeviceManager::bindDevice(uint8_t bleMAC[6], uint8_t wifiMAC[6])
-{
-  Device *device = getDeviceByBleMAC(bleMAC);
-  if (device != nullptr)
-  {
-    wifiMACToDevice[macToUint64(wifiMAC)] = device;
-    device->setWifiMAC(wifiMAC);
-    if (wifiMACToIP.contains(macToUint64(wifiMAC)))
-    {
-      device->setWifiIP(wifiMACToIP[macToUint64(wifiMAC)]);
-    }
-  }
-}
-
 void DeviceManager::bindWifiMACToIP(uint8_t wifiMAC[6], uint32_t wifiIP)
 {
-  wifiMACToIP[macToUint64(wifiMAC)] = wifiIP;
   Device *device = getDeviceByWifiMAC(wifiMAC);
   if (device != nullptr)
   {
     device->setWifiIP(wifiIP);
+    wifiIPToDevice[wifiIP] = device;
   }
 }
 

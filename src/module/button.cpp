@@ -129,11 +129,11 @@ static void button_handle(void *arg)
 
 void button::setup()
 {
-  logger::debugln("Button is starting...");
+  LOGGER_INFO("Button is starting...");
   pinMode(BUTTON_RIGHT_IO, INPUT_PULLUP);
   pinMode(BUTTON_LEFT_IO, INPUT_PULLUP);
   xTaskCreatePinnedToCore(button_handle, "button_handle", TASK_BUTTON_STACK, NULL, TASK_BUTTON_PRIORITY, NULL, TASK_BUTTON_CORE);
-  logger::debugln("Button is started.");
+  LOGGER_INFO("Button is started.");
 }
 
 bool button::left()

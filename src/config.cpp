@@ -10,7 +10,7 @@ static Preferences prefs;
 
 void config::setup()
 {
-  logger::debugln("Config is starting...");
+  LOGGER_INFO("Config is starting...");
 
   esp_err_t err = nvs_flash_init();
   if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -25,17 +25,17 @@ void config::setup()
       }
       else
       {
-        logger::warnln("Config failed to format the broken NVS partition!");
+        LOGGER_WARN("Config failed to format the broken NVS partition!");
       }
     }
     else
     {
-      logger::warnln("Config could not find NVS partition");
+      LOGGER_WARN("Config could not find NVS partition");
     }
   }
   if (err)
   {
-    logger::warnln("Config failed to initialize NVS! Error: %u", err);
+    LOGGER_WARN("Config failed to initialize NVS! Error: %u", err);
   }
 
   prefs.begin(CONFIG_NAME);
@@ -60,7 +60,7 @@ void config::setup()
   // 读取配置
   prefs.getBytes(CONFIG_DATA_NAME, &config, sizeof(ConfigValue));
 
-  logger::debugln("Config is started.");
+  LOGGER_INFO("Config is started.");
 }
 
 void config::save()

@@ -27,12 +27,12 @@ static void system_handle(void *arg)
     tasks_size = uxTaskGetSystemState(tasks, tasks_size, &tasktime);
 #ifdef SYSTEM_PRINT_INFORMATION
     logger::debugln("CPU info:\n");
-    logger::debugln("  | Task | Percentage | Stack High |\n");
+    logger::debugln("  | Task | Percentage | Stack High |");
 #endif
     for (int i = 0; i < tasks_size; i++)
     {
 #ifdef SYSTEM_PRINT_INFORMATION
-      logger::debugln("  | %s | %F | %d |\n", tasks[i].pcTaskName, tasks[i].ulRunTimeCounter * 100.0 / tasktime, uxTaskGetStackHighWaterMark(tasks[i].xHandle));
+      logger::debugln("  | %s | %F | %d |", tasks[i].pcTaskName, tasks[i].ulRunTimeCounter * 100.0 / tasktime, uxTaskGetStackHighWaterMark(tasks[i].xHandle));
 #endif
       // 找到空闲任务
       if (strcmp(tasks[i].pcTaskName, "IDLE0") == 0)
@@ -46,24 +46,24 @@ static void system_handle(void *arg)
     }
     free(tasks);
 #ifdef SYSTEM_PRINT_INFORMATION
-    logger::debugln("  CPU0:%F%, CPU1:%F%\n", systemInfo.cpu0Usage, systemInfo.cpu1Usage);
+    logger::debugln("  CPU0:%F%, CPU1:%F%", systemInfo.cpu0Usage, systemInfo.cpu1Usage);
 #endif
 
     // IRAM内存信息
     multi_heap_info_t heapInfo;
     heap_caps_get_info(&heapInfo, MALLOC_CAP_INTERNAL);
     systemInfo.iramUsedSize = heapInfo.total_allocated_bytes;
-    systemInfo.iramTotalSize = systemInfo.iramUsedSize + heapInfo.total_free_bytes;
+    systemInfo.iramTotalSize = heapInfo.total_allocated_bytes + heapInfo.total_free_bytes;
 
     // PSRAM内存信息
     heap_caps_get_info(&heapInfo, MALLOC_CAP_SPIRAM);
     systemInfo.psramUsedSize = heapInfo.total_allocated_bytes;
-    systemInfo.psramTotalSize = systemInfo.psramUsedSize + heapInfo.total_free_bytes;
+    systemInfo.psramTotalSize = heapInfo.total_allocated_bytes + heapInfo.total_free_bytes;
 
 #ifdef SYSTEM_PRINT_INFORMATION
     logger::debugln("Memory Info:");
-    logger::debugln("  IRAM: %d/%dKB\n", systemInfo.iramUsedSize / 1024, systemInfo.iramTotalSize / 1024);
-    logger::debugln("  PSRAM: %d/%dKB\n", systemInfo.psramUsedSize / 1024, systemInfo.psramTotalSize / 1024);
+    logger::debugln("  IRAM: %d/%dKB", systemInfo.iramUsedSize / 1024, systemInfo.iramTotalSize / 1024);
+    logger::debugln("  PSRAM: %d/%dKB", systemInfo.psramUsedSize / 1024, systemInfo.psramTotalSize / 1024);
 #endif
   }
 }
@@ -126,10 +126,10 @@ void sys::setup()
             界面
 *****************************/
 // 界面读取系统信息
-void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, uint64_t &iram_current, uint64_t &psram_current, uint64_t l_iram_max, uint64_t l_psram_max)
+void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, size_t &iram_current, size_t &psram_current, size_t &l_iram_max, size_t &l_psram_max)
 {
-  cpu1_pct = systemInfo.cpu0Usage ;
-  cpu2_pct = systemInfo.cpu1Usage ;
+  cpu1_pct = systemInfo.cpu0Usage;
+  cpu2_pct = systemInfo.cpu1Usage;
   iram_current = systemInfo.iramUsedSize;
   psram_current = systemInfo.psramUsedSize;
   l_iram_max = systemInfo.iramTotalSize;

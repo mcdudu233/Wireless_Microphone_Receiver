@@ -115,7 +115,7 @@ AudioData *audio::buffer::getDecoderData()
     xSemaphoreTake(mutex, portMAX_DELAY);
     audio = getAudioData(AUDIO_BUFFER_DELAY_PACKET);
     xSemaphoreGive(mutex);
-    logger::debugln("Audio Buffer decoder miss packet from %d to %d!", decoderLastNumber, audio->num);
+    LOGGER_WARN("Audio Buffer decoder miss packet from %d to %d!", decoderLastNumber, audio->num);
   }
   if (audio != nullptr)
   {
@@ -203,5 +203,5 @@ void audio::buffer::setup()
   mutex = xSemaphoreCreateMutex();
   data = (AudioData *)heap_caps_malloc(sizeof(AudioData) * AUDIO_BUFFER_MAX_BUFFER_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_32BIT);
   restart();
-  logger::debugln("Audio Buffer is started.");
+  LOGGER_INFO("Audio Buffer is started.");
 }

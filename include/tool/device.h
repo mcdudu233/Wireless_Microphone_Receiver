@@ -16,7 +16,6 @@ private:
   int8_t rssi;
   // 蓝牙记录
   bool bleConnected;
-  bool bleDoConnect;
   uint8_t bleMAC[6]; // 6字节MAC地址
   uint16_t bleHandle;
   ble_l2cap_chan *bleChannel;
@@ -47,8 +46,6 @@ public:
   void setRssi(int8_t rssi);
   bool isBleConnected() const;
   void setBleConnected(bool connected);
-  bool isBleDoConnect() const;
-  void setBleDoConnect(bool doConnect);
   uint8_t *getBleMAC();
   void setBleMAC(uint8_t *mac);
   uint16_t getBleHandle() const;
@@ -78,7 +75,6 @@ private:
   std::unordered_map<int64_t, Device *> wifiMACToDevice;
   std::unordered_map<uint32_t, Device *> wifiIPToDevice;
 
-  std::unordered_map<int64_t, uint32_t> wifiMACToIP;
 public:
   // 添加设备
   Device *addDevice(uint8_t bleMAC[6]);
@@ -93,9 +89,6 @@ public:
 
   // 通过WiFi IP地址获取设备指针
   Device *getDeviceByWifiIP(uint32_t wifiIP);
-
-  // 绑定WiFi MAC地址到设备
-  void bindDevice(uint8_t bleMAC[6], uint8_t wifiMAC[6]);
 
   // 绑定WiFi MAC地址到IP地址
   void bindWifiMACToIP(uint8_t wifiMAC[6], uint32_t wifiIP);

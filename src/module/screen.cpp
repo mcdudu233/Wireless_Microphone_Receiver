@@ -58,7 +58,7 @@ static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 
 // void log_cb(lv_log_level_t level, const char * buf)
 // {
-//   logger::debugln("%s", buf);
+//   LOGGER_INFO("%s", buf);
 // }
 
 void screen::backlight(float percent)
@@ -98,7 +98,7 @@ static void setup_lcd()
   ret = spi_bus_initialize(TFT_SPI_NUM, &spi_cfg, SPI_DMA_CH_AUTO);
   if (ret != ESP_OK)
   {
-    logger::warnln("LCD SPI init failed! reason=%d", ret);
+    LOGGER_WARN("LCD SPI init failed! reason=%d", ret);
     return;
   }
 
@@ -115,7 +115,7 @@ static void setup_lcd()
   ret = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)1, &io_config, &io_handle);
   if (ret != ESP_OK)
   {
-    logger::warnln("LCD IO init failed! reason=%d", ret);
+    LOGGER_WARN("LCD IO init failed! reason=%d", ret);
     return;
   }
   const esp_lcd_panel_dev_config_t panel_config = {
@@ -126,27 +126,27 @@ static void setup_lcd()
   ret = esp_lcd_new_panel_st7735s(io_handle, &panel_config, &lcd_panel_handle);
   if (ret != ESP_OK)
   {
-    logger::warnln("LCD Driver init failed! reason=%d", ret);
+    LOGGER_WARN("LCD Driver init failed! reason=%d", ret);
     return;
   }
   ret = esp_lcd_panel_reset(lcd_panel_handle);
   if (ret != ESP_OK)
   {
-    logger::warnln("LCD Driver init failed! reason=%d", ret);
+    LOGGER_WARN("LCD Driver init failed! reason=%d", ret);
     return;
   }
   ret = esp_lcd_panel_init(lcd_panel_handle);
   if (ret != ESP_OK)
   {
-    logger::warnln("LCD Driver init failed! reason=%d", ret);
+    LOGGER_WARN("LCD Driver init failed! reason=%d", ret);
     return;
   }
 
   // 初始化背光
-  logger::debugln("TFT backlight now starting to init.");
+  LOGGER_INFO("TFT backlight now starting to init.");
   ledcAttach(TFT_BLK, TFT_BLK_FREQ, TFT_BLK_BIT);
   screen::backlight(0);
-  logger::debugln("TFT backlight is inited.");
+  LOGGER_INFO("TFT backlight is inited.");
 }
 
 // 初始化图形库
@@ -165,7 +165,7 @@ static void setup_lvgl()
   ret = lvgl_port_init(&lvgl_cfg);
   if (ret != ESP_OK)
   {
-    logger::warnln("LVGL init failed!");
+    LOGGER_WARN("LVGL init failed!");
     return;
   }
 
@@ -200,7 +200,7 @@ static void setup_lvgl()
   lv_group_set_default(group);
   lv_indev_set_group(indev, group);
 
-  logger::debugln("LVGL is started.");
+  LOGGER_INFO("LVGL is started.");
 }
 
 // 屏幕渐亮线程
@@ -219,7 +219,7 @@ static void screen_backlight_on_handle(void *arg)
 
 void screen::setup()
 {
-  logger::debugln("Screen is starting...");
+  LOGGER_INFO("Screen is starting...");
   setup_lcd();
   setup_lvgl();
 
@@ -230,7 +230,7 @@ void screen::setup()
   ui_loading_init();
   LV_UNLOCK();
 
-  logger::debugln("Screen is started.");
+  LOGGER_INFO("Screen is started.");
 }
 
 /*****************************

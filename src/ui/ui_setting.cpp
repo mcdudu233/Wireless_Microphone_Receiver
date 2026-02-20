@@ -602,14 +602,13 @@ static void focus_async_cb(void *obj_p)
 static void sys_info_timer_cb(lv_timer_t *)
 {
     float l_cpu1, l_cpu2;
-    uint64_t l_iram, l_psram, l_iram_max, l_psram_max;
+    size_t l_iram, l_psram, l_iram_max, l_psram_max;
 
     ui_setting_system_page_rcb(l_cpu1, l_cpu2, l_iram, l_psram, l_iram_max, l_psram_max);
     lv_label_set_text_fmt(cpu1, "CPU1   #626367 %.2f%%#", l_cpu1);
     lv_label_set_text_fmt(cpu2, "CPU2   #626367 %.2f%%#", l_cpu2);
-    lv_label_set_text_fmt(iram, "IRAM   #626367 %d/%dKB#", l_iram / 1024 / 8, l_iram_max / 1024 / 8);
-    lv_label_set_text_fmt(psram, "PSRAM   #626367 %d/%dKB#", l_psram / 1024 / 8, l_psram_max / 1024 / 8);
-    logger::debug("cpu1 %.2f,cpu2 %.2f,iram %d/%d,psram %d/%d",l_cpu1,l_cpu2,l_iram,l_iram_max,l_psram,l_psram_max);
+    lv_label_set_text_fmt(iram, "IRAM   #626367 %d/%dKB#", l_iram / 1024, l_iram_max / 1024);
+    lv_label_set_text_fmt(psram, "PSRAM   #626367 %d/%dKB#", l_psram / 1024, l_psram_max / 1024);
     // lv_label_set_text_fmt(sd, "SD   #626367 %dbit#", l_sd);
 }
 // 返回按钮焦点事件回调
