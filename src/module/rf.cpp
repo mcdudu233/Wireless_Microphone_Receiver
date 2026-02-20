@@ -17,32 +17,48 @@ static uint32_t transmitSpeed = 0;
 static uint32_t transmitSpeedData = 0;
 
 /*****************************
-          传输层协议
+          WIFI协议
 *****************************/
+#include "esp_mac.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
 #include "lwip/err.h"
 #include "lwip/api.h"
+static bool wifiIsOpen = false;
+static uint32_t wifiIP;
+static esp_netif_t *wifiNetIF;
+static esp_event_handler_instance_t wifiHandlerInstance1;
+static esp_event_handler_instance_t wifiHandlerInstance2;
 static bool socketIsOpen = false;
 static netconn *socketSendInstance = NULL;
 static netconn *socketReceiveInstance = NULL;
 
 // 发送数据 需要 netbuf_new
-static bool socket_send(uint32_t destIP, netbuf *buf)
+static bool wifi_send(const Device &device, netbuf *buf)
 {
-  ip_addr_t socketDestination;
-  socketDestination.addr = destIP;
-  err_t err = netconn_sendto(socketSendInstance, buf, &socketDestination, WIFI_NO_PORT);
-  if (err != ERR_OK)
+  if (device.isWifiConnected())
   {
-    LOGGER_WARN("Socket send failed: %d", err);
+    ip_addr_t socketDestination;
+    socketDestination.addr = htonl(device.getWifiIP());
+    err_t err = netconn_sendto(socketSendInstance, buf, &socketDestination, WIFI_NO_PORT);
+    if (err != ERR_OK)
+    {
+      LOGGER_WARN("WiFi Socket send failed: %d", err);
+      return false;
+    }
+    // 释放
+    netbuf_delete(buf);
+    return true;
+  }
+  else
+  {
+    LOGGER_WARN("WiFi Socket send failed, device haven't connect to WiFi.");
     return false;
   }
-  // 释放
-  netbuf_delete(buf);
-  return true;
 }
 
 // 读取数据 需要 netbuf_delete
-static bool socket_receive(netbuf **buf)
+static bool wifi_receive(Device **device, netbuf **buf)
 {
   err_t err = netconn_recv(socketReceiveInstance, buf);
   if (err == ERR_WOULDBLOCK)
@@ -51,13 +67,20 @@ static bool socket_receive(netbuf **buf)
   }
   else if (err != ERR_OK)
   {
-    LOGGER_WARN("Socket receive failed: %d", err);
+    LOGGER_WARN("WiFi Socket receive failed: %d", err);
+    return false;
+  }
+  // 解析数据包 receiveBuffer->addr.addr
+  (*device) = deviceManager.getDeviceByWifiIP(htonl((*buf)->addr.addr));
+  if ((*device) == nullptr)
+  {
+    LOGGER_WARN("WiFi Socket can't get device by unknowed IP address");
     return false;
   }
   return true;
 }
 
-static bool socket_close()
+static bool wifi_socket_close()
 {
   if (socketIsOpen)
   {
@@ -73,29 +96,29 @@ static bool socket_close()
     }
     socketReceiveInstance = NULL;
   }
-  LOGGER_INFO("Socket is shutdown.");
+  LOGGER_INFO("WiFi Socket is shutdown.");
   return true;
 }
 
-static bool socket_open(uint32_t localIP)
+static bool wifi_socket_open(uint32_t localIP)
 {
   if (socketIsOpen)
   {
-    socket_close();
+    wifi_socket_close();
   }
 
   // 创建
   socketSendInstance = netconn_new_with_proto_and_callback(NETCONN_RAW, WIFI_IP_PROTOCOL, NULL);
   if (socketSendInstance == NULL)
   {
-    LOGGER_WARN("Socket unable to create:!");
+    LOGGER_WARN("WiFi Socket unable to create!");
     return false;
   }
   socketReceiveInstance = netconn_new_with_proto_and_callback(NETCONN_RAW, WIFI_IP_PROTOCOL, NULL);
   if (socketReceiveInstance == NULL)
   {
     netconn_delete(socketSendInstance);
-    LOGGER_WARN("Socket unable to create:!");
+    LOGGER_WARN("WiFi Socket unable to create!");
     return false;
   }
 
@@ -108,7 +131,7 @@ static bool socket_open(uint32_t localIP)
     socketSendInstance = NULL;
     netconn_delete(socketReceiveInstance);
     socketReceiveInstance = NULL;
-    LOGGER_WARN("Socket netconn bind failed: %d", ret);
+    LOGGER_WARN("WiFi Socket netconn bind failed: %d", ret);
     return false;
   }
   ret = netconn_bind(socketReceiveInstance, IP_ADDR_ANY, WIFI_NO_PORT);
@@ -118,7 +141,7 @@ static bool socket_open(uint32_t localIP)
     socketSendInstance = NULL;
     netconn_delete(socketReceiveInstance);
     socketReceiveInstance = NULL;
-    LOGGER_WARN("Socket netconn bind failed: %d", ret);
+    LOGGER_WARN("WiFi Socket netconn bind failed: %d", ret);
     return false;
   }
 
@@ -126,77 +149,52 @@ static bool socket_open(uint32_t localIP)
   netconn_set_nonblocking(socketReceiveInstance, true);
 
   socketIsOpen = true;
-  LOGGER_INFO("Socket is started.");
+  LOGGER_INFO("WiFi Socket is started.");
   return true;
-}
-/****************************/
-
-/*****************************
-          WIFI协议
-*****************************/
-#include "esp_mac.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-static bool wifiIsOpen = false;
-static uint32_t wifiIP;
-static esp_netif_t *wifiNetIF;
-static esp_event_handler_instance_t wifiHandlerInstance;
-static const wifi_init_config_t wifiInitConfig = WIFI_INIT_CONFIG_DEFAULT();
-static wifi_config_t wifiConfig = {
-    .ap = {
-        .ssid = WIFI_NAME,
-        .password = WIFI_PASSWORD,
-        .ssid_len = strlen(WIFI_NAME),
-        .channel = WIFI_CHANNEL,
-        .authmode = WIFI_AUTH_WPA2_PSK,
-        .ssid_hidden = 1,
-        .max_connection = RF_MAX_CONNECTION,
-        .pmf_cfg = {
-            .required = true,
-        },
-        .gtk_rekey_interval = true,
-    },
-};
-
-// 在DHCP分配IP时回调
-static void dhcp_event_handle(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
-{
-  if (event_id == IP_EVENT_AP_STAIPASSIGNED)
-  {
-    ip_event_ap_staipassigned_t *event = (ip_event_ap_staipassigned_t *)event_data;
-    // 记录映射
-    deviceManager.bindWifiMACToIP(event->mac, htonl(event->ip.addr)); // 转换IP字节序
-  }
 }
 
 static void wifi_event_handle(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
-  if (event_id == WIFI_EVENT_AP_STACONNECTED)
+  if (event_base == WIFI_EVENT)
   {
-    wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
-    Device *device = deviceManager.getDeviceByWifiMAC(event->mac);
-    if (device != nullptr)
+    if (event_id == WIFI_EVENT_AP_STACONNECTED)
     {
-      device->setWifiConnected(true);
+      wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
+      // Device *device = deviceManager.getDeviceByWifiMAC(event->mac);
       LOGGER_INFO("WiFi station " MACSTR " join, AID=%d", MAC2STR(event->mac), event->aid);
     }
-    else
+    else if (event_id == WIFI_EVENT_AP_STADISCONNECTED)
     {
-      LOGGER_WARN("WiFi can't find device by MAC " MACSTR, MAC2STR(event->mac));
+      wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
+      Device *device = deviceManager.getDeviceByWifiMAC(event->mac);
+      if (device != nullptr)
+      {
+        device->setWifiConnected(false);
+        LOGGER_INFO("WiFi station " MACSTR " leave, AID=%d, reason=%d", MAC2STR(event->mac), event->aid, event->reason);
+      }
+      else
+      {
+        LOGGER_WARN("WiFi can't find device by MAC " MACSTR, MAC2STR(event->mac));
+      }
     }
   }
-  else if (event_id == WIFI_EVENT_AP_STADISCONNECTED)
+  else if (event_base == IP_EVENT)
   {
-    wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-    Device *device = deviceManager.getDeviceByWifiMAC(event->mac);
-    if (device != nullptr)
+    if (event_id == IP_EVENT_AP_STAIPASSIGNED)
     {
-      device->setWifiConnected(false);
-      LOGGER_INFO("WiFi station " MACSTR " leave, AID=%d, reason=%d", MAC2STR(event->mac), event->aid, event->reason);
-    }
-    else
-    {
-      LOGGER_WARN("WiFi can't find device by MAC " MACSTR, MAC2STR(event->mac));
+      ip_event_ap_staipassigned_t *event = (ip_event_ap_staipassigned_t *)event_data;
+      // 记录映射
+      deviceManager.bindWifiMACToIP(event->mac, htonl(event->ip.addr)); // 转换IP字节序
+      Device *device = deviceManager.getDeviceByWifiMAC(event->mac);
+      if (device != nullptr)
+      {
+        device->setWifiConnected(true);
+        LOGGER_INFO("WiFi station " MACSTR " IP is assigned", MAC2STR(event->mac));
+      }
+      else
+      {
+        LOGGER_WARN("WiFi can't find device by MAC " MACSTR, MAC2STR(event->mac));
+      }
     }
   }
 }
@@ -205,14 +203,38 @@ static bool wifi_close()
 {
   if (wifiIsOpen)
   {
-    socket_close();
-    ESP_ERROR_CHECK(esp_wifi_stop());
-    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifiHandlerInstance));
-    ESP_ERROR_CHECK(esp_wifi_deinit());
-    esp_netif_destroy(wifiNetIF);
-    esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, NULL);
-    wifiNetIF = NULL;
+    wifi_socket_close();
     wifiIsOpen = false;
+
+    esp_err_t err;
+    err = esp_wifi_stop();
+    if (err != ESP_OK)
+    {
+      LOGGER_ERROR("WiFi esp_wifi_stop failed! Reason=%s", esp_err_to_name(err));
+      return false;
+    }
+
+    err = esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifiHandlerInstance1);
+    if (err != ESP_OK)
+    {
+      LOGGER_ERROR("WiFi esp_event_handler_instance_unregister failed! Reason=%s", esp_err_to_name(err));
+      return false;
+    }
+    err = esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, &wifiHandlerInstance2);
+    if (err != ESP_OK)
+    {
+      LOGGER_ERROR("WiFi esp_event_handler_instance_unregister failed! Reason=%s", esp_err_to_name(err));
+      return false;
+    }
+
+    err = esp_wifi_deinit();
+    if (err != ESP_OK)
+    {
+      LOGGER_ERROR("WiFi esp_wifi_deinit failed! Reason=%s", esp_err_to_name(err));
+      return false;
+    }
+
+    esp_netif_destroy(wifiNetIF);
   }
   LOGGER_INFO("WiFi is shutdown.");
   return true;
@@ -225,16 +247,79 @@ static bool wifi_open()
     wifi_close();
   }
 
-  ESP_ERROR_CHECK(esp_netif_init());
-  ESP_ERROR_CHECK(esp_event_loop_create_default());
+  esp_err_t err;
+  // 创建网络接口
+  err = esp_netif_init();
+  if (err != ESP_OK)
+  {
+    LOGGER_ERROR("WiFi esp_netif_init failed! Reason=%s", esp_err_to_name(err));
+    return false;
+  }
+  err = esp_event_loop_create_default();
+  if (err != ESP_OK)
+  {
+    LOGGER_ERROR("WiFi esp_event_loop_create_default failed! Reason=%s", esp_err_to_name(err));
+    return false;
+  }
   wifiNetIF = esp_netif_create_default_wifi_ap();
 
-  ESP_ERROR_CHECK(esp_wifi_init(&wifiInitConfig));
-  ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handle, NULL, &wifiHandlerInstance));
+  // 初始化 WiFi
+  static wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT();
+  err = esp_wifi_init(&wifi_init_config);
+  if (err != ESP_OK)
+  {
+    LOGGER_ERROR("WiFi esp_event_loop_create_default failed! Reason=%s", esp_err_to_name(err));
+    return false;
+  }
 
-  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-  ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifiConfig));
-  ESP_ERROR_CHECK(esp_wifi_start());
+  // 注册事件
+  err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handle, NULL, &wifiHandlerInstance1);
+  if (err != ESP_OK)
+  {
+    LOGGER_ERROR("WiFi esp_event_handler_instance_register failed! Reason=%s", esp_err_to_name(err));
+    return false;
+  }
+  err = esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handle, NULL, &wifiHandlerInstance2);
+  if (err != ESP_OK)
+  {
+    LOGGER_ERROR("WiFi esp_event_handler_instance_register failed! Reason=%s", esp_err_to_name(err));
+    return false;
+  }
+
+  // 启动 WiFi AP
+  static wifi_config_t wifi_config = {
+      .ap = {
+          .ssid = WIFI_NAME,
+          .password = WIFI_PASSWORD,
+          .ssid_len = strlen(WIFI_NAME),
+          .channel = WIFI_CHANNEL,
+          .authmode = WIFI_AUTH_WPA2_PSK,
+          .ssid_hidden = 1,
+          .max_connection = RF_MAX_CONNECTION,
+          .pmf_cfg = {
+              .required = true,
+          },
+          .gtk_rekey_interval = true,
+      },
+  };
+  err = esp_wifi_set_mode(WIFI_MODE_AP);
+  if (err != ESP_OK)
+  {
+    LOGGER_ERROR("WiFi esp_wifi_set_mode failed! Reason=%s", esp_err_to_name(err));
+    return false;
+  }
+  err = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+  if (err != ESP_OK)
+  {
+    LOGGER_ERROR("WiFi esp_wifi_set_config failed! Reason=%s", esp_err_to_name(err));
+    return false;
+  }
+  err = esp_wifi_start();
+  if (err != ESP_OK)
+  {
+    LOGGER_ERROR("WiFi esp_wifi_start failed! Reason=%s", esp_err_to_name(err));
+    return false;
+  }
 
   // 获取当前IP地址
   esp_netif_ip_info_t ip;
@@ -243,12 +328,14 @@ static bool wifi_open()
     wifiIP = ip.ip.addr;
   }
 
-  // 注册DHCP事件处理
-  esp_event_handler_instance_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &dhcp_event_handle, NULL, NULL);
-
   wifiIsOpen = true;
   LOGGER_INFO("WiFi is started.");
-  socket_open(wifiIP);
+
+  if (!wifi_socket_open(wifiIP))
+  {
+    wifi_close();
+    return false;
+  }
   return true;
 }
 /****************************/
@@ -843,6 +930,7 @@ static unsigned long secondLastTime = millis(); // 每秒时间点
 static void rf_handle(void *arg)
 {
   // 缓存
+  Device *device = nullptr;
   netbuf *receiveBuffer = NULL;
   // rssi
   wifi_sta_list_t staList;
@@ -877,7 +965,7 @@ static void rf_handle(void *arg)
       //////////
 
       /* 接收 */
-      if (socket_receive(&receiveBuffer))
+      if (wifi_receive(&device, &receiveBuffer))
       {
         uint8_t *data;
         uint16_t len;
@@ -886,16 +974,8 @@ static void rf_handle(void *arg)
           netbuf_data(receiveBuffer, (void **)&data, &len);
           data += WIFI_IP_HEAD_LEN;
           len -= WIFI_IP_HEAD_LEN;
-          // 解析数据包 receiveBuffer->addr.addr
-          Device *device = deviceManager.getDeviceByWifiIP(htonl(receiveBuffer->addr.addr));
-          if (device != nullptr)
-          {
-            rf_receive_packet(device, data);
-          }
-          else
-          {
-            LOGGER_WARN("WiFi can't get device by unknowed IP address");
-          }
+          // 解析数据包
+          rf_receive_packet(device, data);
           transmitSpeedData += len;
         } while (netbuf_next(receiveBuffer) >= 0);
         netbuf_delete(receiveBuffer);
@@ -1035,7 +1115,7 @@ void ui_bt_pause_search()
           packet->packet.serverControlAudio.bit = config::config.audio.bit;
           packet->packet.serverControlAudio.mode = config::config.audio.mode;
           packet->packet.serverControlAudio.gain = config::config.audio.gain;
-          socket_send(device.getWifiIP(), buf);
+          wifi_send(device, buf);
         }
       }
     }
@@ -1101,50 +1181,25 @@ int8_t ui_info_get_signal(const std::string &mac)
 
 void ui_setting_audio_page_rcb(uint8_t &bit, uint8_t &channel, uint32_t &rate, uint8_t &volumn, uint8_t &volumn_mode)
 {
-  // bit = config::config.audio.bit;
-  // channel = config::config.audio.channel;
-  // rate = config::config.audio.rate;
-  // volumn = config::config.audio.volumn;
-  // if (config::config.audio.autoVolumn)
-  // {
-  //   volumn_mode = 0;
-  // }
-  // else if (config::config.audio.peekVolumn)
-  // {
-  //   volumn_mode = 1;
-  // }
-  // else
-  // {
-  //   volumn_mode = 2;
-  // }
+  bit = config::config.audio.bit;
+  channel = config::config.audio.channel;
+  rate = config::config.audio.rate;
+  volumn = config::config.audio.gain;
+  volumn_mode = config::config.audio.mode;
 }
 
 void ui_setting_audio_page_scb(uint8_t bit, uint8_t channel, uint32_t rate, uint8_t volumn, uint8_t &volumn_mode, bool now)
 {
-  // config::config.audio.bit = bit;
-  // config::config.audio.channel = channel;
-  // config::config.audio.rate = rate;
-  // config::config.audio.volumn = volumn;
-  // if (volumn_mode == 0)
-  // {
-  //   config::config.audio.autoVolumn = true;
-  //   config::config.audio.peekVolumn = false;
-  // }
-  // else if (volumn_mode == 1)
-  // {
-  //   config::config.audio.autoVolumn = false;
-  //   config::config.audio.peekVolumn = true;
-  // }
-  // else
-  // {
-  //   config::config.audio.autoVolumn = false;
-  //   config::config.audio.peekVolumn = false;
-  // }
-  // config::save();
+  config::config.audio.bit = (AudioBit)bit;
+  config::config.audio.channel = (AudioChannel)channel;
+  config::config.audio.rate = (AudioRate)rate;
+  config::config.audio.gain = (AudioGain)volumn;
+  config::config.audio.mode = (AudioMode)volumn_mode;
+  config::save();
 
-  // if (now)
-  // {
-  // }
+  if (now)
+  {
+  }
 }
 
 void ui_setting_rf_page_rcb(bool &mode)
