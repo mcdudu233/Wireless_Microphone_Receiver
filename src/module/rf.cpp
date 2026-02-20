@@ -5,6 +5,7 @@
 #include "module/audio/decoder.h"
 #include "tool/device.h"
 #include "ui/ui_bt.h"
+#include "ui/ui_setting.h"
 
 #include "queue"
 #include "string"
@@ -1099,7 +1100,7 @@ int8_t ui_info_get_signal(const std::string &mac)
   return 100;
 }
 
-void ui_setting_audio_page_rcb(uint8_t &bit, uint8_t &channel, uint32_t &rate, uint8_t &volumn, uint8_t &volumn_mode)
+void ui_setting_audio_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &rate, AudioGain &gain, AudioMode &mode)
 {
   // bit = config::config.audio.bit;
   // channel = config::config.audio.channel;
@@ -1119,7 +1120,7 @@ void ui_setting_audio_page_rcb(uint8_t &bit, uint8_t &channel, uint32_t &rate, u
   // }
 }
 
-void ui_setting_audio_page_scb(uint8_t bit, uint8_t channel, uint32_t rate, uint8_t volumn, uint8_t &volumn_mode, bool now)
+void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode, bool now)
 {
   // config::config.audio.bit = bit;
   // config::config.audio.channel = channel;
@@ -1147,12 +1148,12 @@ void ui_setting_audio_page_scb(uint8_t bit, uint8_t channel, uint32_t rate, uint
   // }
 }
 
-void ui_setting_rf_page_rcb(bool &mode)
+void ui_setting_rf_page_rcb(RFMode &mode)
 {
   mode = config::config.rf.mode;
 }
 
-void ui_setting_rf_page_scb(bool mode, bool now)
+void ui_setting_rf_page_scb(RFMode mode, bool now)
 {
   // config::config.rf.mode = mode;
   // config::save();
