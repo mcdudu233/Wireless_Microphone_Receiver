@@ -9,14 +9,17 @@ static lv_obj_t *last_enter_btn = NULL; // 记录进入子页面所用的条目
 static lv_timer_t *sys_info_timer;
 static lv_style_t scroll_style;
 
+static lv_obj_t *file_list;
+static lv_obj_t *file_path;
+
 static bool enter_bottom = false;
 static lv_obj_t *root_page_ref = NULL;
 
 static lv_obj_t *dd_audio_bit;
 static lv_obj_t *dd_audio_channel;
 static lv_obj_t *dd_audio_rate;
-static lv_obj_t *dd_audio_volumn_mode;
-static lv_obj_t *slider_audio_volumn;
+static lv_obj_t *dd_audio_audio_mode;
+static lv_obj_t *slider_audio_gain;
 
 static lv_obj_t *dd_rf_mode;
 
@@ -98,7 +101,7 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_t *sub_usb_page = ui_create_sub_page(menu, "USB传输设置");
     lv_obj_set_user_data(sub_usb_page, (void *)e_page::usb_page);
     lv_obj_t *sub_file_page = ui_create_sub_page(menu, "文件系统管理");
-    lv_obj_set_user_data(sub_usb_page, (void *)e_page::file_page);
+    lv_obj_set_user_data(sub_file_page, (void *)e_page::file_page);
     lv_obj_t *sub_system_page = ui_create_sub_page(menu, "系统信息");
     lv_obj_set_user_data(sub_system_page, (void *)e_page::system_page);
     lv_obj_t *sub_audio_page = ui_create_sub_page(menu, "音频设置");
@@ -178,13 +181,30 @@ void ui_setting_init(lv_obj_t *ui_from)
     ui_create_dropdown(sub_audio_page, NULL, "增益模式", "自动增益\n"
                                                          "峰值减少\n"
                                                          "手动",
-                       &dd_audio_volumn_mode);
-    ui_create_slider(sub_audio_page, NULL, "增益", 0, 60, 0, &slider_audio_volumn);
+                       &dd_audio_audio_mode);
+    ui_create_slider(sub_audio_page, NULL, "增益", 0, 60, 0, &slider_audio_gain);
 
     ui_create_dropdown(sub_rf_page, NULL, "传输协议", "BLE\n"
                                                       "WIFI",
                        &dd_rf_mode);
     // lv_obj_add_event_cb(dd_rf_mode, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)6);
+
+    lv_obj_t *file_widget = lv_obj_create(sub_file_page);
+    lv_obj_set_size(file_widget,lv_pct(100),lv_pct(100));
+    file_path = lv_label_create(file_widget);
+    lv_obj_align(file_path, LV_ALIGN_TOP_MID, 0, 3);
+    lv_label_set_text_fmt(file_path, "路径:%s", "A:/...");
+    lv_obj_set_style_text_font(file_path, &lv_font_harmonyos_12, 0);
+    file_list = lv_list_create(file_widget);
+    lv_obj_align(file_list, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_set_width(file_list, lv_pct(95));
+    lv_obj_set_height(file_list, lv_pct(95));
+    lv_obj_t *file = lv_list_add_button(file_list, LV_SYMBOL_LEFT, "返回");
+    lv_obj_set_style_bg_color(file, lv_palette_main(LV_PALETTE_YELLOW), 0);
+    file = lv_list_add_button(file_list, LV_SYMBOL_FILE, "文件2");
+    lv_obj_set_style_bg_color(file, lv_palette_main(LV_PALETTE_YELLOW), 0);
+    file = lv_list_add_button(file_list, LV_SYMBOL_FILE, "文件3");
+    file = lv_list_add_button(file_list, LV_SYMBOL_FILE, "文件4");
 
     lv_obj_t *root_page = lv_menu_page_create(menu, "设置");
     root_page_ref = root_page; // 保存引用
@@ -227,6 +247,15 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
+    // 文件系统管理
+    cont = ui_create_text(root_page, &ui_img_file, "文件系统管理",NULL,true);
+    lv_group_add_obj(lv_group_get_default(), cont);
+    lv_menu_set_load_page_event(menu, cont, sub_file_page);
+    lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_file_page);
+    lv_obj_set_style_translate_x(cont, 100, 0);
+    lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
+
     // section = lv_menu_section_create(root_page);
     cont = ui_create_text(root_page, &ui_img_system_info, "系统信息", nullptr, true);
     lv_group_add_obj(lv_group_get_default(), cont);
@@ -244,7 +273,6 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
-    // TODO: 文件系统页面
     //  lv_menu_set_sidebar_page(menu, root_page);
 
     // lv_obj_send_event(lv_obj_get_child(lv_obj_get_child(lv_menu_get_cur_sidebar_page(menu), 0), 0), LV_EVENT_CLICKED,
@@ -448,70 +476,79 @@ static void enter_subpage_cb(lv_event_t *e)
     last_enter_btn = lv_event_get_target_obj(e);
     lv_obj_t *page = (lv_obj_t *)lv_event_get_user_data(e);
     uint8_t p = (uint8_t)(intptr_t)lv_obj_get_user_data(page);
-    if (p == e_page::system_page)
+    LOGGER_DEBUG("进入页面");
+    switch (p)
+    {
+
+    case e_page::system_page:
     {
         lv_timer_resume(sys_info_timer);
+        break;
     }
-    else if (p == e_page::audio_page)
+    case e_page::audio_page:
     {
-        uint8_t l_bit = 16, l_channel = 2, l_volumn = 30, l_volumn_mode = USB_MODE_AUDIO;
-        uint32_t l_rate = 48000;
-        ui_setting_audio_page_rcb(l_bit, l_channel, l_rate, l_volumn, l_volumn_mode);
+        AudioBit l_bit;
+        AudioChannel l_channel;
+        AudioGain l_gain;
+        AudioMode l_audio_mode;
+        AudioRate l_rate;
+        ui_setting_audio_page_rcb(l_bit, l_channel, l_rate, l_gain, l_audio_mode);
 
         int sel_bit = 0;
         switch (l_bit)
         {
-        case 16:
+        case AUDIO_BIT_16:
             sel_bit = 0;
             break; // 16bit
-        case 24:
+        case AUDIO_BIT_24:
             sel_bit = 1;
             break;
-        case 32:
+        case AUDIO_BIT_32:
             sel_bit = 2;
             break;
         }
         lv_dropdown_set_selected(dd_audio_bit, sel_bit);
 
-        int sel_channel = (l_channel == 2) ? 1 : 0; // 0: 单通道, 1: 立体声
+        int sel_channel = (l_channel == AUDIO_CHANNEL_STEREO) ? 1 : 0;
         lv_dropdown_set_selected(dd_audio_channel, sel_channel);
 
         int sel_rate = 0;
         switch (l_rate)
         {
-        case 48000:
+        case AUDIO_RATE_48000:
             sel_rate = 0;
             break;
-        case 96000:
+        case AUDIO_RATE_96000:
             sel_rate = 1;
             break;
-        case 192000:
+        case AUDIO_RATE_192000:
             sel_rate = 2;
             break;
         }
         lv_dropdown_set_selected(dd_audio_rate, sel_rate);
 
         int sel_vol_mode = 0;
-        switch (l_volumn_mode)
+        switch (l_audio_mode)
         {
-        case 0:
+        case AUDIO_MODE_AUTO:
             sel_vol_mode = 0;
             break; // 自动增益
-        case 1:
+        case AUDIO_MODE_PEEK:
             sel_vol_mode = 1;
             break; // 峰值减少
-        case 2:
+        case AUDIO_MODE_MANUAL:
             sel_vol_mode = 2;
             break; // 手动
         }
-        lv_dropdown_set_selected(dd_audio_volumn_mode, sel_vol_mode);
+        lv_dropdown_set_selected(dd_audio_audio_mode, sel_vol_mode);
 
-        if (slider_audio_volumn)
+        if (slider_audio_gain)
         {
-            lv_slider_set_value(slider_audio_volumn, l_volumn, LV_ANIM_OFF);
+            lv_slider_set_value(slider_audio_gain, l_gain, LV_ANIM_OFF);
         }
+        break;
     }
-    else if (p == e_page::usb_page)
+    case e_page::usb_page:
     {
         USBMode mode = USB_MODE_NONE;
         ui_setting_usb_page_rcb(mode);
@@ -532,12 +569,20 @@ static void enter_subpage_cb(lv_event_t *e)
             break;
         }
         lv_dropdown_set_selected(dd_usb_mode, sel);
+        break;
     }
-    else if (p == e_page::rf_page)
+    case e_page::rf_page:
     {
-        bool mode = false; // false: BLE, true: WIFI
-        ui_setting_rf_page_rcb(mode);
-        lv_dropdown_set_selected(dd_rf_mode, mode ? 1 : 0);
+        RFMode rfmode;
+        ui_setting_rf_page_rcb(rfmode);
+        lv_dropdown_set_selected(dd_rf_mode, rfmode == RF_MODE_WIFI ? 1 : 0);
+        break;
+    }
+    case e_page::file_page:
+    {
+        LOGGER_DEBUG("进入文件管理系统");
+        break;
+    }
     }
 
     lv_obj_set_user_data(last_enter_btn, page); // 记录btn对应的page
@@ -702,60 +747,63 @@ static void save_config(uint8_t &p, bool now)
         }
         break;
     case e_page::audio_page:
-        uint8_t v_bit, v_channel, v_volumn, v_volumn_mode;
-        uint32_t v_rate;
+        AudioBit v_bit;
+        AudioChannel v_channel;
+        AudioGain v_gain;
+        AudioMode v_audio_mode;
+        AudioRate v_rate;
 
         switch (lv_dropdown_get_selected(dd_audio_bit))
         {
         case 0:
-            v_bit = 16;
+            v_bit = AUDIO_BIT_16;
             break;
         case 1:
-            v_bit = 24;
+            v_bit = AUDIO_BIT_24;
             break;
         case 2:
-            v_bit = 32;
+            v_bit = AUDIO_BIT_32;
             break;
         }
         switch (lv_dropdown_get_selected(dd_audio_channel))
         {
         case 0:
-            v_channel = 1;
+            v_channel = AUDIO_CHANNEL_SINGLE;
             break;
         case 1:
-            v_channel = 2;
+            v_channel = AUDIO_CHANNEL_STEREO;
             break;
         }
         switch (lv_dropdown_get_selected(dd_audio_rate))
         {
         case 0:
-            v_rate = 48000;
+            v_rate = AUDIO_RATE_48000;
             break;
         case 1:
-            v_rate = 96000;
+            v_rate = AUDIO_RATE_96000;
             break;
         case 2:
-            v_rate = 192000;
+            v_rate = AUDIO_RATE_192000;
             break;
         }
-        switch (lv_dropdown_get_selected(dd_audio_volumn_mode))
+        switch (lv_dropdown_get_selected(dd_audio_audio_mode))
         {
         case 0:
-            v_volumn_mode = 0;
+            v_audio_mode = AUDIO_MODE_AUTO;
             break;
         case 1:
-            v_volumn_mode = 1;
+            v_audio_mode = AUDIO_MODE_PEEK;
             break;
         case 2:
-            v_volumn_mode = 2;
+            v_audio_mode = AUDIO_MODE_MANUAL;
             break;
         }
 
-        v_volumn = lv_slider_get_value(slider_audio_volumn);
-        ui_setting_audio_page_scb(v_bit, v_channel, v_rate, v_volumn, v_volumn_mode, now);
+        v_gain = lv_slider_get_value(slider_audio_gain);
+        ui_setting_audio_page_scb(v_bit, v_channel, v_rate, v_gain, v_audio_mode, now);
         break;
     case e_page::rf_page:
-        ui_setting_rf_page_scb(lv_dropdown_get_selected(dd_rf_mode) == 1, now);
+        ui_setting_rf_page_scb(lv_dropdown_get_selected(dd_rf_mode) == 0 ? RF_MODE_BLE : RF_MODE_WIFI, now);
         break;
     }
 }
