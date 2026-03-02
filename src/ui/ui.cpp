@@ -210,7 +210,7 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
                                     lv_obj_t *target = (lv_obj_t *)lv_event_get_user_data(e);
                                     if (target && lv_obj_is_valid(target))
                                         lv_obj_send_event(target, LV_EVENT_CLICKED, NULL); }, LV_EVENT_CLICKED, ret[0]);
-            lv_obj_add_event_cb(btn, event_cb1, LV_EVENT_CLICKED, user_data1);
+            lv_obj_add_event_cb(btn, event_cb1, LV_EVENT_PRESSED, user_data1);
             btn1 = btn;
         }
 
@@ -224,7 +224,7 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
                                 lv_obj_t *target = (lv_obj_t *)lv_event_get_user_data(e);
                                 if (target && lv_obj_is_valid(target))
                                     lv_obj_send_event(target, LV_EVENT_CLICKED, NULL); }, LV_EVENT_CLICKED, ret[0]);
-            lv_obj_add_event_cb(btn, event_cb2, LV_EVENT_CLICKED, user_data2);
+            lv_obj_add_event_cb(btn, event_cb2, LV_EVENT_PRESSED, user_data2);
             btn2 = btn;
         }
         if (btn1_title and btn2_title)

@@ -1122,6 +1122,7 @@ void ui_setting_audio_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &
 
 void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode, bool now)
 {
+  LOGGER_INFO("ui_setting_audio_page_scb");
   // config::config.audio.bit = bit;
   // config::config.audio.channel = channel;
   // config::config.audio.rate = rate;
@@ -1155,6 +1156,7 @@ void ui_setting_rf_page_rcb(RFMode &mode)
 
 void ui_setting_rf_page_scb(RFMode mode, bool now)
 {
+  LOGGER_INFO("ui_setting_rf_page_scb");
   // config::config.rf.mode = mode;
   // config::save();
 
