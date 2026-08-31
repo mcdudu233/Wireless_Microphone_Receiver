@@ -33,12 +33,15 @@ void ui_bt_init()
                         },
                         (lv_event_code_t)(LV_EVENT_LAST + 1), g1);
 
-    lv_obj_set_style_bg_color(bt_widget, lv_color_hex(0xEEF2F5), 0);
+    lv_obj_set_style_bg_color(bt_widget, lv_color_hex(0xF4F5F7), 0);
 
     bt_list = lv_list_create(bt_widget);
-    lv_obj_set_style_pad_all(bt_list, 0, 0);
-    lv_obj_set_style_border_width(bt_list, 0, 0);
-    lv_obj_set_size(bt_list, 100, 55);
+    lv_obj_set_style_pad_all(bt_list, 2, 0);
+    lv_obj_set_style_border_width(bt_list, 1, 0);
+    lv_obj_set_style_border_color(bt_list, lv_color_hex(0xE5E7EB), 0);
+    lv_obj_set_style_bg_color(bt_list, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_radius(bt_list, 6, 0);
+    lv_obj_set_size(bt_list, lv_pct(65), 55);
     lv_obj_align(bt_list, LV_ALIGN_TOP_LEFT, 5, 17);
 
     // 设置focus样式
@@ -51,24 +54,26 @@ void ui_bt_init()
 
     label = lv_label_create(bt_widget);
     lv_label_set_text(label, "选择设备");
+    lv_obj_set_style_text_font(label, &lv_font_harmonyos_14, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x1F2937), 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_bg_opa(label, 0, 0);
-    lv_obj_align_to(label, bt_list, LV_ALIGN_OUT_TOP_MID, 0, -3);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 8, 5);
 
     // 设置按钮
-    btn = ui_add_button(bt_widget, "设置", 45, 25, &lv_font_harmonyos_14);
-    lv_obj_set_style_radius(btn, 5, 0);
-    lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_BLUE), 0);
-    lv_obj_align_to(btn, bt_list, LV_ALIGN_OUT_RIGHT_TOP, 5, -3);
+    btn = ui_add_button(bt_widget, "设置", 42, 24, &lv_font_harmonyos_14);
+    lv_obj_set_style_radius(btn, 6, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x2D6BDB), 0);
+    lv_obj_align(btn, LV_ALIGN_TOP_RIGHT, -5, 5);
     lv_obj_add_event_cb(btn, button_setting_cb, LV_EVENT_CLICKED, bt_list);
     lv_group_add_obj(g1, btn);
     lv_obj_t *last = btn;
 
     // 完成按钮
-    btn = ui_add_button(bt_widget, "完成", 45, 25, &lv_font_harmonyos_14);
-    lv_obj_set_style_radius(btn, 5, 0);
-    lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_GREEN), 0);
-    lv_obj_align_to(btn, last, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+    btn = ui_add_button(bt_widget, "完成", 42, 24, &lv_font_harmonyos_14);
+    lv_obj_set_style_radius(btn, 6, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x059669), 0);
+    lv_obj_align_to(btn, last, LV_ALIGN_OUT_BOTTOM_MID, 0, 5);
     lv_obj_add_event_cb(btn, button_finish_cb, LV_EVENT_CLICKED, bt_widget);
     lv_group_add_obj(g1, btn);
 
@@ -232,16 +237,28 @@ void ui_bt_update(const std::string &mac, bool is_link)
     }
     if (is_link)
     {
-        lv_obj_set_style_bg_color(btn, COLOR_LINKED, LV_STATE_CHECKED); // 设置连接状态
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0xECFDF5), LV_STATE_CHECKED); // 浅绿背景
         lv_obj_set_user_data(btn, BT_LINKED);
         lv_obj_add_state(btn, LV_STATE_CHECKED);
+        lv_obj_t *link_label = lv_obj_get_child(btn, 0);
+        if (link_label)
+        {
+            lv_label_set_text_fmt(link_label, "%s %s", LV_SYMBOL_OK, mac.c_str());
+            lv_obj_set_style_text_color(link_label, lv_color_hex(0x059669), 0);
+        }
         // logger::infoln("设置蓝牙:%s 已连接状态", mac.c_str());
     }
     else
     {
-        lv_obj_set_style_bg_color(btn, COLOR_SELECTED, LV_STATE_CHECKED);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0xFFFBEB), LV_STATE_CHECKED); // 浅黄背景
         lv_obj_set_user_data(btn, BT_UNLINKED);
         lv_obj_remove_state(btn, (lv_state_t)(LV_STATE_FOCUSED | LV_STATE_FOCUS_KEY));
+        lv_obj_t *unlink_label = lv_obj_get_child(btn, 0);
+        if (unlink_label)
+        {
+            lv_label_set_text_fmt(unlink_label, "%s %s", LV_SYMBOL_CLOSE, mac.c_str());
+            lv_obj_set_style_text_color(unlink_label, lv_color_hex(0x1F2937), 0);
+        }
         // logger::infoln("设置蓝牙:%s 未连接状态", mac.c_str());
     }
     LV_UNLOCK();
