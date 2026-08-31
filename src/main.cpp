@@ -17,7 +17,7 @@ extern "C" void app_main()
   screen::setup();
   ui_loading_set_part("屏幕");
   ui_loading_set_percent(20);
-  // usb::setup();
+  usb::setup();
   ui_loading_set_part("USB");
   ui_loading_set_percent(30);
   sys::setup();
