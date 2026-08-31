@@ -17,6 +17,12 @@ static DeviceManager deviceManager;
 static uint32_t transmitSpeed = 0;
 static uint32_t transmitSpeedData = 0;
 
+// 音频电平追踪 (用于 UI L/R 音量条)
+static std::unordered_map<std::string, int8_t> leftVoiceLevels;
+static std::unordered_map<std::string, int8_t> rightVoiceLevels;
+// 电平衰减timer计数 (每秒衰减)
+static unsigned long voiceLevelLastDecay = 0;
+
 /*****************************
           WIFI协议
 *****************************/
@@ -894,6 +900,13 @@ static void rf_receive_packet(Device *device, const uint8_t *data)
   case PACKET_TYPE_WIFI_AUDIO:
   {
     audio::buffer::writeWiFiPacket(&packet->packet.audioDataWiFi);
+    // 更新设备音频电平
+    if (device)
+    {
+      std::string mac = device->getBleMACString();
+      leftVoiceLevels[mac] = 90;
+      rightVoiceLevels[mac] = 85;
+    }
     break;
   }
 
@@ -901,6 +914,12 @@ static void rf_receive_packet(Device *device, const uint8_t *data)
   case PACKET_TYPE_BLE_AUDIO:
   {
     // audio::buffer::writeBLEPacket(&packet->packet.audioDataWiFi);
+    if (device)
+    {
+      std::string mac = device->getBleMACString();
+      leftVoiceLevels[mac] = 80;
+      rightVoiceLevels[mac] = 75;
+    }
     break;
   }
 
@@ -993,6 +1012,24 @@ static void rf_handle(void *arg)
       secondLastTime = secondNowTime;
       // LOGGER_INFO("RF data speed %dKB/s", transmitSpeed / 1024);
 
+      /* 衰减音频电平 (无新音频时逐渐归零) */
+      for (auto it = leftVoiceLevels.begin(); it != leftVoiceLevels.end();)
+      {
+        if (it->second > 5)
+          it->second -= 5;
+        else
+          it->second = 0;
+        ++it;
+      }
+      for (auto it = rightVoiceLevels.begin(); it != rightVoiceLevels.end();)
+      {
+        if (it->second > 5)
+          it->second -= 5;
+        else
+          it->second = 0;
+        ++it;
+      }
+
       /* 获取信号强度 */
       if (bleIsOpen)
       {
@@ -1020,6 +1057,11 @@ void rf::setup()
   ble_open();
   // 启动发送接收线程
   xTaskCreatePinnedToCore(rf_handle, "rf_handle", TASK_RF_STACK, NULL, TASK_RF_PRIORITY, NULL, TASK_RF_CORE);
+}
+
+DeviceManager &rf::getDeviceManager()
+{
+  return deviceManager;
 }
 
 /*****************************
@@ -1145,12 +1187,14 @@ std::vector<std::string> ui_bt_get_linked()
 
 int8_t ui_info_get_left_voice(const std::string &mac)
 {
-  return 0;
+  auto it = leftVoiceLevels.find(mac);
+  return (it != leftVoiceLevels.end()) ? it->second : 0;
 }
 
 int8_t ui_info_get_right_voice(const std::string &mac)
 {
-  return 0;
+  auto it = rightVoiceLevels.find(mac);
+  return (it != rightVoiceLevels.end()) ? it->second : 0;
 }
 
 const std::string ui_info_get_transmit_speed()
@@ -1185,22 +1229,62 @@ void ui_setting_audio_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &
   bit = config::config.audio.bit;
   channel = config::config.audio.channel;
   rate = config::config.audio.rate;
-  volumn = config::config.audio.gain;
-  volumn_mode = config::config.audio.mode;
+  gain = config::config.audio.gain;
+  mode = config::config.audio.mode;
 }
 
 void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode, bool now)
 {
-  config::config.audio.bit = (AudioBit)bit;
-  config::config.audio.channel = (AudioChannel)channel;
-  config::config.audio.rate = (AudioRate)rate;
-  config::config.audio.gain = (AudioGain)volumn;
-  config::config.audio.mode = (AudioMode)volumn_mode;
-  config::save();
-
   if (now)
   {
+    // 立即将新音频配置发送到所有已连接设备
+    Device *devices = deviceManager.getAllDevices();
+    for (uint8_t i = 0; i < deviceManager.size(); i++)
+    {
+      Device &device = devices[i];
+      if (device.isBleConnected())
+      {
+        Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_AUDIO_SIZE);
+        if (packet)
+        {
+          packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+          packet->packet.serverControlAudio.start = true;
+          packet->packet.serverControlAudio.channel = channel;
+          packet->packet.serverControlAudio.rate = rate;
+          packet->packet.serverControlAudio.bit = bit;
+          packet->packet.serverControlAudio.mode = mode;
+          packet->packet.serverControlAudio.gain = gain;
+          ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+          free(packet);
+        }
+      }
+      if (device.isWifiConnected())
+      {
+        netbuf *buf = netbuf_new();
+        if (buf != NULL)
+        {
+          Packet *packet = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+          if (packet)
+          {
+            packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+            packet->packet.serverControlAudio.start = true;
+            packet->packet.serverControlAudio.channel = channel;
+            packet->packet.serverControlAudio.rate = rate;
+            packet->packet.serverControlAudio.bit = bit;
+            packet->packet.serverControlAudio.mode = mode;
+            packet->packet.serverControlAudio.gain = gain;
+            wifi_send(device, buf);
+          }
+        }
+      }
+    }
   }
+  config::config.audio.bit = bit;
+  config::config.audio.channel = channel;
+  config::config.audio.rate = rate;
+  config::config.audio.gain = gain;
+  config::config.audio.mode = mode;
+  config::save();
 }
 
 void ui_setting_rf_page_rcb(RFMode &mode)
@@ -1210,11 +1294,30 @@ void ui_setting_rf_page_rcb(RFMode &mode)
 
 void ui_setting_rf_page_scb(RFMode mode, bool now)
 {
-  // config::config.rf.mode = mode;
-  // config::save();
-
-  // if (now)
-  // {
-  // }
+  if (now)
+  {
+    // RF 模式切换需要重启通信协议
+    Device *devices = deviceManager.getAllDevices();
+    for (uint8_t i = 0; i < deviceManager.size(); i++)
+    {
+      Device &device = devices[i];
+      if (device.isBleConnected())
+      {
+        // 通过 BLE 发送 RF 模式切换命令
+        Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_RF_SIZE);
+        if (packet)
+        {
+          packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
+          packet->packet.serverControlRF.mode = mode;
+          strcpy(packet->packet.serverControlRF.ssid, WIFI_NAME);
+          strcpy(packet->packet.serverControlRF.password, WIFI_PASSWORD);
+          ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
+          free(packet);
+        }
+      }
+    }
+  }
+  config::config.rf.mode = mode;
+  config::save();
 }
 /****************************/

@@ -105,7 +105,12 @@ struct __attribute__((packed)) Packet
   } packet;
 };
 
+class DeviceManager;
+
 namespace rf
 {
   void setup();
+
+  // 设备管理器访问
+  DeviceManager &getDeviceManager();
 }
