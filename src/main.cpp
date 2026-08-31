@@ -10,8 +10,6 @@
 #include "module/audio/buffer.h"
 #include "module/audio/decoder.h"
 
-#include "esp_mac.h"
-
 extern "C" void app_main()
 {
   logger::setup();
@@ -38,8 +36,5 @@ extern "C" void app_main()
   tf::setup();
   ui_loading_set_part("TF卡");
   ui_loading_set_percent(100);
-  uint8_t mac[6];
-  esp_base_mac_addr_get(mac);
-  LOGGER_INFO("%2x:%2x:%2x:%2x:%2x:%2x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   LOGGER_INFO("All modules are started now!");
 }

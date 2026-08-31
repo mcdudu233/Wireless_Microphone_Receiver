@@ -12,7 +12,7 @@ void logger::setup()
 
   // 重定向 ESP-IDF 日志输出
   // esp_log_set_vprintf(esp_apptrace_vprintf);
-  // Log.begin(LOG_LEVEL_VERBOSE, &USBCDCSerial);
+  // vprintf();
 
   LOGGER_INFO("Logger is started!");
 }
