@@ -14,6 +14,8 @@ lv_obj_t *ui_add_win()
     lv_obj_t *widget = lv_obj_create(lv_screen_active());
     lv_obj_set_size(widget, WIDGET_H, WIDGET_V);
     lv_obj_set_style_pad_all(widget, 0, 0); // 去除内边距
+    lv_obj_set_style_bg_color(widget, lv_color_hex(0xF4F5F7), 0);
+    lv_obj_set_style_bg_opa(widget, LV_OPA_COVER, 0);
     return widget;
 }
 // 添加带标题按钮
@@ -22,13 +24,19 @@ lv_obj_t *ui_add_button(lv_obj_t *parent, std::string title, int32_t w, int32_t 
     lv_obj_t *btn = lv_button_create(parent);
     lv_obj_t *label = lv_label_create(btn);
     lv_obj_set_size(btn, w, h);
-    // lv_obj_set_size(label,w,h);
+    // Button default styling
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x2D6BDB), 0);
+    lv_obj_set_style_radius(btn, 6, 0);
+    lv_obj_set_style_pad_all(btn, 0, 0);
+    lv_obj_set_style_border_width(btn, 0, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x1D4ED8), LV_STATE_PRESSED);
     lv_label_set_text(label, title.c_str());
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
     if (font != NULL)
     {
         lv_obj_set_style_text_font(label, font, 0);
     }
+    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
     return btn;
 }
 
@@ -149,6 +157,12 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
     lv_obj_t *label;
 
     lv_obj_set_size(ret[1], 120, 60);
+    lv_obj_set_style_bg_color(ret[1], lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_opa(ret[1], LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(ret[1], 8, 0);
+    lv_obj_set_style_shadow_width(ret[1], 15, 0);
+    lv_obj_set_style_shadow_opa(ret[1], LV_OPA_20, 0);
+    lv_obj_set_style_shadow_ofs_y(ret[1], 4, 0);
     // 图标
     if (icon)
     {
@@ -166,12 +180,13 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
     label = lv_label_create(ret[1]);
     lv_label_set_text(label, title);
     lv_obj_set_style_text_font(label, &lv_font_harmonyos_12, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x1F2937), 0);
     lv_obj_align(label, LV_ALIGN_OUT_RIGHT_MID, 21, 0);
 
     static lv_style_t style_line;
     lv_style_init(&style_line);
     lv_style_set_line_width(&style_line, 1);
-    lv_style_set_line_color(&style_line, lv_color_hex(333333));
+    lv_style_set_line_color(&style_line, lv_color_hex(0xE5E7EB));
     lv_style_set_line_rounded(&style_line, true);
     static lv_point_precise_t line_points[] = {{3, 0}, {157, 0}};
 
@@ -188,6 +203,7 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
     lv_label_set_text(label, text);
     lv_obj_set_size(label, lv_pct(90), 30);
     lv_obj_set_style_text_font(label, &lv_font_harmonyos_12, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x6B7280), 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
     if (btn1_title || btn2_title)
     {
@@ -203,6 +219,8 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
         if (btn1_title)
         {
             btn = ui_add_button(ret[1], btn1_title, 30, 16, &lv_font_harmonyos_12);
+            lv_obj_set_style_radius(btn, 4, 0);
+            lv_obj_set_style_pad_all(btn, 2, 0);
             lv_group_add_obj(g, btn);
             lv_group_focus_obj(btn);
             lv_obj_add_event_cb(btn, [](lv_event_t *e)
@@ -217,6 +235,8 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
         if (btn2_title)
         {
             btn = ui_add_button(ret[1], btn2_title, 30, 16, &lv_font_harmonyos_12);
+            lv_obj_set_style_radius(btn, 4, 0);
+            lv_obj_set_style_pad_all(btn, 2, 0);
             lv_group_add_obj(g, btn);
 
             lv_obj_add_event_cb(btn, [](lv_event_t *e)
