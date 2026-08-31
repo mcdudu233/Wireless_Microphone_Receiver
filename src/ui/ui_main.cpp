@@ -63,6 +63,13 @@ void ui_main_init()
         data->tab = tab;
         i++;
     }
+    if (linked_devices.empty())
+    {
+        lv_obj_t *empty_label = lv_label_create(info_widget);
+        lv_label_set_text(empty_label, "暂无已连接设备");
+        lv_obj_set_style_text_font(empty_label, &lv_font_harmonyos_12, 0);
+        lv_obj_align(empty_label, LV_ALIGN_CENTER, 0, 0);
+    }
 
     lv_obj_t *tab_bar = lv_tabview_get_tab_bar(tabview); // 标题栏
     lv_obj_set_style_bg_color(tab_bar, lv_color_hex(0xF4F5F7), 0);
@@ -122,10 +129,16 @@ void ui_main_init()
                                         // 更新数据
                                         std::string speed = ui_info_get_transmit_speed();
 
-                                        uint32_t act = lv_tabview_get_tab_active(tabview);
-                                        lv_obj_t *content = lv_tabview_get_content(tabview);
-                                        lv_obj_t *cur_tab = lv_obj_get_child(content, act);
-                                        lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
+                                         uint32_t act = lv_tabview_get_tab_active(tabview);
+                                         lv_obj_t *content = lv_tabview_get_content(tabview);
+                                         if (content == nullptr || act >= lv_obj_get_child_count(content))
+                                             return;
+                                         lv_obj_t *cur_tab = lv_obj_get_child(content, act);
+                                         if (cur_tab == nullptr)
+                                             return;
+                                         lv_obj_t *card = lv_obj_get_child(cur_tab, 0);
+                                         if (card == nullptr)
+                                             return;
                                         device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
                                         
                                         lv_label_set_text_fmt(transmit_speed_label, "#2D6BDB %s#%s", LV_SYMBOL_DOWNLOAD, speed.c_str());

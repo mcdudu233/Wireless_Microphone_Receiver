@@ -92,7 +92,7 @@ void ui_loading_init()
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x2D6BDB), LV_PART_INDICATOR);
     lv_obj_align(bar, LV_ALIGN_CENTER, 0, 20);
 
-    pct = lv_label_create(bar);
+    pct = lv_label_create(loading_widget);
     lv_label_set_text(pct, "正在加载:screen");
     lv_obj_set_style_text_color(pct, lv_color_hex(0x6B7280), 0);
     lv_obj_set_style_text_font(pct, &lv_font_harmonyos_12, 0);

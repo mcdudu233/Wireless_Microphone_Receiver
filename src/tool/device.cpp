@@ -12,10 +12,19 @@ static std::string macToStr(const uint8_t mac[6])
 // 字符串转换为地址
 static uint64_t strToMac(const std::string &str)
 {
-  uint64_t result;
+  unsigned int bytes[6] = {};
+  if (sscanf(str.c_str(), "%2x:%2x:%2x:%2x:%2x:%2x",
+             &bytes[0], &bytes[1], &bytes[2], &bytes[3], &bytes[4], &bytes[5]) != 6)
+  {
+    return 0;
+  }
+  uint64_t result = 0;
   uint8_t *pt = (uint8_t *)&result;
-  sscanf(str.c_str(), "%02x:%02x:%02x:%02x:%02x:%02x",
-         &pt[0], &pt[1], &pt[2], &pt[3], &pt[4], &pt[5]);
+  for (uint8_t i = 0; i < 6; i++)
+  {
+    if (bytes[i] > 0xff) return 0;
+    pt[i] = (uint8_t)bytes[i];
+  }
   return result;
 }
 // 地址转换为uint64_t
