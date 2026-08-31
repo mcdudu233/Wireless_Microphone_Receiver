@@ -29,7 +29,7 @@ static void usb_handle(void *arg)
     xTaskDelayUntil(&xLastWakeTime, xFrequency);
 
     // 处理 UAC
-    // usb::uac::_loop();
+    usb::uac::_loop();
 
     // 进入下载模式
     if (usb_download_later)
