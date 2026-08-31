@@ -7,7 +7,6 @@
 #include "ui/ui_bt.h"
 #include "ui/ui_setting.h"
 
-#include "queue"
 #include "string"
 
 // 缓存的设备
@@ -20,8 +19,6 @@ static uint32_t transmitSpeedData = 0;
 // 音频电平追踪 (用于 UI L/R 音量条)
 static std::unordered_map<std::string, int8_t> leftVoiceLevels;
 static std::unordered_map<std::string, int8_t> rightVoiceLevels;
-// 电平衰减timer计数 (每秒衰减)
-static unsigned long voiceLevelLastDecay = 0;
 
 /*****************************
           WIFI协议
@@ -32,6 +29,8 @@ static unsigned long voiceLevelLastDecay = 0;
 #include "lwip/err.h"
 #include "lwip/api.h"
 static bool wifiIsOpen = false;
+static bool netifInitialized = false;
+static bool eventLoopInitialized = false;
 static uint32_t wifiIP;
 static esp_netif_t *wifiNetIF;
 static esp_event_handler_instance_t wifiHandlerInstance1;
@@ -43,14 +42,20 @@ static netconn *socketReceiveInstance = NULL;
 // 发送数据 需要 netbuf_new
 static bool wifi_send(const Device &device, netbuf *buf)
 {
+  if (buf == NULL || socketSendInstance == NULL)
+  {
+    if (buf != NULL) netbuf_delete(buf);
+    return false;
+  }
   if (device.isWifiConnected())
   {
     ip_addr_t socketDestination;
-    socketDestination.addr = htonl(device.getWifiIP());
+    socketDestination.u_addr.ip4.addr = htonl(device.getWifiIP());
     err_t err = netconn_sendto(socketSendInstance, buf, &socketDestination, WIFI_NO_PORT);
     if (err != ERR_OK)
     {
       LOGGER_WARN("WiFi Socket send failed: %d", err);
+      netbuf_delete(buf);
       return false;
     }
     // 释放
@@ -60,6 +65,7 @@ static bool wifi_send(const Device &device, netbuf *buf)
   else
   {
     LOGGER_WARN("WiFi Socket send failed, device haven't connect to WiFi.");
+    netbuf_delete(buf);
     return false;
   }
 }
@@ -78,10 +84,12 @@ static bool wifi_receive(Device **device, netbuf **buf)
     return false;
   }
   // 解析数据包 receiveBuffer->addr.addr
-  (*device) = deviceManager.getDeviceByWifiIP(htonl((*buf)->addr.addr));
+  (*device) = deviceManager.getDeviceByWifiIP(htonl((*buf)->addr.u_addr.ip4.addr));
   if ((*device) == nullptr)
   {
-    LOGGER_WARN("WiFi Socket can't get device by unknowed IP address");
+      LOGGER_WARN("WiFi Socket can't get device by unknowed IP address");
+    netbuf_delete(*buf);
+    *buf = NULL;
     return false;
   }
   return true;
@@ -91,6 +99,7 @@ static bool wifi_socket_close()
 {
   if (socketIsOpen)
   {
+    socketIsOpen = false;
     if (socketSendInstance != NULL)
     {
       netconn_delete(socketSendInstance);
@@ -130,7 +139,8 @@ static bool wifi_socket_open(uint32_t localIP)
   }
 
   // 绑定到指定地址
-  ip_addr_t local_ip = {.addr = localIP};
+  ip_addr_t local_ip = {};
+  local_ip.u_addr.ip4.addr = localIP;
   err_t ret = netconn_bind(socketSendInstance, &local_ip, WIFI_NO_PORT);
   if (ret != ERR_OK)
   {
@@ -254,19 +264,27 @@ static bool wifi_open()
     wifi_close();
   }
 
-  esp_err_t err;
-  // 创建网络接口
-  err = esp_netif_init();
-  if (err != ESP_OK)
+  esp_err_t err = ESP_OK;
+  // 创建网络接口和默认事件循环；它们是进程级资源，只初始化一次。
+  if (!netifInitialized)
   {
-    LOGGER_ERROR("WiFi esp_netif_init failed! Reason=%s", esp_err_to_name(err));
-    return false;
+    err = esp_netif_init();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+    {
+      LOGGER_ERROR("WiFi esp_netif_init failed! Reason=%s", esp_err_to_name(err));
+      return false;
+    }
+    netifInitialized = true;
   }
-  err = esp_event_loop_create_default();
-  if (err != ESP_OK)
+  if (!eventLoopInitialized)
   {
-    LOGGER_ERROR("WiFi esp_event_loop_create_default failed! Reason=%s", esp_err_to_name(err));
-    return false;
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+    {
+      LOGGER_ERROR("WiFi esp_event_loop_create_default failed! Reason=%s", esp_err_to_name(err));
+      return false;
+    }
+    eventLoopInitialized = true;
   }
   wifiNetIF = esp_netif_create_default_wifi_ap();
 
@@ -377,9 +395,10 @@ static ble_gap_upd_params bleConnectionParams = {
 struct bleReceive
 {
   Device *device;
-  uint8_t *data;
+  uint16_t size;
+  uint8_t data[BLE_L2CAP_MTU];
 };
-static std::queue<bleReceive> bleReceiveQueue;
+static QueueHandle_t bleReceiveQueue;
 
 static void ble_start_scanning();
 static void ble_stop_scanning();
@@ -458,14 +477,19 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
     if (event->receive.sdu_rx != NULL)
     {
       // 放进接收队列
-      uint8_t *data = event->receive.sdu_rx->om_data;
       uint16_t size = event->receive.sdu_rx->om_len;
-      uint8_t *packet = (uint8_t *)malloc(size);
-      memcpy(packet, data, size);
-      bleReceiveQueue.push({
-          .device = device,
-          .data = packet,
-      });
+      bleReceive receive = {.device = device, .size = size};
+      if (size > sizeof(receive.data))
+      {
+        LOGGER_WARN("BLE packet is too large: %u", size);
+        os_mbuf_free(event->receive.sdu_rx);
+        break;
+      }
+      memcpy(receive.data, event->receive.sdu_rx->om_data, size);
+      if (xQueueSend(bleReceiveQueue, &receive, 0) != pdPASS)
+      {
+        LOGGER_WARN("BLE receive queue is full.");
+      }
       os_mbuf_free(event->receive.sdu_rx);
       LOGGER_INFO("BLE received %d bytes on L2CAP channel.", size);
     }
@@ -891,14 +915,24 @@ bool ble_send(const Device &device, const uint8_t *data, uint16_t len)
 /****************************/
 
 // 解析数据包
-static void rf_receive_packet(Device *device, const uint8_t *data)
+static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
 {
+  if (data == nullptr || len < sizeof(PacketType))
+  {
+    return false;
+  }
   Packet *packet = (Packet *)data;
   switch (packet->type)
   {
   // WIFI音频数据包
   case PACKET_TYPE_WIFI_AUDIO:
   {
+    if (len < PACKET_WIFI_AUDIO_HEAD_SIZE ||
+        packet->packet.audioDataWiFi.size > PACKET_WIFI_AUDIO_DATA_MAX_SIZE ||
+        len < PACKET_WIFI_AUDIO_HEAD_SIZE + packet->packet.audioDataWiFi.size)
+    {
+      return false;
+    }
     audio::buffer::writeWiFiPacket(&packet->packet.audioDataWiFi);
     // 更新设备音频电平
     if (device)
@@ -913,7 +947,13 @@ static void rf_receive_packet(Device *device, const uint8_t *data)
   // BLE音频数据包
   case PACKET_TYPE_BLE_AUDIO:
   {
-    // audio::buffer::writeBLEPacket(&packet->packet.audioDataWiFi);
+    if (len < PACKET_BLE_AUDIO_HEAD_SIZE ||
+        packet->packet.audioDataBLE.size > PACKET_BLE_AUDIO_DATA_MAX_SIZE ||
+        len < PACKET_BLE_AUDIO_HEAD_SIZE + packet->packet.audioDataBLE.size)
+    {
+      return false;
+    }
+    audio::buffer::writeBLEPacket(&packet->packet.audioDataBLE);
     if (device)
     {
       std::string mac = device->getBleMACString();
@@ -933,9 +973,13 @@ static void rf_receive_packet(Device *device, const uint8_t *data)
   case PACKET_TYPE_CLIENT_STATUS:
   {
     // packet->packet.clientStatus.status
+    if (len != PACKET_CLIENT_STATUS_SIZE || device == nullptr)
+    {
+      return false;
+    }
     device->setBattery(packet->packet.clientStatus.battery);
     // device->print();
-    break;
+    return true;
   }
 
   default:
@@ -944,6 +988,7 @@ static void rf_receive_packet(Device *device, const uint8_t *data)
     break;
   }
   }
+  return true;
 }
 
 static unsigned long secondLastTime = millis(); // 每秒时间点
@@ -968,13 +1013,10 @@ static void rf_handle(void *arg)
       //////////
 
       /* 接收 */
-      while (!bleReceiveQueue.empty())
+      bleReceive receive;
+      while (xQueueReceive(bleReceiveQueue, &receive, 0) == pdPASS)
       {
-        bleReceive &receive = bleReceiveQueue.front();
-        // 解析数据包
-        rf_receive_packet(receive.device, receive.data);
-        free(receive.data);
-        bleReceiveQueue.pop();
+        rf_receive_packet(receive.device, receive.data, receive.size);
       }
     }
 
@@ -991,11 +1033,15 @@ static void rf_handle(void *arg)
         uint16_t len;
         do
         {
-          netbuf_data(receiveBuffer, (void **)&data, &len);
-          data += WIFI_IP_HEAD_LEN;
-          len -= WIFI_IP_HEAD_LEN;
-          // 解析数据包
-          rf_receive_packet(device, data);
+            netbuf_data(receiveBuffer, (void **)&data, &len);
+            if (data == nullptr || len < WIFI_IP_HEAD_LEN)
+            {
+              break;
+            }
+            data += WIFI_IP_HEAD_LEN;
+            len -= WIFI_IP_HEAD_LEN;
+            // 解析数据包
+            rf_receive_packet(device, data, len);
           transmitSpeedData += len;
         } while (netbuf_next(receiveBuffer) >= 0);
         netbuf_delete(receiveBuffer);
@@ -1054,14 +1100,15 @@ static void rf_handle(void *arg)
 
 void rf::setup()
 {
+  bleReceiveQueue = xQueueCreate(16, sizeof(bleReceive));
+  if (bleReceiveQueue == nullptr)
+  {
+    LOGGER_ERROR("BLE receive queue creation failed.");
+    return;
+  }
   ble_open();
   // 启动发送接收线程
   xTaskCreatePinnedToCore(rf_handle, "rf_handle", TASK_RF_STACK, NULL, TASK_RF_PRIORITY, NULL, TASK_RF_CORE);
-}
-
-DeviceManager &rf::getDeviceManager()
-{
-  return deviceManager;
 }
 
 /*****************************
@@ -1135,8 +1182,10 @@ void ui_bt_pause_search()
         packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
         packet->packet.serverControlRF.mode = RF_MODE_WIFI;
         // TODO: WiFi 名字和密码随机加密
-        strcpy(packet->packet.serverControlRF.ssid, WIFI_NAME);
-        strcpy(packet->packet.serverControlRF.password, WIFI_PASSWORD);
+        snprintf(packet->packet.serverControlRF.ssid,
+                 sizeof(packet->packet.serverControlRF.ssid), "%s", WIFI_NAME);
+        snprintf(packet->packet.serverControlRF.password,
+                 sizeof(packet->packet.serverControlRF.password), "%s", WIFI_PASSWORD);
         ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
         free(packet);
 
@@ -1177,9 +1226,11 @@ std::vector<std::string> ui_bt_get_linked()
   {
     Device *devices = deviceManager.getAllDevices();
     for (uint8_t i = 0; i < size; i++)
-    {
-      std::string str = devices[i].getBleMACString();
-      strs.push_back(str);
+      {
+        if (devices[i].isBleConnected() || devices[i].isWifiConnected())
+        {
+          strs.push_back(devices[i].getBleMACString());
+        }
     }
   }
   return strs;
@@ -1309,8 +1360,10 @@ void ui_setting_rf_page_scb(RFMode mode, bool now)
         {
           packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
           packet->packet.serverControlRF.mode = mode;
-          strcpy(packet->packet.serverControlRF.ssid, WIFI_NAME);
-          strcpy(packet->packet.serverControlRF.password, WIFI_PASSWORD);
+          snprintf(packet->packet.serverControlRF.ssid,
+                   sizeof(packet->packet.serverControlRF.ssid), "%s", WIFI_NAME);
+          snprintf(packet->packet.serverControlRF.password,
+                   sizeof(packet->packet.serverControlRF.password), "%s", WIFI_PASSWORD);
           ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
           free(packet);
         }
