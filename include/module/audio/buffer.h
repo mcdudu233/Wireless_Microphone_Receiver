@@ -27,7 +27,7 @@ namespace audio::buffer
   /* 写入数据 */
   // 写入音频数据
   void writeWiFiPacket(WiFiAudioPacket *packet);
-  // void writeBLEPacket(BLEAudioPacket *packet);
+  void writeBLEPacket(BLEAudioPacket *packet);
 
   /* 读取数据 */
   // 获取音频解码器的数据

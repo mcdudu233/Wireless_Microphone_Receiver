@@ -24,28 +24,44 @@ static AudioData *getAudioDataFront()
   return getAudioData(0);
 }
 
-void audio::buffer::writeWiFiPacket(WiFiAudioPacket *packet)
+static void writePacket(uint16_t packet_size, uint32_t packet_number,
+                        uint8_t packet_part, const uint8_t *packet_data,
+                        uint16_t payload_capacity)
 {
+  if (packet_data == nullptr || packet_size > payload_capacity ||
+      packet_part >= (AUDIO_BUFFER_MAX_DATA_SIZE + payload_capacity - 1) /
+                         payload_capacity)
+  {
+    return;
+  }
   xSemaphoreTake(mutex, portMAX_DELAY);
   uint32_t now_number = getAudioDataFront()->num;
-  if (packet->number <= now_number)
+  if (packet_number <= now_number)
   {
     // 将分包合在一个音频数据包里
-    AudioData *audio = getAudioData(now_number - packet->number);
+    AudioData *audio = getAudioData(now_number - packet_number);
     if (audio != nullptr)
     {
-      audio->size += packet->size;
-      memcpy(audio->data + PACKET_WIFI_AUDIO_DATA_MAX_SIZE * packet->part, packet->data, packet->size);
+      uint32_t offset = payload_capacity * packet_part;
+      if (offset + packet_size <= sizeof(audio->data))
+      {
+        audio->size += packet_size;
+        memcpy(audio->data + offset, packet_data, packet_size);
+      }
     }
   }
   else
   {
     // 接收到新的包 创建一个包
-    uint8_t last = packet->number - now_number;
+    uint32_t last = packet_number - now_number;
+    if (last > AUDIO_BUFFER_MAX_BUFFER_SIZE)
+    {
+      last = AUDIO_BUFFER_MAX_BUFFER_SIZE;
+    }
 
     // 如果中间丢了N个包 填充
     AudioData *audio;
-    for (uint32_t num = packet->number - last + 1; num <= packet->number; num++)
+    for (uint32_t num = packet_number - last + 1; num <= packet_number; num++)
     {
       audio = &data[data_pointer];
       data_pointer = (data_pointer + 1) % AUDIO_BUFFER_MAX_BUFFER_SIZE;
@@ -54,16 +70,40 @@ void audio::buffer::writeWiFiPacket(WiFiAudioPacket *packet)
     }
 
     // 写入最新包的数据
-    audio->size = packet->size;
+    uint32_t offset = payload_capacity * packet_part;
+    if (offset + packet_size > sizeof(audio->data))
+    {
+      xSemaphoreGive(mutex);
+      return;
+    }
+    audio->size = packet_size;
     // 这里可能接收到的不是第一个part 可能丢包
-    if (packet->part != 0)
+    if (packet_part != 0)
     {
       // 前面的part填充为0
-      memset(audio->data, 0, (packet->part - 1) * PACKET_WIFI_AUDIO_DATA_MAX_SIZE);
+      memset(audio->data, 0, offset);
     }
-    memcpy(audio->data + packet->part * PACKET_WIFI_AUDIO_DATA_MAX_SIZE, packet->data, packet->size);
+    memcpy(audio->data + offset, packet_data, packet_size);
   }
   xSemaphoreGive(mutex);
+}
+
+void audio::buffer::writeWiFiPacket(WiFiAudioPacket *packet)
+{
+  if (packet != nullptr)
+  {
+    writePacket(packet->size, packet->number, packet->part, packet->data,
+                PACKET_WIFI_AUDIO_DATA_MAX_SIZE);
+  }
+}
+
+void audio::buffer::writeBLEPacket(BLEAudioPacket *packet)
+{
+  if (packet != nullptr)
+  {
+    writePacket(packet->size, packet->number, packet->part, packet->data,
+                PACKET_BLE_AUDIO_DATA_MAX_SIZE);
+  }
 }
 
 static uint32_t decoderLastNumber = 0;
