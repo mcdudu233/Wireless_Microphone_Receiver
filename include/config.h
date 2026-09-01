@@ -43,6 +43,10 @@
 #define TASK_RF_STACK 4096
 #define TASK_RF_PRIORITY 9
 
+#define TASK_TF_CORE 1
+#define TASK_TF_STACK 6144
+#define TASK_TF_PRIORITY 2
+
 // 射频模式
 enum RFMode : uint8_t
 {
