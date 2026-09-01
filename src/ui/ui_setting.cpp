@@ -1,5 +1,9 @@
 #include "ui/ui.h"
 #include "ui/ui_setting.h"
+#include "module/tf.h"
+
+#include <cstdio>
+#include <cstring>
 
 static lv_obj_t *last_widget;
 
@@ -11,6 +15,14 @@ static lv_style_t scroll_style;
 
 static lv_obj_t *file_list;
 static lv_obj_t *file_path;
+static lv_timer_t *file_timer;
+static char current_file_path[TF_PATH_MAX] = "/";
+static tf::FileEntry file_entries[TF_FILE_LIST_MAX];
+static char selected_file_path[TF_PATH_MAX];
+static size_t file_entry_count = 0;
+static bool file_list_truncated = false;
+static bool file_operation_pending = false;
+static uint32_t file_request_id = 0;
 
 static bool enter_bottom = false;
 static lv_obj_t *root_page_ref = NULL;
@@ -39,6 +51,15 @@ static void focus_async_cb(void *obj_p);     // 异步将焦点移回来源条�
 static void sys_info_timer_cb(lv_timer_t *); // 系统信息更新timer
 static void back_btn_focus_cb(lv_event_t *e);
 static void scroll_event_cb(lv_event_t *e);
+static void request_file_page();
+static void render_file_page(bool success);
+static void file_timer_cb(lv_timer_t *);
+static void file_row_cb(lv_event_t *e);
+static void file_delete_cb(lv_event_t *e);
+static void file_cancel_cb(lv_event_t *e);
+static void file_refresh_cb(lv_event_t *e);
+static void file_parent_cb(lv_event_t *e);
+static bool join_file_path(const char *name, char *path, size_t path_size);
 
 static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt, lv_obj_t **label_o = nullptr, bool is_from_svg = false);
 static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
@@ -191,21 +212,22 @@ void ui_setting_init(lv_obj_t *ui_from)
     // lv_obj_add_event_cb(dd_rf_mode, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)6);
 
     lv_obj_t *file_widget = lv_obj_create(sub_file_page);
-    lv_obj_set_size(file_widget,lv_pct(100),lv_pct(100));
+    lv_obj_set_size(file_widget, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_pad_all(file_widget, 0, 0);
+    lv_obj_set_style_border_width(file_widget, 0, 0);
+    lv_obj_set_style_bg_opa(file_widget, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(file_widget, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(sub_file_page, LV_DIR_NONE);
     file_path = lv_label_create(file_widget);
     lv_obj_align(file_path, LV_ALIGN_TOP_MID, 0, 3);
-    lv_label_set_text_fmt(file_path, "路径:%s", "A:/...");
+    lv_label_set_long_mode(file_path, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(file_path, lv_pct(100));
+    lv_label_set_text(file_path, "TF:/");
     lv_obj_set_style_text_font(file_path, &lv_font_harmonyos_12, 0);
     file_list = lv_list_create(file_widget);
-    lv_obj_align(file_list, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(file_list, LV_ALIGN_TOP_MID, 0, 17);
     lv_obj_set_width(file_list, lv_pct(95));
-    lv_obj_set_height(file_list, lv_pct(95));
-    lv_obj_t *file = lv_list_add_button(file_list, LV_SYMBOL_LEFT, "返回");
-    lv_obj_set_style_bg_color(file, lv_palette_main(LV_PALETTE_YELLOW), 0);
-    file = lv_list_add_button(file_list, LV_SYMBOL_FILE, "文件2");
-    lv_obj_set_style_bg_color(file, lv_palette_main(LV_PALETTE_YELLOW), 0);
-    file = lv_list_add_button(file_list, LV_SYMBOL_FILE, "文件3");
-    file = lv_list_add_button(file_list, LV_SYMBOL_FILE, "文件4");
+    lv_obj_set_height(file_list, lv_pct(78));
 
     lv_obj_t *root_page = lv_menu_page_create(menu, "设置");
     root_page_ref = root_page; // 保存引用
@@ -285,6 +307,8 @@ void ui_setting_init(lv_obj_t *ui_from)
 
     sys_info_timer = lv_timer_create(sys_info_timer_cb, SYSTEM_INFO_REFLUSH_TIME, NULL);
     lv_timer_pause(sys_info_timer);
+    file_timer = lv_timer_create(file_timer_cb, 50, NULL);
+    lv_timer_pause(file_timer);
 }
 
 // 设置页面back按钮回调
@@ -296,6 +320,9 @@ static void back_cb(lv_event_t *e)
         lv_obj_set_flag(last_widget, LV_OBJ_FLAG_HIDDEN, false);
         lv_obj_send_event(last_widget, (lv_event_code_t)(LV_EVENT_LAST + 1), NULL);
         lv_timer_delete(sys_info_timer);
+        sys_info_timer = nullptr;
+        lv_timer_delete(file_timer);
+        file_timer = nullptr;
         lv_obj_del(setting_widget);
     }
     else
@@ -309,6 +336,10 @@ static void back_cb(lv_event_t *e)
             if (p == e_page::system_page)
             {
                 lv_timer_pause(sys_info_timer);
+            }
+            else if (p == e_page::file_page)
+            {
+                lv_timer_pause(file_timer);
             }
             else if (p == e_page::audio_page || p == e_page::rf_page || p == e_page::usb_page)
             {
@@ -328,6 +359,10 @@ static void back_cb(lv_event_t *e)
 // 重新连接蓝牙点击
 static void relink_bt_cb(lv_event_t *e)
 {
+    lv_timer_delete(sys_info_timer);
+    sys_info_timer = nullptr;
+    lv_timer_delete(file_timer);
+    file_timer = nullptr;
     lv_obj_del(setting_widget);
     ui_free_main_widget();
     ui_bt_init();
@@ -588,6 +623,9 @@ static void enter_subpage_cb(lv_event_t *e)
     case e_page::file_page:
     {
         LOGGER_DEBUG("进入文件管理系统");
+        std::snprintf(current_file_path, sizeof(current_file_path), "/");
+        lv_timer_resume(file_timer);
+        request_file_page();
         break;
     }
     }
@@ -812,5 +850,234 @@ static void save_config(uint8_t &p, bool now)
     case e_page::rf_page:
         ui_setting_rf_page_scb(lv_dropdown_get_selected(dd_rf_mode) == 0 ? RF_MODE_BLE : RF_MODE_WIFI, now);
         break;
+    }
+}
+
+static void set_file_row_font(lv_obj_t *row)
+{
+    lv_obj_t *label = lv_obj_get_child(row, 1);
+    if (label)
+        lv_obj_set_style_text_font(label, &lv_font_harmonyos_12, 0);
+}
+
+static lv_obj_t *add_file_row(const char *symbol, const char *text, lv_event_cb_t callback, void *user_data)
+{
+    lv_obj_t *row = lv_list_add_button(file_list, symbol, text);
+    set_file_row_font(row);
+    lv_obj_set_height(row, 18);
+    lv_obj_set_style_pad_ver(row, 1, 0);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_group_add_obj(lv_group_get_default(), row);
+    if (callback)
+        lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, user_data);
+    return row;
+}
+
+static void clear_file_rows()
+{
+    const uint32_t count = lv_obj_get_child_count(file_list);
+    for (uint32_t i = 0; i < count; ++i)
+        lv_group_remove_obj(lv_obj_get_child(file_list, i));
+    lv_obj_clean(file_list);
+}
+
+static void focus_first_file_row()
+{
+    lv_obj_t *row = lv_obj_get_child(file_list, 0);
+    if (row)
+    {
+        lv_group_focus_obj(row);
+        lv_obj_scroll_to_view(row, LV_ANIM_OFF);
+    }
+}
+
+static void request_file_page()
+{
+    if (!file_list || !file_path)
+        return;
+
+    clear_file_rows();
+    lv_label_set_text_fmt(file_path, "TF:%s", current_file_path);
+    lv_obj_t *refresh = add_file_row(LV_SYMBOL_REFRESH, "刷新", file_refresh_cb, nullptr);
+    lv_group_focus_obj(refresh);
+
+    if (!tf::is_mounted())
+    {
+        lv_obj_t *row = add_file_row(LV_SYMBOL_WARNING, "TF卡未挂载", nullptr, nullptr);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_state(row, LV_STATE_DISABLED);
+        return;
+    }
+
+    lv_obj_t *row = add_file_row(LV_SYMBOL_REFRESH, "加载中...", nullptr, nullptr);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_state(row, LV_STATE_DISABLED);
+    ++file_request_id;
+    if (file_request_id == 0)
+        ++file_request_id;
+    if (!tf::request_list(current_file_path, file_request_id))
+        render_file_page(false);
+}
+
+static void render_file_page(bool success)
+{
+    clear_file_rows();
+    add_file_row(LV_SYMBOL_REFRESH, "刷新", file_refresh_cb, nullptr);
+
+    if (std::strcmp(current_file_path, "/") != 0)
+        add_file_row(LV_SYMBOL_LEFT, "返回上级", file_parent_cb, nullptr);
+
+    if (!success)
+    {
+        lv_obj_t *row = add_file_row(LV_SYMBOL_WARNING, "读取失败", nullptr, nullptr);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_state(row, LV_STATE_DISABLED);
+        focus_first_file_row();
+        return;
+    }
+
+    if (file_entry_count == 0)
+    {
+        lv_obj_t *row = add_file_row(LV_SYMBOL_FILE, "目录为空", nullptr, nullptr);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_state(row, LV_STATE_DISABLED);
+    }
+
+    for (size_t i = 0; i < file_entry_count; ++i)
+    {
+        char row_text[TF_FILE_NAME_MAX + 20];
+        if (!file_entries[i].name_complete)
+        {
+            std::snprintf(row_text, sizeof(row_text), "文件名过长");
+            lv_obj_t *row = add_file_row(LV_SYMBOL_WARNING, row_text, nullptr, nullptr);
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_state(row, LV_STATE_DISABLED);
+            continue;
+        }
+        if (file_entries[i].directory)
+            std::snprintf(row_text, sizeof(row_text), "%s/", file_entries[i].name);
+        else if (file_entries[i].size >= 1024 * 1024)
+            std::snprintf(row_text, sizeof(row_text), "%s %lluM", file_entries[i].name,
+                          static_cast<unsigned long long>(file_entries[i].size / (1024 * 1024)));
+        else if (file_entries[i].size >= 1024)
+            std::snprintf(row_text, sizeof(row_text), "%s %lluK", file_entries[i].name,
+                          static_cast<unsigned long long>(file_entries[i].size / 1024));
+        else
+            std::snprintf(row_text, sizeof(row_text), "%s %lluB", file_entries[i].name,
+                          static_cast<unsigned long long>(file_entries[i].size));
+        char entry_path[TF_PATH_MAX];
+        const bool path_complete = join_file_path(file_entries[i].name, entry_path, sizeof(entry_path));
+        const bool removable = !file_entries[i].directory && path_complete &&
+                               tf::is_deletable_path(entry_path);
+        lv_obj_t *row = add_file_row(file_entries[i].directory ? LV_SYMBOL_DIRECTORY :
+                                         (removable ? LV_SYMBOL_TRASH : LV_SYMBOL_FILE),
+                                     row_text, removable && !file_operation_pending ? file_row_cb : nullptr,
+                                     &file_entries[i]);
+        if ((!removable && !file_entries[i].directory) || file_operation_pending)
+        {
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_state(row, LV_STATE_DISABLED);
+        }
+    }
+
+    if (file_list_truncated)
+    {
+        lv_obj_t *row = add_file_row(LV_SYMBOL_WARNING, "仅显示前24项", nullptr, nullptr);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_state(row, LV_STATE_DISABLED);
+    }
+    focus_first_file_row();
+}
+
+static bool join_file_path(const char *name, char *path, size_t path_size)
+{
+    const int written = std::snprintf(path, path_size, "%s/%s", current_file_path, name);
+    return written >= 0 && static_cast<size_t>(written) < path_size;
+}
+
+static void file_row_cb(lv_event_t *e)
+{
+    tf::FileEntry *entry = static_cast<tf::FileEntry *>(lv_event_get_user_data(e));
+    if (!entry)
+        return;
+    if (entry->directory)
+    {
+        char next_path[TF_PATH_MAX];
+        if (!join_file_path(entry->name, next_path, sizeof(next_path)))
+        {
+            render_file_page(false);
+            return;
+        }
+        std::snprintf(current_file_path, sizeof(current_file_path), "%s", next_path);
+        request_file_page();
+        return;
+    }
+
+    if (!join_file_path(entry->name, selected_file_path, sizeof(selected_file_path)))
+    {
+        render_file_page(false);
+        return;
+    }
+    ui_popwin_msgbox("确认删除这个文件?", nullptr, lv_event_get_target_obj(e),
+                     LV_SYMBOL_TRASH, "删除文件", false, "删除", file_delete_cb,
+                     nullptr, "取消", file_cancel_cb, nullptr);
+}
+
+static void file_delete_cb(lv_event_t *)
+{
+    ++file_request_id;
+    if (file_request_id == 0)
+        ++file_request_id;
+    if (!tf::request_remove_file(selected_file_path, file_request_id))
+        render_file_page(false);
+    else
+        file_operation_pending = true;
+}
+
+static void file_cancel_cb(lv_event_t *) {}
+
+static void file_refresh_cb(lv_event_t *)
+{
+    request_file_page();
+}
+
+static void file_parent_cb(lv_event_t *)
+{
+    char *separator = std::strrchr(current_file_path, '/');
+    if (separator && separator != current_file_path)
+        *separator = '\0';
+    if (!separator || separator == current_file_path)
+        std::snprintf(current_file_path, sizeof(current_file_path), "/");
+    request_file_page();
+}
+
+static void file_timer_cb(lv_timer_t *)
+{
+    bool success = false;
+    uint32_t request_id = 0;
+    if (tf::take_list_result(file_entries, TF_FILE_LIST_MAX, file_entry_count,
+                             file_list_truncated, success, request_id))
+    {
+        if (request_id == file_request_id)
+            render_file_page(success);
+        else
+            request_file_page();
+        return;
+    }
+    if (tf::take_remove_result(success, request_id))
+    {
+        file_operation_pending = false;
+        if (request_id != file_request_id)
+        {
+            request_file_page();
+            return;
+        }
+        request_file_page();
+        if (!success)
+        {
+            LOGGER_WARN("TF file removal failed.");
+            ui_popwin_msgbox("删除失败,文件可能正在使用.", nullptr, lv_obj_get_child(file_list, 0),
+                             LV_SYMBOL_WARNING, "提示", false, "确定", file_cancel_cb, nullptr);
+        }
     }
 }
