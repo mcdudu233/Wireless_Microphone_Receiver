@@ -346,7 +346,8 @@ static void back_cb(lv_event_t *e)
                 ui_popwin_msgbox("是否立即生效", nullptr, last_enter_btn, LV_SYMBOL_BELL, "请选择:", false, "是", [](lv_event_t *e)
                                  {
                                     uint8_t p = (uint8_t)(intptr_t) lv_event_get_user_data(e);
-                                    save_config(p,true); }, (void *)(intptr_t)p, "否", [](lv_event_t *e)
+                                     save_config(p,true);
+                                }, (void *)(intptr_t)p, "否", [](lv_event_t *e)
                                  {
                                     uint8_t p = (uint8_t)(intptr_t) lv_event_get_user_data(e);
                                     save_config(p,false); }, (void *)(intptr_t)p);
@@ -518,7 +519,7 @@ static void enter_subpage_cb(lv_event_t *e)
     last_enter_btn = lv_event_get_target_obj(e);
     lv_obj_t *page = (lv_obj_t *)lv_event_get_user_data(e);
     uint8_t p = (uint8_t)(intptr_t)lv_obj_get_user_data(page);
-    LOGGER_DEBUG("进入页面");
+    LOGGER_INFO("进入页面");
     switch (p)
     {
 

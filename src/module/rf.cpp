@@ -1286,6 +1286,14 @@ void ui_setting_audio_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &
 
 void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode, bool now)
 {
+  LOGGER_INFO("ui_setting_audio_page_scb");
+  config::config.audio.bit = (AudioBit)bit;
+  config::config.audio.channel = (AudioChannel)channel;
+  config::config.audio.rate = (AudioRate)rate;
+  config::config.audio.gain = (AudioGain)gain;
+  config::config.audio.mode = (AudioMode)mode;
+  config::save();
+
   if (now)
   {
     // 立即将新音频配置发送到所有已连接设备
@@ -1345,6 +1353,7 @@ void ui_setting_rf_page_rcb(RFMode &mode)
 
 void ui_setting_rf_page_scb(RFMode mode, bool now)
 {
+  LOGGER_INFO("ui_setting_rf_page_scb");
   if (now)
   {
     // RF 模式切换需要重启通信协议
