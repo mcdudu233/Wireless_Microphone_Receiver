@@ -1,4 +1,5 @@
 #include "config.h"
+#include "module/screen.h"
 #include "ui/ui.h"
 #include "ui/ui_loading.h"
 
@@ -10,13 +11,17 @@ static std::string loading_part = "";
 
 void ui_loading_set_percent(uint8_t p)
 {
+    LV_LOCK();
     percent = p;
+    LV_UNLOCK();
 }
 
 // 设置当前加载部分的名字
 void ui_loading_set_part(const std::string &part)
 {
+    LV_LOCK();
     loading_part = part;
+    LV_UNLOCK();
 }
 
 // 加载timer的周期回调函数
@@ -44,7 +49,7 @@ static void loding_timer_cb(lv_timer_t *timer)
 void ui_loading_init()
 {
     // 设置全局样式和字体
-    lv_obj_set_style_text_font(lv_screen_active(), &lv_font_harmonyos_14, LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lv_screen_active(), UI_FONT_BODY, LV_STATE_DEFAULT);
 
     lv_obj_t *label;
 
@@ -56,7 +61,7 @@ void ui_loading_init()
     loading_widget = lv_obj_create(lv_screen_active());
     lv_obj_set_size(loading_widget, 150, 72);
     lv_obj_center(loading_widget);
-    lv_obj_set_style_pad_all(loading_widget, 8, 0);
+    lv_obj_set_style_pad_all(loading_widget, 6, 0);
     lv_obj_set_style_radius(loading_widget, 8, 0);
     lv_obj_set_style_bg_color(loading_widget, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(loading_widget, LV_OPA_COVER, LV_PART_MAIN);
@@ -72,13 +77,13 @@ void ui_loading_init()
 
     label = lv_label_create(loading_widget);
     lv_label_set_text(label, "无线麦克风");
-    lv_obj_set_style_text_font(label, &lv_font_harmonyos_16, 0);
+    lv_obj_set_style_text_font(label, UI_FONT_DISPLAY, 0);
     lv_obj_align_to(label, img, LV_ALIGN_OUT_RIGHT_MID, 6, -7);
 
     label = lv_label_create(loading_widget);
     lv_label_set_recolor(label, true);
-    lv_label_set_text_fmt(label, "#9CA3AF 版本: %d.%d#", CONFIG_VERSION_VALUE >> 8, CONFIG_VERSION_VALUE & 0xff);
-    lv_obj_set_style_text_font(label, &lv_font_harmonyos_12, 0);
+    lv_label_set_text_fmt(label, "#626367 版本: %d.%d#", CONFIG_VERSION_VALUE >> 8, CONFIG_VERSION_VALUE & 0xff);
+    lv_obj_set_style_text_font(label, UI_FONT_BODY, 0);
     lv_obj_align_to(label, img, LV_ALIGN_OUT_RIGHT_MID, 15, 10);
 
     bar = lv_bar_create(loading_widget);
@@ -90,12 +95,16 @@ void ui_loading_init()
     lv_obj_set_style_radius(bar, 3, 0);
     lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x2D6BDB), LV_PART_INDICATOR);
-    lv_obj_align(bar, LV_ALIGN_CENTER, 0, 20);
+    lv_obj_align(bar, LV_ALIGN_CENTER, 0, 9);
 
     pct = lv_label_create(loading_widget);
     lv_label_set_text(pct, "正在加载:screen");
+    lv_obj_set_width(pct, 130);
+    lv_obj_set_height(pct, lv_font_get_line_height(UI_FONT_BODY));
+    lv_obj_set_style_text_align(pct, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(pct, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_color(pct, lv_color_hex(0x6B7280), 0);
-    lv_obj_set_style_text_font(pct, &lv_font_harmonyos_12, 0);
+    lv_obj_set_style_text_font(pct, UI_FONT_BODY, 0);
     lv_obj_align_to(pct, bar, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
 
     lv_timer_create(loding_timer_cb, 1, NULL); // 设置加载速率
