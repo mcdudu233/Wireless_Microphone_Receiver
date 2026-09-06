@@ -12,6 +12,10 @@ static lv_obj_t *setting_widget;
 static lv_obj_t *last_enter_btn = NULL; // 记录进入子页面所用的条目
 static lv_timer_t *sys_info_timer;
 static lv_style_t scroll_style;
+static bool scroll_style_initialized;
+static lv_group_t *setting_group;
+static lv_group_t *last_group;
+static lv_obj_t *main_back_btn;
 
 static lv_obj_t *file_list;
 static lv_obj_t *file_path;
@@ -60,6 +64,8 @@ static void file_cancel_cb(lv_event_t *e);
 static void file_refresh_cb(lv_event_t *e);
 static void file_parent_cb(lv_event_t *e);
 static bool join_file_path(const char *name, char *path, size_t path_size);
+static void set_settings_focus(uint8_t page);
+static void delete_settings_group();
 
 static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt, lv_obj_t **label_o = nullptr, bool is_from_svg = false);
 static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
@@ -82,15 +88,26 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_t *btn;
     char *from_data;
 
-    lv_style_init(&scroll_style);
-    lv_style_set_pad_right(&scroll_style, 0);
+    if (!scroll_style_initialized)
+    {
+        lv_style_init(&scroll_style);
+        lv_style_set_pad_right(&scroll_style, 0);
+        lv_style_set_width(&scroll_style, 2);
+        lv_style_set_bg_color(&scroll_style, lv_color_hex(0x2D6BDB));
+        lv_style_set_bg_opa(&scroll_style, LV_OPA_COVER);
+        scroll_style_initialized = true;
+    }
     last_widget = ui_from;
     from_data = (char *)lv_obj_get_user_data(last_widget);
     lv_obj_set_flag(last_widget, LV_OBJ_FLAG_HIDDEN, true);
 
-    ui_bind_group_to_all_encoders(lv_group_get_default());
+    last_group = lv_group_get_default();
+    setting_group = lv_group_create();
+    lv_group_set_default(setting_group);
+    ui_bind_group_to_all_encoders(setting_group);
     setting_widget = ui_add_win();
     menu = lv_menu_create(setting_widget);
+    lv_obj_set_style_text_font(menu, UI_FONT_BODY, 0);
     lv_obj_set_style_bg_color(menu, lv_color_hex(0xF5F7FA), 0);
     lv_menu_set_mode_root_back_button(menu, LV_MENU_ROOT_BACK_BUTTON_ENABLED);
 
@@ -103,15 +120,18 @@ void ui_setting_init(lv_obj_t *ui_from)
     if (main_header)
     {
         lv_obj_set_style_bg_color(main_header, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_t *back_btn = lv_obj_get_child_by_type(main_header, 0, &lv_button_class);
-        if (back_btn)
+        main_back_btn = lv_obj_get_child_by_type(main_header, 0, &lv_button_class);
+        if (main_back_btn)
         {
             // 去除按钮本身的焦点边框
-            lv_obj_set_style_outline_width(back_btn, 0, LV_STATE_FOCUSED);
-            lv_obj_set_style_outline_width(back_btn, 0, LV_STATE_FOCUS_KEY);
+            lv_obj_set_style_outline_width(main_back_btn, 0, LV_STATE_FOCUSED);
+            lv_obj_set_style_outline_width(main_back_btn, 0, LV_STATE_FOCUS_KEY);
+            lv_obj_set_style_bg_color(main_back_btn, lv_color_hex(0xDBEAFE), LV_STATE_FOCUSED);
+            lv_obj_set_style_bg_opa(main_back_btn, LV_OPA_COVER, LV_STATE_FOCUSED);
+            lv_obj_set_style_radius(main_back_btn, 3, LV_STATE_FOCUSED);
             // 添加焦点事件回调来改变图标颜色
-            lv_obj_add_event_cb(back_btn, back_btn_focus_cb, LV_EVENT_FOCUSED, NULL);
-            lv_obj_add_event_cb(back_btn, back_btn_focus_cb, LV_EVENT_DEFOCUSED, NULL);
+            lv_obj_add_event_cb(main_back_btn, back_btn_focus_cb, LV_EVENT_FOCUSED, NULL);
+            lv_obj_add_event_cb(main_back_btn, back_btn_focus_cb, LV_EVENT_DEFOCUSED, NULL);
         }
     }
 
@@ -155,14 +175,18 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_style_text_font(label_link, &lv_font_harmonyos_12, 0);
 
     lv_obj_align(label_title, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_align_to(label_author, label_title, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
-    lv_obj_align_to(label_link, label_author, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
+    lv_obj_align_to(label_author, label_title, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
+    lv_obj_align_to(label_link, label_author, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
 
     // 系统信息
-    ui_create_text(sub_system_page, NULL, "CPU 1", &cpu1);
-    ui_create_text(sub_system_page, NULL, "CPU 2", &cpu2);
-    ui_create_text(sub_system_page, NULL, "IRAM", &iram);
-    ui_create_text(sub_system_page, NULL, "PSRAM", &psram);
+    lv_obj_t *system_row = ui_create_text(sub_system_page, NULL, "CPU 1", &cpu1);
+    lv_obj_set_style_margin_bottom(system_row, 6, 0);
+    system_row = ui_create_text(sub_system_page, NULL, "CPU 2", &cpu2);
+    lv_obj_set_style_margin_bottom(system_row, 6, 0);
+    system_row = ui_create_text(sub_system_page, NULL, "IRAM", &iram);
+    lv_obj_set_style_margin_bottom(system_row, 6, 0);
+    system_row = ui_create_text(sub_system_page, NULL, "PSRAM", &psram);
+    lv_obj_set_style_margin_bottom(system_row, 6, 0);
     // ui_create_text(sub_system_page, NULL, "外置存储", &sd);
 
     lv_label_set_recolor(cpu1, true);
@@ -217,17 +241,18 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_style_border_width(file_widget, 0, 0);
     lv_obj_set_style_bg_opa(file_widget, LV_OPA_TRANSP, 0);
     lv_obj_remove_flag(file_widget, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(file_widget, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(file_widget, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_scroll_dir(sub_file_page, LV_DIR_NONE);
     file_path = lv_label_create(file_widget);
-    lv_obj_align(file_path, LV_ALIGN_TOP_MID, 0, 3);
     lv_label_set_long_mode(file_path, LV_LABEL_LONG_DOT);
     lv_obj_set_width(file_path, lv_pct(100));
+    lv_obj_set_height(file_path, lv_font_get_line_height(UI_FONT_BODY));
     lv_label_set_text(file_path, "TF:/");
     lv_obj_set_style_text_font(file_path, &lv_font_harmonyos_12, 0);
     file_list = lv_list_create(file_widget);
-    lv_obj_align(file_list, LV_ALIGN_TOP_MID, 0, 17);
     lv_obj_set_width(file_list, lv_pct(95));
-    lv_obj_set_height(file_list, lv_pct(78));
+    lv_obj_set_flex_grow(file_list, 1);
 
     lv_obj_t *root_page = lv_menu_page_create(menu, "设置");
     root_page_ref = root_page; // 保存引用
@@ -235,7 +260,6 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_add_event_cb(root_page, scroll_event_cb, LV_EVENT_SCROLL, NULL);
 
     cont = ui_create_text(root_page, &ui_img_audio, "音频设置", nullptr, true);
-    lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_audio_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_audio_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
@@ -246,7 +270,6 @@ void ui_setting_init(lv_obj_t *ui_from)
     if (!(from_data && lv_strcmp(from_data, "bt_list") == 0)) // 判断是否为蓝牙连接界面过来的
     {
         cont = ui_create_text(root_page, &ui_img_bt, "设备连接", nullptr, true); // finish
-        lv_group_add_obj(lv_group_get_default(), cont);
         // lv_menu_set_load_page_event(menu, cont, sub_bt_page);
         lv_obj_add_event_cb(cont, relink_bt_cb, LV_EVENT_CLICKED, NULL);
         lv_obj_set_style_translate_x(cont, 100, 0);
@@ -254,7 +277,6 @@ void ui_setting_init(lv_obj_t *ui_from)
         lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
     }
     cont = ui_create_text(root_page, &ui_img_wifi, "无线传输设置", nullptr, true);
-    lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_rf_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_rf_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
@@ -263,7 +285,6 @@ void ui_setting_init(lv_obj_t *ui_from)
 
     // section = lv_menu_section_create(root_page);
     cont = ui_create_text(root_page, &ui_img_usb, "USB传输设置");
-    lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_usb_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_usb_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
@@ -272,7 +293,6 @@ void ui_setting_init(lv_obj_t *ui_from)
 
     // 文件系统管理
     cont = ui_create_text(root_page, &ui_img_file, "文件系统管理",NULL,true);
-    lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_file_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_file_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
@@ -281,7 +301,6 @@ void ui_setting_init(lv_obj_t *ui_from)
 
     // section = lv_menu_section_create(root_page);
     cont = ui_create_text(root_page, &ui_img_system_info, "系统信息", nullptr, true);
-    lv_group_add_obj(lv_group_get_default(), cont);
     lv_menu_set_load_page_event(menu, cont, sub_system_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_system_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
@@ -309,6 +328,69 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_timer_pause(sys_info_timer);
     file_timer = lv_timer_create(file_timer_cb, 50, NULL);
     lv_timer_pause(file_timer);
+    set_settings_focus(0);
+}
+
+static void add_focus_object(lv_obj_t *obj)
+{
+    if (obj && lv_obj_is_valid(obj))
+        lv_group_add_obj(setting_group, obj);
+}
+
+static void set_settings_focus(uint8_t page)
+{
+    lv_group_remove_all_objs(setting_group);
+    add_focus_object(main_back_btn);
+    lv_obj_t *first = main_back_btn;
+
+    switch (page)
+    {
+    case 0:
+        for (uint32_t i = 0; i < lv_obj_get_child_count(root_page_ref); ++i)
+            add_focus_object(lv_obj_get_child(root_page_ref, i));
+        if (lv_obj_get_child_count(root_page_ref) > 0)
+            first = lv_obj_get_child(root_page_ref, 0);
+        break;
+    case e_page::usb_page:
+        add_focus_object(dd_usb_mode);
+        first = dd_usb_mode;
+        break;
+    case e_page::audio_page:
+        add_focus_object(dd_audio_rate);
+        add_focus_object(dd_audio_bit);
+        add_focus_object(dd_audio_channel);
+        add_focus_object(dd_audio_audio_mode);
+        add_focus_object(slider_audio_gain);
+        first = dd_audio_rate;
+        break;
+    case e_page::rf_page:
+        add_focus_object(dd_rf_mode);
+        first = dd_rf_mode;
+        break;
+    case e_page::file_page:
+        for (uint32_t i = 0; i < lv_obj_get_child_count(file_list); ++i)
+            add_focus_object(lv_obj_get_child(file_list, i));
+        if (lv_obj_get_child_count(file_list) > 0)
+            first = lv_obj_get_child(file_list, 0);
+        break;
+    default:
+        break;
+    }
+
+    ui_bind_group_to_all_encoders(setting_group);
+    if (first)
+        lv_group_focus_obj(first);
+}
+
+static void delete_settings_group()
+{
+    lv_group_set_default(last_group);
+    ui_bind_group_to_all_encoders(last_group);
+    if (setting_group)
+    {
+        lv_group_delete(setting_group);
+        setting_group = nullptr;
+    }
 }
 
 // 设置页面back按钮回调
@@ -324,12 +406,14 @@ static void back_cb(lv_event_t *e)
         lv_timer_delete(file_timer);
         file_timer = nullptr;
         lv_obj_del(setting_widget);
+        delete_settings_group();
     }
     else
     {
         // 返回到上一级（主页面），将焦点移回进入该子页的条目
         if (last_enter_btn && lv_obj_is_valid(last_enter_btn))
         {
+            set_settings_focus(0);
             // 异步执行，确保菜单已完成页面切换
             lv_obj_t *page_obj = (lv_obj_t *)lv_obj_get_user_data(last_enter_btn);
             uint8_t p = (uint8_t)(intptr_t)lv_obj_get_user_data(page_obj);
@@ -365,6 +449,7 @@ static void relink_bt_cb(lv_event_t *e)
     lv_timer_delete(file_timer);
     file_timer = nullptr;
     lv_obj_del(setting_widget);
+    delete_settings_group();
     ui_free_main_widget();
     ui_bt_init();
 }
@@ -378,13 +463,15 @@ static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *
     // 菜单项样式
     lv_obj_set_style_bg_color(obj, lv_color_hex(0xFFFFFF), 0);                // 默认背景
     lv_obj_set_style_bg_color(obj, lv_color_hex(0xE5E7EB), LV_STATE_PRESSED); // 按下背景
-    lv_obj_set_style_radius(obj, 8, 0);
-    lv_obj_set_style_pad_all(obj, 6, 0);
-    lv_obj_set_style_margin_bottom(obj, 4, 0); // 增加间距
+    lv_obj_set_style_radius(obj, 6, 0);
+    lv_obj_set_style_pad_all(obj, 5, 0);
+    lv_obj_set_style_margin_bottom(obj, UI_SPACE_1, 0);
     lv_obj_set_style_border_width(obj, 0, 0);
-    lv_obj_set_style_shadow_width(obj, 6, 0);
-    lv_obj_set_style_shadow_opa(obj, LV_OPA_10, 0);
-    lv_obj_set_style_shadow_ofs_y(obj, 1, 0);
+    lv_obj_set_style_shadow_width(obj, 0, 0);
+    lv_obj_set_style_outline_width(obj, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_color(obj, lv_color_hex(0x2D6BDB), LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_pad(obj, -2, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(0xDBEAFE), LV_STATE_FOCUSED);
 
     if (icon)
     {
@@ -402,6 +489,7 @@ static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *
         label = lv_label_create(obj);
         lv_label_set_text(label, txt);
         lv_obj_set_style_text_color(label, lv_color_hex(0x1F2937), 0);
+        lv_obj_set_style_text_font(label, UI_FONT_BODY, 0);
     }
 
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
@@ -421,15 +509,17 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
     lv_obj_t *title;
     lv_obj_t *obj = ui_create_text(parent, icon, txt, &title);
     lv_group_remove_obj(obj);
+    lv_obj_set_flex_grow(title, 1);
+    lv_obj_set_height(title, lv_font_get_line_height(UI_FONT_BODY));
+    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     lv_obj_t *slider = lv_slider_create(obj);
     lv_obj_set_style_pad_all(slider, 0, LV_PART_KNOB);
-    lv_obj_align_to(slider, title, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
-    lv_obj_set_size(slider, lv_pct(73), 20);
+    lv_obj_set_size(slider, 92, 18);
     lv_slider_set_range(slider, min, max);
     lv_slider_set_value(slider, val, LV_ANIM_OFF);
 
     lv_obj_t *pct = lv_label_create(slider);
-    lv_label_set_text_fmt(pct, "%d%%", 0);
+    lv_label_set_text_fmt(pct, "%ddB", 0);
     lv_obj_set_style_text_color(pct, lv_color_hex(0x1F2937), 0);
     lv_obj_align(pct, LV_ALIGN_CENTER, 0, 0);
 
@@ -437,7 +527,7 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
                         {
         lv_obj_t * slider = (lv_obj_t*)lv_event_get_target(e);
         lv_obj_t* pct = (lv_obj_t*) lv_event_get_user_data(e);
-        lv_label_set_text_fmt(pct,"%d",lv_slider_get_value(slider)); }, LV_EVENT_VALUE_CHANGED, pct);
+        lv_label_set_text_fmt(pct,"%ddB",lv_slider_get_value(slider)); }, LV_EVENT_VALUE_CHANGED, pct);
     lv_obj_add_event_cb(slider, [](lv_event_t *e)
                         {
         lv_obj_t* target = lv_event_get_target_obj(e);
@@ -458,30 +548,29 @@ static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const ch
 
     // 从焦点组中移除标签容器，使其无法被编码器选中
     lv_group_remove_obj(obj);
+    lv_obj_set_flex_grow(label, 1);
+    lv_obj_set_height(label, lv_font_get_line_height(UI_FONT_BODY));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
 
     lv_obj_t *dd = lv_dropdown_create(obj);
     lv_obj_add_style(dd, &scroll_style, LV_PART_SCROLLBAR);
     lv_dropdown_set_options(dd, options);
     lv_obj_set_size(dd, 85, 20);
+    lv_obj_set_style_text_font(dd, UI_FONT_BODY, 0);
     lv_obj_set_style_bg_color(dd, lv_color_hex(0xF4F5F7), 0);
     lv_obj_set_style_radius(dd, 4, 0);
     lv_obj_set_style_border_width(dd, 1, 0);
     lv_obj_set_style_border_color(dd, lv_color_hex(0xD1D5DB), 0);
+    lv_obj_set_style_outline_width(dd, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_color(dd, lv_color_hex(0x2D6BDB), LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_pad(dd, 1, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(dd, lv_color_hex(0xDBEAFE), LV_STATE_FOCUSED);
     lv_obj_add_flag(dd, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-    lv_obj_align_to(dd, label, LV_ALIGN_OUT_RIGHT_MID, 0, 0);
     lv_group_add_obj(lv_group_get_default(), dd);
 
     lv_obj_t *list = lv_dropdown_get_list(dd);
-    for (int i = 0; i < lv_obj_get_child_count_by_type(list, &lv_button_class); i++)
-    {
-        lv_obj_t *child = lv_obj_get_child_by_type(list, i, &lv_button_class);
-        lv_obj_set_style_bg_color(child, lv_color_hex(0x2D6BDB), LV_STATE_PRESSED);
-        lv_obj_set_style_text_color(child, lv_color_hex(0xFFFFFF), LV_STATE_PRESSED);
-        lv_obj_add_event_cb(child, [](lv_event_t *e)
-                            {
-            lv_obj_t* target = (lv_obj_t*)lv_event_get_target_obj(e);
-            lv_obj_scroll_to_view_recursive(target,LV_ANIM_ON); }, LV_EVENT_FOCUSED, NULL);
-    }
+    lv_obj_set_style_text_font(list, UI_FONT_BODY, 0);
+    lv_obj_add_style(list, &scroll_style, LV_PART_SCROLLBAR);
 
     lv_obj_add_event_cb(dd, [](lv_event_t *e)
                         {
@@ -632,6 +721,7 @@ static void enter_subpage_cb(lv_event_t *e)
     }
 
     lv_obj_set_user_data(last_enter_btn, page); // 记录btn对应的page
+    set_settings_focus(p);
     lv_obj_send_event(page, LV_EVENT_SCROLL, NULL);
     lv_obj_scroll_to_view(lv_obj_get_child(page, 0), LV_ANIM_OFF);
 }
@@ -654,10 +744,10 @@ static void sys_info_timer_cb(lv_timer_t *)
     size_t l_iram, l_psram, l_iram_max, l_psram_max;
 
     ui_setting_system_page_rcb(l_cpu1, l_cpu2, l_iram, l_psram, l_iram_max, l_psram_max);
-    lv_label_set_text_fmt(cpu1, "CPU1   #626367 %.2f%%#", l_cpu1);
-    lv_label_set_text_fmt(cpu2, "CPU2   #626367 %.2f%%#", l_cpu2);
-    lv_label_set_text_fmt(iram, "IRAM   #626367 %d/%dKB#", l_iram / 1024, l_iram_max / 1024);
-    lv_label_set_text_fmt(psram, "PSRAM   #626367 %d/%dKB#", l_psram / 1024, l_psram_max / 1024);
+    lv_label_set_text_fmt(cpu1, "CPU1: %.2f%%", l_cpu1);
+    lv_label_set_text_fmt(cpu2, "CPU2: %.2f%%", l_cpu2);
+    lv_label_set_text_fmt(iram, "IRAM: %d/%dKB", l_iram / 1024, l_iram_max / 1024);
+    lv_label_set_text_fmt(psram, "PSRAM: %d/%dKB", l_psram / 1024, l_psram_max / 1024);
     // lv_label_set_text_fmt(sd, "SD   #626367 %dbit#", l_sd);
 }
 // 返回按钮焦点事件回调
@@ -691,14 +781,8 @@ static void scroll_event_cb(lv_event_t *e)
             lv_obj_get_coords(child, &child_a);
 
             // 当子项离开可视区域时，重置状态
-            if (child_a.y1 > cont_bottom || child_a.y2 < cont_top)
-            {
-                lv_obj_set_user_data(child, (void *)0);
-                lv_obj_set_style_translate_x(child, 100, 0);
-                lv_obj_set_style_opa(child, LV_OPA_TRANSP, 0);
-            }
-            // 当子项进入可视区域时触发动画
-            else if (child_a.y1 <= cont_bottom && child_a.y2 >= cont_top)
+            // 子项第一次进入可视区域时触发一次入场动画
+            if (child_a.y1 <= cont_bottom && child_a.y2 >= cont_top)
             {
                 // 检查是否已播放过动画
                 if (lv_obj_get_user_data(child) == (void *)1)
@@ -722,51 +806,6 @@ static void scroll_event_cb(lv_event_t *e)
                 lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
                 lv_anim_start(&a);
             }
-        }
-    }
-    else
-    {
-        // 其他页面保持原有的滚轮效果
-        lv_area_t cont_a;
-        lv_obj_get_coords(cont, &cont_a);
-        int32_t cont_y_center = cont_a.y1 + lv_area_get_height(&cont_a) / 2;
-
-        int32_t r = lv_obj_get_height(cont) * 7 / 10;
-        int32_t i;
-        int32_t child_cnt = (int32_t)lv_obj_get_child_count(cont);
-        for (i = 0; i < child_cnt; i++)
-        {
-            lv_obj_t *child = lv_obj_get_child(cont, i);
-            lv_area_t child_a;
-            lv_obj_get_coords(child, &child_a);
-
-            int32_t child_y_center = child_a.y1 + lv_area_get_height(&child_a) / 2;
-
-            int32_t diff_y = child_y_center - cont_y_center;
-            diff_y = LV_ABS(diff_y);
-
-            /*Get the x of diff_y on a circle.*/
-            int32_t x;
-            /*If diff_y is out of the circle use the last point of the circle (the radius)*/
-            if (diff_y >= r)
-            {
-                x = r;
-            }
-            else
-            {
-                /*Use Pythagoras theorem to get x from radius and y*/
-                uint32_t x_sqr = r * r - diff_y * diff_y;
-                lv_sqrt_res_t res;
-                lv_sqrt(x_sqr, &res, 0x8000); /*Use lvgl's built in sqrt root function*/
-                x = r - res.i;
-            }
-
-            /*Translate the item by the calculated X coordinate*/
-            lv_obj_set_style_translate_x(child, x, 0);
-
-            /*Use some opacity with larger translations*/
-            lv_opa_t opa = (lv_opa_t)lv_map(x, 0, r, LV_OPA_TRANSP, LV_OPA_COVER);
-            lv_obj_set_style_opa(child, LV_OPA_COVER - opa, 0);
         }
     }
 }
@@ -865,8 +904,17 @@ static lv_obj_t *add_file_row(const char *symbol, const char *text, lv_event_cb_
 {
     lv_obj_t *row = lv_list_add_button(file_list, symbol, text);
     set_file_row_font(row);
-    lv_obj_set_height(row, 18);
+    lv_obj_set_height(row, UI_LIST_ROW_HEIGHT);
     lv_obj_set_style_pad_ver(row, 1, 0);
+    lv_obj_set_style_outline_width(row, 0, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(row, lv_color_hex(0xDBEAFE), LV_STATE_FOCUSED);
+    lv_obj_t *label = lv_obj_get_child(row, 1);
+    if (label)
+    {
+        lv_obj_set_width(label, 115);
+        lv_obj_set_height(label, lv_font_get_line_height(UI_FONT_BODY));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    }
     lv_obj_add_flag(row, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_group_add_obj(lv_group_get_default(), row);
     if (callback)
@@ -972,8 +1020,8 @@ static void render_file_page(bool success)
                                tf::is_deletable_path(entry_path);
         lv_obj_t *row = add_file_row(file_entries[i].directory ? LV_SYMBOL_DIRECTORY :
                                          (removable ? LV_SYMBOL_TRASH : LV_SYMBOL_FILE),
-                                     row_text, removable && !file_operation_pending ? file_row_cb : nullptr,
-                                     &file_entries[i]);
+                                      row_text, (file_entries[i].directory || removable) && !file_operation_pending ? file_row_cb : nullptr,
+                                      &file_entries[i]);
         if ((!removable && !file_entries[i].directory) || file_operation_pending)
         {
             lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -992,7 +1040,8 @@ static void render_file_page(bool success)
 
 static bool join_file_path(const char *name, char *path, size_t path_size)
 {
-    const int written = std::snprintf(path, path_size, "%s/%s", current_file_path, name);
+    const char *separator = std::strcmp(current_file_path, "/") == 0 ? "" : "/";
+    const int written = std::snprintf(path, path_size, "%s%s%s", current_file_path, separator, name);
     return written >= 0 && static_cast<size_t>(written) < path_size;
 }
 
