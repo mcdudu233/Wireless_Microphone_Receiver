@@ -76,11 +76,11 @@ void ui_bt_init()
     lv_obj_set_style_bg_opa(bt_list, LV_OPA_COVER, LV_PART_SCROLLBAR);
     lv_obj_set_scrollbar_mode(bt_list, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_size(bt_list, 100, 56);
-    lv_obj_align(bt_list, LV_ALIGN_TOP_LEFT, 5, 17);
+    lv_obj_align(bt_list, LV_ALIGN_TOP_LEFT, 5, 21);
 
-    // 设置focus样式
+    // 设置focus样式（accent-primary，与设置页焦点色一致）
     lv_obj_set_style_outline_width(bt_list, 2, LV_STATE_FOCUSED);
-    lv_obj_set_style_outline_color(bt_list, lv_palette_main(LV_PALETTE_LIGHT_BLUE), LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_color(bt_list, lv_color_hex(0x2D6BDB), LV_STATE_FOCUSED);
     lv_obj_set_style_outline_pad(bt_list, 1, LV_STATE_FOCUSED);
 
     lv_group_add_obj(g1, bt_list); // 将list加入外层group
@@ -93,7 +93,7 @@ void ui_bt_init()
     lv_obj_set_style_text_color(label, lv_color_hex(0x1F2937), 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_bg_opa(label, 0, 0);
-    lv_obj_align_to(label, bt_list, LV_ALIGN_OUT_TOP_MID, 0, 0);
+    lv_obj_align_to(label, bt_list, LV_ALIGN_OUT_TOP_MID, 0, -3); // 与列表保持3px间距
 
     // 设置按钮
     btn = ui_add_button(bt_widget, "设置", 45, UI_ACTION_HEIGHT, UI_FONT_HEADING);
@@ -108,7 +108,7 @@ void ui_bt_init()
     btn = ui_add_button(bt_widget, "完成", 45, UI_ACTION_HEIGHT, UI_FONT_HEADING);
     lv_obj_set_style_radius(btn, 6, 0);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x059669), 0);
-    lv_obj_align_to(btn, last, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+    lv_obj_align_to(btn, last, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
     lv_obj_add_event_cb(btn, button_finish_cb, LV_EVENT_CLICKED, bt_widget);
     lv_group_add_obj(g1, btn);
 
@@ -221,7 +221,8 @@ static void list_event_handler(lv_event_t *e)
             link_bt();
         }
         lv_obj_remove_state(obj, (lv_state_t)(current_state & ~LV_STATE_CHECKED));
-        lv_obj_clear_flag(bt_list, LV_OBJ_FLAG_SCROLLABLE);
+        // 保持列表可滚动并让选中行完整可见，避免选中行被视口裁切只显示一半
+        lv_obj_scroll_to_view(obj, LV_ANIM_OFF);
         // logger::infoln("Clicked: %s", bt_name);
     }
 }
@@ -264,8 +265,8 @@ void ui_bt_update(const std::string &mac, bool is_link)
     }
     if (!is_exist)
     {
-        const std::string display_name = mac.size() > 8 ? mac.substr(mac.size() - 8) : mac;
-        btn = ui_add_list_obj(bt_list, display_name, list_event_handler, UI_FONT_BODY, COLOR_NONE);
+        // 显示完整名称，超长文本由列表标签滚动展示
+        btn = ui_add_list_obj(bt_list, mac, list_event_handler, UI_FONT_BODY, COLOR_NONE);
         bt_rows.emplace_back(btn, mac);
         lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
         lv_group_add_obj(g2, btn);

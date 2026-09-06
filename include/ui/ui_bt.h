@@ -5,9 +5,10 @@
 #define BT_LINKED ((void *)1)
 #define BT_UNLINKED ((void *)0)
 
-#define COLOR_LINKED lv_palette_main(LV_PALETTE_GREEN)
-#define COLOR_LINKING lv_palette_main(LV_PALETTE_BLUE)
-#define COLOR_SELECTED lv_palette_main(LV_PALETTE_RED)
+// 选中/连接态使用 DESIGN.md 的柔和状态色，禁止高饱和调色板整行染色
+#define COLOR_LINKED lv_color_hex(0xECFDF5)  // status-success-bg
+#define COLOR_LINKING lv_color_hex(0xDBEAFE) // accent-surface
+#define COLOR_SELECTED lv_color_hex(0xFFFBEB) // status-warning-bg
 #define COLOR_NONE LV_PALETTE_NONE
 
 // api

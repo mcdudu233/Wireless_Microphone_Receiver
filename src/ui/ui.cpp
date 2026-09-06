@@ -73,6 +73,7 @@ lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb,
     lv_obj_set_style_pad_hor(btn, 3, 0);
     lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUSED);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0xDBEAFE), LV_STATE_FOCUSED);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_SCROLL_ON_FOCUS); // 焦点行自动滚动进视口
 
     // lv_obj_set_style_pad_all(btn, 1, 0);
 
@@ -86,7 +87,8 @@ lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb,
     {
         const lv_font_t *label_font = font != NULL ? font : UI_FONT_BODY;
         lv_obj_set_height(label, lv_font_get_line_height(label_font));
-        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        // 超长设备名循环滚动展示（恢复列表默认行为），不截断
+        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     }
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
     if (bg_color != LV_PALETTE_NONE)

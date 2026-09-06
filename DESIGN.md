@@ -111,8 +111,26 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 ### Dense list
 - **Structure**: stationary header plus 18 px rows in the list viewport.
 - **States**: default, focused, selected/connected, disabled, empty, error.
-- **Text**: 12 px, one line, width bounded to the row with end ellipsis.
-- **Layout**: list owns vertical scrolling and focus-driven reveal.
+- **Text**: 12 px, one line, width bounded to the row. Overflowing dynamic device
+  names scroll continuously (marquee); static overflow uses end ellipsis.
+- **Layout**: list owns vertical scrolling and focus-driven reveal. Selecting a
+  row keeps the list scrollable and scrolls the selected row fully into view.
+
+### File browser
+- **Structure**: full-bleed 18 px rows directly under the menu header; no
+  in-page path label.
+- **Title**: the menu header title displays the live TF path (`TF:<path>`) and
+  updates on every directory change; leaving the page restores the normal page
+  title automatically.
+- **Rows**: refresh and back-to-parent rows first, then entries; long names
+  use end ellipsis; destructive delete keeps the two-button confirmation.
+- **States**: same as dense list, plus a truncated-list notice row.
+
+### Info row
+- **Structure**: one-line focusable row with a secondary-color name on the left
+  and a right-aligned primary-color dynamic value on the right.
+- **Usage**: system information pages; rows stay focusable so the encoder can
+  scroll the page, with 2 px bottom separation.
 
 ### Device meter card
 - **Structure**: 20 px tab bar, two labeled 10 px meter rows, one compact status row.

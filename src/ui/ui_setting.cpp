@@ -16,9 +16,10 @@ static bool scroll_style_initialized;
 static lv_group_t *setting_group;
 static lv_group_t *last_group;
 static lv_obj_t *main_back_btn;
+static lv_obj_t *menu_title_label; // 菜单页头标题标签，文件管理页复用为当前目录
 
 static lv_obj_t *file_list;
-static lv_obj_t *file_path;
+static lv_obj_t *file_page_ref; // 文件管理子页引用，用于动态刷新页标题
 static lv_timer_t *file_timer;
 static char current_file_path[TF_PATH_MAX] = "/";
 static tf::FileEntry file_entries[TF_FILE_LIST_MAX];
@@ -41,6 +42,7 @@ static lv_obj_t *dd_rf_mode;
 
 static lv_obj_t *dd_usb_mode;
 
+static lv_obj_t *sys_rows[4]; // 系统信息行容器，加入焦点组以支持滚动
 static lv_obj_t *cpu1;
 static lv_obj_t *cpu2;
 static lv_obj_t *iram;
@@ -55,6 +57,7 @@ static void focus_async_cb(void *obj_p);     // 异步将焦点移回来源条�
 static void sys_info_timer_cb(lv_timer_t *); // 系统信息更新timer
 static void back_btn_focus_cb(lv_event_t *e);
 static void scroll_event_cb(lv_event_t *e);
+static void update_file_title(); // 将当前目录刷新到菜单页头标题
 static void request_file_page();
 static void render_file_page(bool success);
 static void file_timer_cb(lv_timer_t *);
@@ -133,6 +136,16 @@ void ui_setting_init(lv_obj_t *ui_from)
             lv_obj_add_event_cb(main_back_btn, back_btn_focus_cb, LV_EVENT_FOCUSED, NULL);
             lv_obj_add_event_cb(main_back_btn, back_btn_focus_cb, LV_EVENT_DEFOCUSED, NULL);
         }
+
+        // 页头标题标签：文件管理页会复用为当前目录显示，需限宽省略
+        menu_title_label = lv_obj_get_child_by_type(main_header, 0, &lv_label_class);
+        if (menu_title_label)
+        {
+            lv_obj_set_style_text_font(menu_title_label, UI_FONT_BODY, 0);
+            lv_label_set_long_mode(menu_title_label, LV_LABEL_LONG_DOT);
+            lv_obj_set_width(menu_title_label, 104);
+            lv_obj_set_height(menu_title_label, lv_font_get_line_height(UI_FONT_BODY));
+        }
     }
 
     lv_obj_t *cont;
@@ -142,8 +155,9 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_user_data(sub_about_page, (void *)e_page::about_page);
     lv_obj_t *sub_usb_page = ui_create_sub_page(menu, "USB传输设置");
     lv_obj_set_user_data(sub_usb_page, (void *)e_page::usb_page);
-    lv_obj_t *sub_file_page = ui_create_sub_page(menu, "文件系统管理");
+    lv_obj_t *sub_file_page = ui_create_sub_page(menu, "文件管理");
     lv_obj_set_user_data(sub_file_page, (void *)e_page::file_page);
+    file_page_ref = sub_file_page;
     lv_obj_t *sub_system_page = ui_create_sub_page(menu, "系统信息");
     lv_obj_set_user_data(sub_system_page, (void *)e_page::system_page);
     lv_obj_t *sub_audio_page = ui_create_sub_page(menu, "音频设置");
@@ -178,22 +192,30 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_align_to(label_author, label_title, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
     lv_obj_align_to(label_link, label_author, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
 
-    // 系统信息
-    lv_obj_t *system_row = ui_create_text(sub_system_page, NULL, "CPU 1", &cpu1);
-    lv_obj_set_style_margin_bottom(system_row, 6, 0);
-    system_row = ui_create_text(sub_system_page, NULL, "CPU 2", &cpu2);
-    lv_obj_set_style_margin_bottom(system_row, 6, 0);
-    system_row = ui_create_text(sub_system_page, NULL, "IRAM", &iram);
-    lv_obj_set_style_margin_bottom(system_row, 6, 0);
-    system_row = ui_create_text(sub_system_page, NULL, "PSRAM", &psram);
-    lv_obj_set_style_margin_bottom(system_row, 6, 0);
+    // 系统信息：左侧名称(次级色) + 右侧动态数值，行可聚焦以支持编码器滚动
+    {
+        static const char *sys_names[4] = {"CPU 1", "CPU 2", "IRAM", "PSRAM"};
+        lv_obj_t **sys_vals[4] = {&cpu1, &cpu2, &iram, &psram};
+        for (int i = 0; i < 4; ++i)
+        {
+            lv_obj_t *row = ui_create_text(sub_system_page, NULL, sys_names[i], nullptr);
+            lv_obj_set_style_margin_bottom(row, UI_SPACE_1, 0);
+            lv_obj_t *name_label = lv_obj_get_child(row, 0);
+            if (name_label)
+                lv_obj_set_style_text_color(name_label, lv_color_hex(0x626367), 0);
+            lv_obj_t *val = lv_label_create(row);
+            lv_obj_set_flex_grow(val, 1);
+            lv_obj_set_height(val, lv_font_get_line_height(UI_FONT_BODY));
+            lv_label_set_long_mode(val, LV_LABEL_LONG_DOT);
+            lv_obj_set_style_text_font(val, UI_FONT_BODY, 0);
+            lv_obj_set_style_text_color(val, lv_color_hex(0x1F2937), 0);
+            lv_obj_set_style_text_align(val, LV_TEXT_ALIGN_RIGHT, 0);
+            lv_label_set_text(val, "--");
+            *sys_vals[i] = val;
+            sys_rows[i] = row;
+        }
+    }
     // ui_create_text(sub_system_page, NULL, "外置存储", &sd);
-
-    lv_label_set_recolor(cpu1, true);
-    lv_label_set_recolor(cpu2, true);
-    lv_label_set_recolor(iram, true);
-    lv_label_set_recolor(psram, true);
-    // lv_label_set_recolor(sd, true);
 
     // section = lv_menu_section_create(sub_usb_page);
     ui_create_dropdown(sub_usb_page, NULL, "传输模式", "默认\n"
@@ -235,6 +257,7 @@ void ui_setting_init(lv_obj_t *ui_from)
                        &dd_rf_mode);
     // lv_obj_add_event_cb(dd_rf_mode, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)6);
 
+    // 文件管理：目录列表近似全屏铺满，当前目录由菜单页头标题显示
     lv_obj_t *file_widget = lv_obj_create(sub_file_page);
     lv_obj_set_size(file_widget, lv_pct(100), lv_pct(100));
     lv_obj_set_style_pad_all(file_widget, 0, 0);
@@ -244,15 +267,15 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_flex_flow(file_widget, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(file_widget, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_scroll_dir(sub_file_page, LV_DIR_NONE);
-    file_path = lv_label_create(file_widget);
-    lv_label_set_long_mode(file_path, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(file_path, lv_pct(100));
-    lv_obj_set_height(file_path, lv_font_get_line_height(UI_FONT_BODY));
-    lv_label_set_text(file_path, "TF:/");
-    lv_obj_set_style_text_font(file_path, &lv_font_harmonyos_12, 0);
     file_list = lv_list_create(file_widget);
-    lv_obj_set_width(file_list, lv_pct(95));
+    lv_obj_set_width(file_list, lv_pct(100));
     lv_obj_set_flex_grow(file_list, 1);
+    lv_obj_set_style_pad_all(file_list, 0, 0);
+    lv_obj_set_style_border_width(file_list, 0, 0);
+    lv_obj_set_style_radius(file_list, 0, 0);
+    lv_obj_set_style_bg_color(file_list, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_add_style(file_list, &scroll_style, LV_PART_SCROLLBAR);
+    lv_obj_set_scrollbar_mode(file_list, LV_SCROLLBAR_MODE_AUTO);
 
     lv_obj_t *root_page = lv_menu_page_create(menu, "设置");
     root_page_ref = root_page; // 保存引用
@@ -291,8 +314,8 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
-    // 文件系统管理
-    cont = ui_create_text(root_page, &ui_img_file, "文件系统管理",NULL,true);
+    // 文件管理
+    cont = ui_create_text(root_page, &ui_img_file, "文件管理",NULL,true);
     lv_menu_set_load_page_event(menu, cont, sub_file_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_file_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
@@ -366,6 +389,13 @@ static void set_settings_focus(uint8_t page)
     case e_page::rf_page:
         add_focus_object(dd_rf_mode);
         first = dd_rf_mode;
+        break;
+    case e_page::system_page:
+        // 系统信息行需留在焦点组，编码器才能逐行滚动页面
+        for (lv_obj_t *row : sys_rows)
+            add_focus_object(row);
+        if (sys_rows[0])
+            first = sys_rows[0];
         break;
     case e_page::file_page:
         for (uint32_t i = 0; i < lv_obj_get_child_count(file_list); ++i)
@@ -515,6 +545,8 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
     lv_obj_t *slider = lv_slider_create(obj);
     lv_obj_set_style_pad_all(slider, 0, LV_PART_KNOB);
     lv_obj_set_size(slider, 92, 18);
+    // 轨道两端内缩半个旋钮宽度，值为0/最大时球完全在轨道界内
+    lv_obj_set_style_pad_hor(slider, 9, LV_PART_MAIN);
     lv_slider_set_range(slider, min, max);
     lv_slider_set_value(slider, val, LV_ANIM_OFF);
 
@@ -744,10 +776,10 @@ static void sys_info_timer_cb(lv_timer_t *)
     size_t l_iram, l_psram, l_iram_max, l_psram_max;
 
     ui_setting_system_page_rcb(l_cpu1, l_cpu2, l_iram, l_psram, l_iram_max, l_psram_max);
-    lv_label_set_text_fmt(cpu1, "CPU1: %.2f%%", l_cpu1);
-    lv_label_set_text_fmt(cpu2, "CPU2: %.2f%%", l_cpu2);
-    lv_label_set_text_fmt(iram, "IRAM: %d/%dKB", l_iram / 1024, l_iram_max / 1024);
-    lv_label_set_text_fmt(psram, "PSRAM: %d/%dKB", l_psram / 1024, l_psram_max / 1024);
+    lv_label_set_text_fmt(cpu1, "%.2f%%", l_cpu1);
+    lv_label_set_text_fmt(cpu2, "%.2f%%", l_cpu2);
+    lv_label_set_text_fmt(iram, "%d/%dKB", (int)(l_iram / 1024), (int)(l_iram_max / 1024));
+    lv_label_set_text_fmt(psram, "%d/%dKB", (int)(l_psram / 1024), (int)(l_psram_max / 1024));
     // lv_label_set_text_fmt(sd, "SD   #626367 %dbit#", l_sd);
 }
 // 返回按钮焦点事件回调
@@ -940,13 +972,24 @@ static void focus_first_file_row()
     }
 }
 
+// 将当前目录同步到菜单页头标题（菜单切页时会自动重刷，离开文件管理页即恢复）
+static void update_file_title()
+{
+    char title[TF_PATH_MAX + 8];
+    std::snprintf(title, sizeof(title), "TF:%s", current_file_path);
+    if (file_page_ref)
+        lv_menu_set_page_title(file_page_ref, title);
+    if (menu_title_label && lv_obj_is_valid(menu_title_label))
+        lv_label_set_text(menu_title_label, title);
+}
+
 static void request_file_page()
 {
-    if (!file_list || !file_path)
+    if (!file_list)
         return;
 
     clear_file_rows();
-    lv_label_set_text_fmt(file_path, "TF:%s", current_file_path);
+    update_file_title();
     lv_obj_t *refresh = add_file_row(LV_SYMBOL_REFRESH, "刷新", file_refresh_cb, nullptr);
     lv_group_focus_obj(refresh);
 
