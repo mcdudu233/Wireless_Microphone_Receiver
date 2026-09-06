@@ -20,6 +20,16 @@
 #define WIDGET_H 160
 // 实际垂直
 #define WIDGET_V 80
+// 固定屏幕排版：正文、标题、展示字号
+#define UI_FONT_BODY (&lv_font_harmonyos_12)
+#define UI_FONT_HEADING (&lv_font_harmonyos_14)
+#define UI_FONT_DISPLAY (&lv_font_harmonyos_16)
+// 160x80 屏幕的紧凑间距与控件高度
+#define UI_SPACE_1 2
+#define UI_SPACE_2 4
+#define UI_SCREEN_EDGE 5
+#define UI_LIST_ROW_HEIGHT 18
+#define UI_ACTION_HEIGHT 25
 // 主窗口数据获取周期 单位：ms
 #define DEVICE_DATA_REFLUSH_TIME 500
 // 最大蓝牙连接数

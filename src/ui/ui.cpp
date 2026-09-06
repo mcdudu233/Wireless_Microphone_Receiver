@@ -9,14 +9,33 @@ typedef struct
     lv_group_t *popup_group;
     lv_group_t *button_group;
 } back_val;
+
+static void popup_delete_cb(lv_event_t *e)
+{
+    lv_obj_t *target = lv_event_get_target_obj(e);
+    back_val *value = (back_val *)lv_obj_get_user_data(target);
+    if (value)
+    {
+        if (value->button_group)
+            lv_group_delete(value->button_group);
+        if (value->popup_group)
+            lv_group_delete(value->popup_group);
+        lv_obj_set_user_data(target, nullptr);
+        lv_free(value);
+    }
+    if (pop_win == target)
+        pop_win = nullptr;
+}
 // 创建一个基础控件容器
 lv_obj_t *ui_add_win()
 {
     lv_obj_t *widget = lv_obj_create(lv_screen_active());
     lv_obj_set_size(widget, WIDGET_H, WIDGET_V);
     lv_obj_set_style_pad_all(widget, 0, 0); // 去除内边距
+    lv_obj_set_style_border_width(widget, 0, 0);
     lv_obj_set_style_bg_color(widget, lv_color_hex(0xF4F5F7), 0);
     lv_obj_set_style_bg_opa(widget, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_font(widget, UI_FONT_BODY, 0);
     return widget;
 }
 // 添加带标题按钮
@@ -31,7 +50,11 @@ lv_obj_t *ui_add_button(lv_obj_t *parent, std::string title, int32_t w, int32_t 
     lv_obj_set_style_pad_all(btn, 0, 0);
     lv_obj_set_style_border_width(btn, 0, 0);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x1D4ED8), LV_STATE_PRESSED);
+    lv_obj_set_style_outline_width(btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_color(btn, lv_color_hex(0x2D6BDB), LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_pad(btn, 1, LV_STATE_FOCUSED);
     lv_label_set_text(label, title.c_str());
+    lv_obj_set_style_pad_all(label, 0, 0);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
     if (font != NULL)
     {
@@ -46,6 +69,10 @@ lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb,
 {
     lv_obj_t *btn = lv_list_add_button(list, NULL, content.c_str());
     lv_obj_set_style_pad_all(btn, 0, 0);
+    lv_obj_set_height(btn, UI_LIST_ROW_HEIGHT);
+    lv_obj_set_style_pad_hor(btn, 3, 0);
+    lv_obj_set_style_outline_width(btn, 0, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0xDBEAFE), LV_STATE_FOCUSED);
 
     // lv_obj_set_style_pad_all(btn, 1, 0);
 
@@ -53,6 +80,13 @@ lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb,
     if (font != NULL)
     {
         lv_obj_set_style_text_font(btn, font, 0);
+    }
+    lv_obj_t *label = lv_obj_get_child(btn, 0);
+    if (label != NULL)
+    {
+        const lv_font_t *label_font = font != NULL ? font : UI_FONT_BODY;
+        lv_obj_set_height(label, lv_font_get_line_height(label_font));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     }
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
     if (bg_color != LV_PALETTE_NONE)
@@ -101,14 +135,6 @@ lv_obj_t **ui_popwin(bool has_bg, lv_group_t *g, lv_obj_t *obj)
     }
     pop_win = cont;
 
-    // 弹窗生命周期结束时清理全局指针，避免悬空引用
-    lv_obj_add_event_cb(cont, [](lv_event_t *e)
-                        {
-        if(lv_event_get_code(e) == LV_EVENT_DELETE)
-        {
-            if (pop_win == lv_event_get_target_obj(e)) pop_win = nullptr;
-        } }, LV_EVENT_DELETE, NULL);
-
     lv_obj_t *win = lv_obj_create(cont);
     lv_obj_set_style_pad_all(win, 0, 0);
     lv_obj_set_size(win, lv_pct(60), lv_pct(67));
@@ -130,6 +156,7 @@ lv_obj_t **ui_popwin(bool has_bg, lv_group_t *g, lv_obj_t *obj)
     v->popup_group = nullptr;
     v->button_group = nullptr;
     lv_obj_set_user_data(cont, v);
+    lv_obj_add_event_cb(cont, popup_delete_cb, LV_EVENT_DELETE, NULL);
 
     lv_group_t *new_g = lv_group_create();
     v->popup_group = new_g;
@@ -145,11 +172,8 @@ lv_obj_t **ui_popwin(bool has_bg, lv_group_t *g, lv_obj_t *obj)
         lv_group_set_default(v->g);
         ui_bind_group_to_all_encoders(v->g);
         if(lv_obj_is_valid(v->obj)) lv_group_focus_obj(v->obj);
-        if (v->button_group) lv_group_delete(v->button_group);
-        if (v->popup_group) lv_group_delete(v->popup_group);
         if (lv_obj_is_valid(target)) lv_obj_del(target);
-        if (pop_win == target) pop_win = nullptr;
-        lv_free(v); }, LV_EVENT_CLICKED, NULL);
+        }, LV_EVENT_CLICKED, NULL);
     static lv_obj_t *ret[2];
     ret[0] = cont;
     ret[1] = win;
@@ -187,7 +211,7 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
     lv_label_set_text(label, title);
     lv_obj_set_style_text_font(label, &lv_font_harmonyos_12, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(0x1F2937), 0);
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, icon ? 21 : 3, 1);
 
     static lv_style_t style_line;
     static bool style_line_initialized = false;
@@ -232,7 +256,7 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
         lv_obj_t *btn2;
         if (btn1_title)
         {
-            btn = ui_add_button(ret[1], btn1_title, 30, 16, &lv_font_harmonyos_12);
+            btn = ui_add_button(ret[1], btn1_title, 30, 18, UI_FONT_BODY);
             lv_obj_set_style_radius(btn, 4, 0);
             lv_obj_set_style_pad_all(btn, 2, 0);
             lv_group_add_obj(g, btn);
@@ -248,7 +272,7 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
 
         if (btn2_title)
         {
-            btn = ui_add_button(ret[1], btn2_title, 30, 16, &lv_font_harmonyos_12);
+            btn = ui_add_button(ret[1], btn2_title, 30, 18, UI_FONT_BODY);
             lv_obj_set_style_radius(btn, 4, 0);
             lv_obj_set_style_pad_all(btn, 2, 0);
             lv_group_add_obj(g, btn);
@@ -263,8 +287,8 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
         }
         if (btn1_title and btn2_title)
         {
-            lv_obj_align(btn1, LV_ALIGN_BOTTOM_MID, -20, -2);
-            lv_obj_align(btn2, LV_ALIGN_BOTTOM_MID, 20, -2);
+            lv_obj_align(btn1, LV_ALIGN_BOTTOM_MID, -22, -2);
+            lv_obj_align(btn2, LV_ALIGN_BOTTOM_MID, 22, -2);
         }
         else
             lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -2);
