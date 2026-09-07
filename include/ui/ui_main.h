@@ -2,7 +2,7 @@
 #include "ui/ui.h"
 #include <vector>
 
-#define UPDATE_TIMER_PERIOD 1000
+#define UPDATE_TIMER_PERIOD 500 // 主界面数据(实时音量条)刷新周期
 
 typedef struct
 {

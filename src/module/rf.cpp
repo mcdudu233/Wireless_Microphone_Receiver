@@ -16,10 +16,6 @@ static DeviceManager deviceManager;
 static uint32_t transmitSpeed = 0;
 static uint32_t transmitSpeedData = 0;
 
-// 音频电平追踪 (用于 UI L/R 音量条)
-static std::unordered_map<std::string, int8_t> leftVoiceLevels;
-static std::unordered_map<std::string, int8_t> rightVoiceLevels;
-
 /*****************************
           WIFI协议
 *****************************/
@@ -914,6 +910,67 @@ bool ble_send(const Device &device, const uint8_t *data, uint16_t len)
 }
 /****************************/
 
+// 解析音频包内PCM样本，计算左右声道实时峰值电平(0-100)并写入设备
+// 音频载荷为发送端按当前配置转换后的裸PCM: 采样位深=audio.bit, 声道数=audio.channel
+// 峰值保持: 仅当新峰值更高时更新，每秒由 rf_handle 统一衰减，避免闪烁
+static void rf_update_voice_level(Device *device, const uint8_t *data, uint16_t size)
+{
+  if (device == nullptr || data == nullptr || size == 0)
+  {
+    return;
+  }
+
+  const uint8_t bytesPerSample = (uint8_t)(config::config.audio.bit / 8); // 2/3/4
+  const uint8_t channels = (uint8_t)config::config.audio.channel;         // 1/2
+  const int64_t fullScale = (int64_t)1 << (config::config.audio.bit - 1); // 2^(bit-1)
+  const size_t sampleCount = size / bytesPerSample;
+
+  uint8_t peakL = 0;
+  uint8_t peakR = 0;
+  for (size_t i = 0; i + channels <= sampleCount; i += channels)
+  {
+    for (uint8_t ch = 0; ch < channels; ch++)
+    {
+      const uint8_t *p = data + (i + ch) * bytesPerSample;
+      int32_t sample;
+      switch (bytesPerSample)
+      {
+      case 2:
+        sample = (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+        break;
+      case 3:
+        sample = (int32_t)p[0] | ((int32_t)p[1] << 8) | ((int32_t)p[2] << 16);
+        if (sample & 0x00800000)
+          sample -= 0x1000000; // 24位符号扩展
+        break;
+      default:
+        sample = (int32_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24));
+        break;
+      }
+      // 用int64取绝对值，避免 INT32_MIN 取负溢出
+      int64_t magnitude = sample < 0 ? -(int64_t)sample : (int64_t)sample;
+
+      uint8_t pct = (uint8_t)((magnitude * 100) / fullScale);
+      if (ch == 0)
+      {
+        if (pct > peakL)
+          peakL = pct;
+        if (channels == 1 && pct > peakR)
+          peakR = pct; // 单声道同时驱动L/R
+      }
+      else if (pct > peakR)
+      {
+        peakR = pct;
+      }
+    }
+  }
+
+  if (peakL > device->getVoiceLevelL())
+    device->setVoiceLevelL(peakL);
+  if (peakR > device->getVoiceLevelR())
+    device->setVoiceLevelR(peakR);
+}
+
 // 解析数据包
 static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
 {
@@ -934,12 +991,10 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
       return false;
     }
     audio::buffer::writeWiFiPacket(&packet->packet.audioDataWiFi);
-    // 更新设备音频电平
+    // 更新设备实时音频电平
     if (device)
     {
-      std::string mac = device->getBleMACString();
-      leftVoiceLevels[mac] = 90;
-      rightVoiceLevels[mac] = 85;
+      rf_update_voice_level(device, packet->packet.audioDataWiFi.data, packet->packet.audioDataWiFi.size);
     }
     break;
   }
@@ -954,11 +1009,10 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
       return false;
     }
     audio::buffer::writeBLEPacket(&packet->packet.audioDataBLE);
+    // 更新设备实时音频电平
     if (device)
     {
-      std::string mac = device->getBleMACString();
-      leftVoiceLevels[mac] = 80;
-      rightVoiceLevels[mac] = 75;
+      rf_update_voice_level(device, packet->packet.audioDataBLE.data, packet->packet.audioDataBLE.size);
     }
     break;
   }
@@ -1059,21 +1113,14 @@ static void rf_handle(void *arg)
       // LOGGER_INFO("RF data speed %dKB/s", transmitSpeed / 1024);
 
       /* 衰减音频电平 (无新音频时逐渐归零) */
-      for (auto it = leftVoiceLevels.begin(); it != leftVoiceLevels.end();)
       {
-        if (it->second > 5)
-          it->second -= 5;
-        else
-          it->second = 0;
-        ++it;
-      }
-      for (auto it = rightVoiceLevels.begin(); it != rightVoiceLevels.end();)
-      {
-        if (it->second > 5)
-          it->second -= 5;
-        else
-          it->second = 0;
-        ++it;
+        Device *levelDevices = deviceManager.getAllDevices();
+        for (uint8_t i = 0; i < deviceManager.size(); i++)
+        {
+          Device &levelDevice = levelDevices[i];
+          levelDevice.setVoiceLevelL(levelDevice.getVoiceLevelL() > 10 ? levelDevice.getVoiceLevelL() - 10 : 0);
+          levelDevice.setVoiceLevelR(levelDevice.getVoiceLevelR() > 10 ? levelDevice.getVoiceLevelR() - 10 : 0);
+        }
       }
 
       /* 获取信号强度 */
@@ -1238,14 +1285,14 @@ std::vector<std::string> ui_bt_get_linked()
 
 int8_t ui_info_get_left_voice(const std::string &mac)
 {
-  auto it = leftVoiceLevels.find(mac);
-  return (it != leftVoiceLevels.end()) ? it->second : 0;
+  Device *device = deviceManager.getDeviceByBleMAC(mac);
+  return (device != nullptr) ? (int8_t)device->getVoiceLevelL() : 0;
 }
 
 int8_t ui_info_get_right_voice(const std::string &mac)
 {
-  auto it = rightVoiceLevels.find(mac);
-  return (it != rightVoiceLevels.end()) ? it->second : 0;
+  Device *device = deviceManager.getDeviceByBleMAC(mac);
+  return (device != nullptr) ? (int8_t)device->getVoiceLevelR() : 0;
 }
 
 const std::string ui_info_get_transmit_speed()

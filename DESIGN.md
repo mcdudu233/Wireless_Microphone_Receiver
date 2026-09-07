@@ -68,6 +68,10 @@ files must not be hand-edited.
 - Icons are Tabler Icons (outline, 24x24 grid, 2 px stroke) rasterized to
   64x64 with the `#1F2937` (`text-primary`) stroke in RGB565A8, displayed at
   16 px via `lv_img_set_zoom(img, 64)` inside a 16x16 box.
+- Tabler raster icons are for standalone 16x16 icon slots (menu rows, dialog
+  icons). Inline status glyphs inside text rows (main-screen status row,
+  device-card battery/signal labels) use `LV_SYMBOL_*` text symbols via the
+  Montserrat fallback so every glyph in one row shares the same visual style.
 - The boot microphone icon is 128x128 displayed at 32 px.
 - Icon color stays neutral; focus and selection are expressed by row
   background/outline styles only (accent is functional, never decorative).
@@ -125,6 +129,8 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   names scroll continuously (marquee); static overflow uses end ellipsis.
 - **Layout**: list owns vertical scrolling and focus-driven reveal. Selecting a
   row keeps the list scrollable and scrolls the selected row fully into view.
+  The list viewport is an exact multiple of the row height and scrolling snaps
+  to whole rows, so a row is never shown half-clipped.
 
 ### File browser
 - **Structure**: full-bleed 18 px rows directly under the menu header; no
@@ -132,8 +138,9 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 - **Title**: the menu header title displays the live TF path (`TF:<path>`) and
   updates on every directory change; leaving the page restores the normal page
   title automatically.
-- **Rows**: refresh and back-to-parent rows first, then entries; long names
-  use end ellipsis; destructive delete keeps the two-button confirmation.
+- **Rows**: back-to-parent row first (omitted at the TF root), then entries;
+  re-entering a directory reloads its contents; long names use end ellipsis;
+  destructive delete keeps the two-button confirmation.
 - **States**: same as dense list, plus a truncated-list notice row.
 
 ### Info row

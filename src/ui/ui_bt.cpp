@@ -75,7 +75,9 @@ void ui_bt_init()
     lv_obj_set_style_bg_color(bt_list, lv_color_hex(0x2D6BDB), LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(bt_list, LV_OPA_COVER, LV_PART_SCROLLBAR);
     lv_obj_set_scrollbar_mode(bt_list, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_size(bt_list, 100, 56);
+    // 视口高度为整行数(3行x18px)，滚动吸附行首，避免行上下被截半
+    lv_obj_set_scroll_snap_y(bt_list, LV_SCROLL_SNAP_START);
+    lv_obj_set_size(bt_list, 100, UI_LIST_ROW_HEIGHT * 3);
     lv_obj_align(bt_list, LV_ALIGN_TOP_LEFT, 5, 21);
 
     // 设置focus样式（accent-primary，与设置页焦点色一致）

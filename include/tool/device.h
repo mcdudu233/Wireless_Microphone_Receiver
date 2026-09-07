@@ -14,6 +14,9 @@ private:
   // 设备信息
   uint8_t battery;
   int8_t rssi;
+  // 实时音频电平 (0-100)
+  uint8_t voiceLevelL;
+  uint8_t voiceLevelR;
   // 蓝牙记录
   bool bleConnected;
   uint8_t bleMAC[6]; // 6字节MAC地址
@@ -44,6 +47,10 @@ public:
   void setBattery(uint8_t battery);
   int8_t getRssi() const;
   void setRssi(int8_t rssi);
+  uint8_t getVoiceLevelL() const;
+  uint8_t getVoiceLevelR() const;
+  void setVoiceLevelL(uint8_t level);
+  void setVoiceLevelR(uint8_t level);
   bool isBleConnected() const;
   void setBleConnected(bool connected);
   uint8_t *getBleMAC();

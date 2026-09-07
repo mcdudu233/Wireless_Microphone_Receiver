@@ -135,11 +135,12 @@ void ui_main_init()
     lv_obj_set_style_text_color(img, lv_color_hex(0x6B7280), 0);
     lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 3, 0);
     last = img;
-    img = lv_image_create(main_widget);
-    lv_image_set_src(img, &lv_img_bluetooth);
-    lv_img_set_zoom(img, 64);
-    lv_obj_set_size(img, 16, 16);
-    lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 0, 0);
+    // 蓝牙图标与USB/WIFI一致使用字体符号（Montserrat回退），保持状态栏风格统一
+    img = lv_label_create(main_widget);
+    lv_label_set_text(img, LV_SYMBOL_BLUETOOTH);
+    lv_obj_set_style_text_font(img, &lv_font_harmonyos_12, 0);
+    lv_obj_set_style_text_color(img, lv_color_hex(0x6B7280), 0);
+    lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 3, 0);
 
     ui_bind_group_to_all_encoders(lv_group_get_default());
 

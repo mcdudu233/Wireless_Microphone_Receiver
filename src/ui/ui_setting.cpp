@@ -64,7 +64,6 @@ static void file_timer_cb(lv_timer_t *);
 static void file_row_cb(lv_event_t *e);
 static void file_delete_cb(lv_event_t *e);
 static void file_cancel_cb(lv_event_t *e);
-static void file_refresh_cb(lv_event_t *e);
 static void file_parent_cb(lv_event_t *e);
 static bool join_file_path(const char *name, char *path, size_t path_size);
 static void set_settings_focus(uint8_t page);
@@ -990,20 +989,20 @@ static void request_file_page()
 
     clear_file_rows();
     update_file_title();
-    lv_obj_t *refresh = add_file_row(LV_SYMBOL_REFRESH, "刷新", file_refresh_cb, nullptr);
-    lv_group_focus_obj(refresh);
 
     if (!tf::is_mounted())
     {
         lv_obj_t *row = add_file_row(LV_SYMBOL_WARNING, "TF卡未挂载", nullptr, nullptr);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_state(row, LV_STATE_DISABLED);
+        lv_group_focus_obj(row);
         return;
     }
 
     lv_obj_t *row = add_file_row(LV_SYMBOL_REFRESH, "加载中...", nullptr, nullptr);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_state(row, LV_STATE_DISABLED);
+    lv_group_focus_obj(row);
     ++file_request_id;
     if (file_request_id == 0)
         ++file_request_id;
@@ -1014,7 +1013,6 @@ static void request_file_page()
 static void render_file_page(bool success)
 {
     clear_file_rows();
-    add_file_row(LV_SYMBOL_REFRESH, "刷新", file_refresh_cb, nullptr);
 
     if (std::strcmp(current_file_path, "/") != 0)
         add_file_row(LV_SYMBOL_LEFT, "返回上级", file_parent_cb, nullptr);
@@ -1128,11 +1126,6 @@ static void file_delete_cb(lv_event_t *)
 }
 
 static void file_cancel_cb(lv_event_t *) {}
-
-static void file_refresh_cb(lv_event_t *)
-{
-    request_file_page();
-}
 
 static void file_parent_cb(lv_event_t *)
 {
