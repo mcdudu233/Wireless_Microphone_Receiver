@@ -41,28 +41,38 @@ but each screen must have one obvious focus target and no decorative clutter.
 
 | Role | Asset | Source family proven by generator metadata | LVGL line height | Usage |
 |------|-------|--------------------------------------------|------------------|-------|
-| Body | `lv_font_harmonyos_12` | SimHei (`simhei.ttf`) | 13 px | Rows, values, status, dialogs, dynamic text |
-| Heading | `lv_font_harmonyos_14` | SimHei (`simhei.ttf`) | 16 px | Short page/dialog headings only |
-| Display | `lv_font_harmonyos_16` | HarmonyOS Sans SC Regular | 19 px | Five-character boot title only |
+| Body | `lv_font_harmonyos_12` | HarmonyOS Sans SC Regular | 15 px | Rows, values, status, dialogs, dynamic text |
+| Heading | `lv_font_harmonyos_14` | HarmonyOS Sans SC Medium | 17 px | Short page/dialog headings only |
+| Display | `lv_font_harmonyos_16` | HarmonyOS Sans SC Medium | 19 px | Five-character boot title only |
 
-The 12 px and 14 px symbols are historically misnamed: they are not HarmonyOS
-fonts. Do not describe the current font set as uniformly HarmonyOS. A future
-font regeneration may replace them only from an approved HarmonyOS Sans SC
-source file while preserving every current Chinese glyph and LVGL symbol
-fallback. Generated font files must not be hand-edited.
+All three sizes are generated from the approved HarmonyOS Sans SC sources in
+`docs/resources/fonts/` (titles use Medium, body uses Regular) via the pipeline
+in `docs/tools/README.md`. They share one 151-glyph Chinese symbol set extracted
+from every string literal in the Receiver sources, and every size falls back to
+the matching built-in Montserrat font for `LV_SYMBOL_*` glyphs. Generated font
+files must not be hand-edited.
 
 - The three required sizes are 12, 14, and 16 px; do not add another size.
 - Set the 12 px body font explicitly on each screen or shared component. Do not
   rely on a font inherited from a previously displayed page.
-- Use 14 px only for short headings. Use 16 px only for the boot title because
-  its embedded Chinese subset is narrower than the 12/14 px subsets.
+- Use 14 px only for short headings. Use 16 px only for the boot title.
 - Keep all text on one line unless a dialog message explicitly permits two
   lines. Dynamic labels need a fixed width and `LV_LABEL_LONG_DOT` or wrapping.
 - Dynamic non-ASCII device names and TF filenames are not guaranteed by the
   subset fonts; ASCII and the statically declared Chinese UI vocabulary are.
-- The current 12 px subset still needs `暂中名长屏幕按钮解码` for all present
-  on-screen states. Until the owner regenerates that resource, those glyphs may
-  render as placeholders. The current 14 px and 16 px visible strings are covered.
+- When a new Chinese UI string is introduced, re-extract the symbol set and
+  regenerate all three fonts (workflow in `docs/tools/README.md`).
+
+### Iconography
+
+- Icons are Tabler Icons (outline, 24x24 grid, 2 px stroke) rasterized to
+  64x64 with the `#1F2937` (`text-primary`) stroke in RGB565A8, displayed at
+  16 px via `lv_img_set_zoom(img, 64)` inside a 16x16 box.
+- The boot microphone icon is 128x128 displayed at 32 px.
+- Icon color stays neutral; focus and selection are expressed by row
+  background/outline styles only (accent is functional, never decorative).
+- Mapping from icon files to Tabler names and the regeneration pipeline live
+  in `docs/tools/README.md`.
 
 ## 4. Spacing & Layout
 
@@ -171,7 +181,8 @@ hierarchy.
 - Destructive actions require an explicit two-button confirmation dialog.
 - **Accepted hardware debt**: exact LCD contrast, physical button timing, glyph
   raster quality, and screenshot-level alignment require an assembled receiver.
-- **Accepted font debt**: 12/14 px are SimHei-derived despite their symbol names.
-  Exit when approved HarmonyOS Sans SC source is available and regenerated
-  assets preserve current glyph coverage, add the missing characters listed in
-  Section 3, and fit within the flash budget.
+- Font debt resolved: all three sizes now come from approved HarmonyOS Sans SC
+  sources with unified glyph coverage and Montserrat symbol fallback. The new
+  12 px/14 px line heights (15/17 px) replaced the SimHei metrics (13/16 px);
+  on-device vertical fit of the tightest rows and dialogs still needs
+  confirmation on an assembled receiver.

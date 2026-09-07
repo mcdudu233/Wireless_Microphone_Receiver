@@ -202,7 +202,7 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g, lv_obj_t *obj, const
         lv_image_set_src(img, icon);
         if (is_from_svg)
         {
-            lv_img_set_zoom(img, 32);
+            lv_img_set_zoom(img, 64);
             lv_obj_set_size(img, 16, 16);
         }
         lv_obj_align(img, LV_ALIGN_TOP_LEFT, 0, 0);

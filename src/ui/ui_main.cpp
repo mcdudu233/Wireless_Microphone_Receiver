@@ -137,7 +137,7 @@ void ui_main_init()
     last = img;
     img = lv_image_create(main_widget);
     lv_image_set_src(img, &lv_img_bluetooth);
-    lv_img_set_zoom(img, 32);
+    lv_img_set_zoom(img, 64);
     lv_obj_set_size(img, 16, 16);
     lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 0, 0);
 

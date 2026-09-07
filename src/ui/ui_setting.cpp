@@ -307,7 +307,7 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
     // section = lv_menu_section_create(root_page);
-    cont = ui_create_text(root_page, &ui_img_usb, "USB传输设置");
+    cont = ui_create_text(root_page, &ui_img_usb, "USB传输设置", nullptr, true);
     lv_menu_set_load_page_event(menu, cont, sub_usb_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_usb_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
@@ -509,7 +509,7 @@ static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *
         lv_image_set_src(img, icon);
         if (is_from_svg)
         {
-            lv_img_set_zoom(img, 32);
+            lv_img_set_zoom(img, 64);
             lv_obj_set_size(img, 16, 16);
         }
     }
