@@ -253,6 +253,13 @@ void ui_bt_update(const std::string &mac, bool is_link)
     LV_LOCK();
     lv_obj_t *btn;
 
+    // 设备连接页未打开时(主界面运行/重连期间)不更新列表,避免引用已销毁控件
+    if (bt_list == nullptr || !lv_obj_is_valid(bt_list) || g2 == nullptr)
+    {
+        LV_UNLOCK();
+        return;
+    }
+
     int32_t cnt = lv_obj_get_child_count_by_type(bt_list, &lv_list_button_class);
     bool is_exist = false;
 
@@ -264,6 +271,12 @@ void ui_bt_update(const std::string &mac, bool is_link)
             is_exist = true;
             break;
         }
+    }
+    if (is_exist && !is_link)
+    {
+        // 行已存在且仍未连接:不重复刷新,避免扫描回调反复清除用户选中/焦点状态
+        LV_UNLOCK();
+        return;
     }
     if (!is_exist)
     {

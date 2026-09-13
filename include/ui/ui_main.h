@@ -28,5 +28,10 @@ int8_t ui_info_get_right_voice(const std::string &mac);
 void ui_info_del_card(device_card_data *card);
 void ui_info_del_card(const std::string &mac);
 
+// 断线重连提示(由 rf 模块在其他任务调用,内部自带 LVGL 锁)
+bool ui_main_has_device(const std::string &mac);        // 设备是否在主界面卡片中
+void ui_main_set_reconnect(const std::string &mac, bool reconnecting); // 显示/隐藏"重连中"状态条
+bool ui_main_notify_link_lost(const std::string &mac);  // 宽限期用尽:移除卡片并提示,返回卡片是否被移除
+
 // 定义
 std::vector<std::string> ui_bt_get_linked();

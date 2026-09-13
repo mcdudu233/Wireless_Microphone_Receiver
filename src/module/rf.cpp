@@ -5,6 +5,7 @@
 #include "module/audio/decoder.h"
 #include "tool/device.h"
 #include "ui/ui_bt.h"
+#include "ui/ui_main.h"
 #include "ui/ui_setting.h"
 
 #include "string"
@@ -400,6 +401,9 @@ static QueueHandle_t bleReceiveQueue;
 
 static void ble_start_scanning();
 static void ble_stop_scanning();
+static bool ble_connect_to_device(const std::string &mac);
+// 协议栈就绪后需要自动恢复扫描(WiFi模式断线超时后重开BLE时置位)
+static bool ble_scan_on_sync = false;
 
 // L2CAP 事件
 static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
@@ -572,6 +576,13 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
             LOGGER_INFO("BLE find new device: %s.", device->getBleMACString().c_str());
           }
         }
+        else
+        {
+          // 已知设备:刷新信号强度,并确保设备连接页列表中有它的行
+          // (断线超时返回设备页后,设备仍在管理器中但列表行需要重建)
+          device->setRssi(event->disc.rssi);
+          ui_bt_update(device->getBleMACString(), device->isBleConnected());
+        }
       }
     }
     break;
@@ -677,8 +688,12 @@ static void ble_on_reset(int reason)
 // NimBLE 协议栈加载完成
 static void ble_on_sync(void)
 {
-  // 开始搜索设备
-  // ble_start_scanning();
+  // 协议栈就绪后恢复扫描(WiFi模式断线超时后会重开BLE并请求扫描)
+  if (ble_scan_on_sync)
+  {
+    ble_scan_on_sync = false;
+    ble_start_scanning();
+  }
 }
 
 void ble_host_task(void *param)
@@ -767,6 +782,11 @@ static void ble_stop_scanning()
 // 搜索BLE设备
 static void ble_start_scanning()
 {
+  if (!bleIsOpen)
+  {
+    // NimBLE未初始化(WiFi模式)时不可调用协议栈接口
+    return;
+  }
   if (!bleScanning)
   {
     int rc;
@@ -1048,6 +1068,171 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
 }
 
 static unsigned long secondLastTime = millis(); // 每秒时间点
+
+/*****************************
+        断线重连监控
+*****************************/
+// 每个设备的重连监控状态(按BLE MAC区分,设备总数受RF_MAX_CONNECTION限制)
+struct ReconnectState
+{
+  std::string mac;
+  bool awaiting = false;    // 已断开,宽限期内等待重连
+  uint32_t sinceMs = 0;     // 断开时刻
+  uint32_t lastRetryMs = 0; // 上次主动重连尝试时刻
+};
+static ReconnectState reconnectStates[RF_MAX_CONNECTION];
+
+static ReconnectState *reconnect_state_find(const std::string &mac)
+{
+  for (uint8_t i = 0; i < RF_MAX_CONNECTION; i++)
+  {
+    if (reconnectStates[i].mac == mac)
+      return &reconnectStates[i];
+  }
+  for (uint8_t i = 0; i < RF_MAX_CONNECTION; i++)
+  {
+    if (reconnectStates[i].mac.empty())
+    {
+      reconnectStates[i].mac = mac;
+      return &reconnectStates[i];
+    }
+  }
+  return nullptr;
+}
+
+// 重连成功后重新下发音频启动命令(幂等),确保发射端恢复推流
+static void rf_resume_audio(Device &device)
+{
+  if (device.isBleConnected())
+  {
+    Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_AUDIO_SIZE);
+    if (packet != nullptr)
+    {
+      packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+      packet->packet.serverControlAudio.start = true;
+      packet->packet.serverControlAudio.channel = config::config.audio.channel;
+      packet->packet.serverControlAudio.rate = config::config.audio.rate;
+      packet->packet.serverControlAudio.bit = config::config.audio.bit;
+      packet->packet.serverControlAudio.mode = config::config.audio.mode;
+      packet->packet.serverControlAudio.gain = config::config.audio.gain;
+      ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+      free(packet);
+    }
+  }
+  else if (device.isWifiConnected())
+  {
+    // 裸IP传输不可靠,连发多次确保送达(与初始启动流程一致)
+    for (uint8_t retry = 0; retry < 3; retry++)
+    {
+      netbuf *buf = netbuf_new();
+      if (buf == NULL)
+        break;
+      Packet *packet = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+      if (packet == NULL)
+      {
+        netbuf_delete(buf);
+        continue;
+      }
+      packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+      packet->packet.serverControlAudio.start = true;
+      packet->packet.serverControlAudio.channel = config::config.audio.channel;
+      packet->packet.serverControlAudio.rate = config::config.audio.rate;
+      packet->packet.serverControlAudio.bit = config::config.audio.bit;
+      packet->packet.serverControlAudio.mode = config::config.audio.mode;
+      packet->packet.serverControlAudio.gain = config::config.audio.gain;
+      if (!wifi_send(device, buf))
+        break;
+    }
+  }
+}
+
+// 每秒检查各设备连接状态:断开时界面提示重连中,BLE模式主动重试,超时判定失败
+static void rf_reconnect_monitor()
+{
+  unsigned long now = millis();
+  Device *devices = deviceManager.getAllDevices();
+
+  // 先统计在线情况(用于超时后是否恢复BLE配对)
+  bool anyConnected = false;
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    if (devices[i].isBleConnected() || devices[i].isWifiConnected())
+    {
+      anyConnected = true;
+      break;
+    }
+  }
+
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    Device &device = devices[i];
+    bool connected = device.isBleConnected() || device.isWifiConnected();
+    // 只监控主界面卡片上的设备,未配对/已在设备页手动断开的设备不参与
+    const std::string mac = device.getBleMACString();
+    if (!ui_main_has_device(mac))
+      continue;
+    ReconnectState *state = reconnect_state_find(mac);
+    if (state == nullptr)
+      continue;
+
+    if (connected)
+    {
+      if (state->awaiting)
+      {
+        // 重连成功:撤下提示并让发射端恢复推流
+        state->awaiting = false;
+        ui_main_set_reconnect(mac, false);
+        rf_resume_audio(device);
+        LOGGER_INFO("Device %s reconnected.", mac.c_str());
+      }
+    }
+    else if (!state->awaiting)
+    {
+      // 刚断开:进入宽限期,界面提示重连中
+      state->awaiting = true;
+      state->sinceMs = now;
+      state->lastRetryMs = now;
+      ui_main_set_reconnect(mac, true);
+      LOGGER_WARN("Device %s disconnected, waiting for reconnect.", mac.c_str());
+    }
+    else if (now - state->sinceMs >= RF_RECONNECT_TIMEOUT_MS)
+    {
+      // 宽限期用尽:判定连接失败,移除卡片(可能自动返回设备连接页)
+      state->awaiting = false;
+      LOGGER_WARN("Device %s reconnect failed after %d ms.", mac.c_str(), (int)RF_RECONNECT_TIMEOUT_MS);
+      if (bleIsOpen)
+      {
+        // 清掉挂起的GAP过程(连接请求FOREVER不会自行超时),否则设备页无法恢复扫描
+        if (bleScanning)
+        {
+          ble_stop_scanning();
+        }
+        else
+        {
+          ble_gap_conn_cancel(); // 取消仍在进行中的重连连接请求
+        }
+      }
+      if (ui_main_notify_link_lost(mac))
+      {
+        // 已无任何在线设备且WiFi模式在运行:关闭WiFi、恢复BLE扫描,设备连接页才能重新发现发射器
+        if (!anyConnected && wifiIsOpen && !bleIsOpen)
+        {
+          wifi_close();
+          ble_scan_on_sync = true;
+          ble_open();
+          ble_start_scanning(); // 协议栈未就绪时由ble_on_sync补启
+        }
+      }
+    }
+    else if (bleIsOpen && !wifiIsOpen && now - state->lastRetryMs >= RF_RECONNECT_RETRY_INTERVAL_MS)
+    {
+      // BLE模式:接收器为主动机,周期性主动重连
+      state->lastRetryMs = now;
+      ble_connect_to_device(mac);
+    }
+  }
+}
+
 static void rf_handle(void *arg)
 {
   // 缓存
@@ -1144,6 +1329,9 @@ static void rf_handle(void *arg)
           }
         }
       }
+
+      /* 断线重连监控 */
+      rf_reconnect_monitor();
     }
   }
 }

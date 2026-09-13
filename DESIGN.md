@@ -178,6 +178,31 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 - **Layout**: every pixel dimension is explicit; status values use short symbol
   plus number forms so left and right values cannot collide.
 
+### Reconnect status chip
+- **Structure**: non-modal 94x18 rounded (4 px) strip centered over the device
+  card viewport, `status-warning-bg` surface with `text-primary` 12 px text.
+- **Text**: one line, width 88 px with end ellipsis; single device shows
+  `设备N重连中...`, multiple devices show `重连中... xN`.
+- **Behavior**: appears while a linked device is offline and inside the
+  reconnect grace window; never joins an encoder group and never blocks
+  navigation or the settings entry. It disappears as soon as every waiting
+  device reconnects or is dropped.
+
+### Connection-loss dialog and auto-return
+- **Trigger**: when a device stays offline past the reconnect grace window
+  (`RF_RECONNECT_TIMEOUT_MS`), its card is removed and a message dialog
+  reports `设备N连接失败`; when it was the last card, the second line states
+  `已返回选择设备` and the UI returns to the device selection screen.
+- **Dialog**: standard message dialog without action buttons; it closes on
+  encoder press or automatically after ~2.5 s.
+- **Auto-return while in settings**: if the settings overlay is in front when
+  the last card is removed, the return to the device screen is deferred until
+  the user leaves settings, then the same dialog is shown.
+- **Device selection list after auto-return**: the scan re-adds a missing row
+  for an already-known transmitter without touching the selection/focus of
+  existing rows; in WiFi mode the receiver closes WiFi and reopens BLE first
+  so pairing can resume.
+
 ### Message dialog
 - **Structure**: heading, divider, one- or two-line body, optional action row.
 - **Size**: 120x60 without actions; 120x75 with actions.

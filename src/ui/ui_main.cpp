@@ -1,5 +1,6 @@
 #include "ui/ui_main.h"
 #include "module/screen.h"
+#include <cstdio>
 #include <cstring>
 #include <algorithm>
 #include <new>
@@ -18,7 +19,13 @@ static lv_timer_t *timer_update;
 static lv_group_t *main_group;
 static bool style_indic_h_initialized;
 
+// 断线重连提示状态
+static lv_obj_t *reconnect_chip;               // "重连中"状态条(挂在info_widget上,非模态)
+static std::vector<std::string> reconnect_macs; // 处于重连等待的设备MAC
+static bool pending_return_bt = false;           // 设置页在前台时挂起的"返回设备连接页"请求
+
 static void setting_widget_cb(lv_event_t *e); // 设置按钮回调
+static void ui_main_show_link_lost_msgbox(const char *line1, const char *line2); // 连接失败提示框(自动关闭)
 
 void ui_main_init()
 {
@@ -146,8 +153,18 @@ void ui_main_init()
 
     timer_update = lv_timer_create([](lv_timer_t *t)
                                    {
-                                        // 更新数据
-                                        std::string speed = ui_info_get_transmit_speed();
+                                        // 挂起的"返回设备连接页":设置页退出、主界面重新可见后执行
+                                        if (pending_return_bt && main_widget != nullptr && lv_obj_is_valid(main_widget) && !lv_obj_has_flag(main_widget, LV_OBJ_FLAG_HIDDEN))
+                                        {
+                                            pending_return_bt = false;
+                                            ui_free_main_widget();
+                                            ui_bt_init();
+                                            ui_main_show_link_lost_msgbox("设备连接失败", "已返回选择设备");
+                                            return;
+                                        }
+
+                                         // 更新数据
+                                         std::string speed = ui_info_get_transmit_speed();
 
                                          uint32_t act = lv_tabview_get_tab_active(tabview);
                                          lv_obj_t *content = lv_tabview_get_content(tabview);
@@ -263,7 +280,11 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac
 
 void ui_free_main_widget()
 {
-    lv_timer_delete(timer_update);
+    if (timer_update != nullptr)
+    {
+        lv_timer_delete(timer_update);
+        timer_update = nullptr;
+    }
     for (size_t i = 0; i < cards.size(); ++i)
     {
         device_card_data *card_data = cards[i];
@@ -273,6 +294,11 @@ void ui_free_main_widget()
         }
     }
     cards.clear();
+
+    // 重连提示状态随界面一并复位(reconnect_chip挂在main_widget子树内,随之销毁)
+    reconnect_macs.clear();
+    reconnect_chip = nullptr;
+    pending_return_bt = false;
 
     if (main_group)
     {
@@ -317,17 +343,28 @@ void ui_info_del_card(const std::string &mac)
     {
         if (card->device_mac == mac)
         {
+            bool defer = false;
             LV_LOCK();
             lv_obj_del(card->tab);
             delete card;
             cards.erase(cards.begin() + i);
+            // 设置页在前台(主界面被隐藏)时不能立即切换页面,挂起请求等待其退出
+            if (cards.empty() && main_widget != nullptr && lv_obj_is_valid(main_widget) &&
+                lv_obj_has_flag(main_widget, LV_OBJ_FLAG_HIDDEN))
+            {
+                pending_return_bt = true;
+                defer = true;
+            }
             LV_UNLOCK();
 
             // 如果所有卡片都被删除，返回蓝牙连接窗口
-            if (cards.empty())
+            // (本函数可能被rf任务调用,销毁/重建界面必须持有LVGL锁)
+            if (cards.empty() && !defer)
             {
+                LV_LOCK();
                 ui_free_main_widget();
                 ui_bt_init();
+                LV_UNLOCK();
             }
             break;
         }
@@ -337,4 +374,170 @@ void ui_info_del_card(const std::string &mac)
 void ui_info_del_card(device_card_data *card)
 {
     ui_info_del_card(std::string(card->device_mac));
+}
+
+/*****************************
+      断线重连提示
+*****************************/
+// 刷新"重连中"状态条(调用方需已持有LVGL锁)
+// 非模态:不进入任何编码器分组,不阻挡主界面操作
+static void reconnect_chip_refresh()
+{
+    if (reconnect_macs.empty())
+    {
+        if (reconnect_chip != nullptr && lv_obj_is_valid(reconnect_chip))
+            lv_obj_delete(reconnect_chip);
+        reconnect_chip = nullptr;
+        return;
+    }
+
+    if (reconnect_chip == nullptr || !lv_obj_is_valid(reconnect_chip))
+    {
+        reconnect_chip = lv_obj_create(info_widget);
+        lv_obj_set_size(reconnect_chip, 94, 18);
+        lv_obj_align(reconnect_chip, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_pad_all(reconnect_chip, 0, 0);
+        lv_obj_set_style_border_width(reconnect_chip, 0, 0);
+        lv_obj_set_style_radius(reconnect_chip, 4, 0);
+        lv_obj_set_style_bg_color(reconnect_chip, lv_color_hex(0xFFFBEB), 0); // status-warning-bg
+        lv_obj_set_style_bg_opa(reconnect_chip, LV_OPA_COVER, 0);
+
+        lv_obj_t *label = lv_label_create(reconnect_chip);
+        lv_obj_set_style_text_font(label, UI_FONT_BODY, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(0x1F2937), 0); // text-primary
+        lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_width(label, 88);
+        lv_obj_set_height(label, lv_font_get_line_height(UI_FONT_BODY));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    }
+
+    lv_obj_t *label = lv_obj_get_child(reconnect_chip, 0);
+    if (label == nullptr)
+        return;
+    if (reconnect_macs.size() == 1)
+    {
+        // 单设备标注设备序号(与页签一致)
+        int idx = 1;
+        for (device_card_data *card : cards)
+        {
+            if (card->device_mac == reconnect_macs[0])
+                break;
+            idx++;
+        }
+        lv_label_set_text_fmt(label, "设备%d重连中...", idx);
+    }
+    else
+    {
+        lv_label_set_text_fmt(label, "重连中... x%d", (int)reconnect_macs.size());
+    }
+}
+
+bool ui_main_has_device(const std::string &mac)
+{
+    LV_LOCK();
+    bool has = main_widget != nullptr && lv_obj_is_valid(main_widget) &&
+               ui_info_get_obj(mac) != nullptr;
+    LV_UNLOCK();
+    return has;
+}
+
+void ui_main_set_reconnect(const std::string &mac, bool reconnecting)
+{
+    LV_LOCK();
+    if (reconnecting)
+    {
+        bool exists = false;
+        for (const std::string &m : reconnect_macs)
+        {
+            if (m == mac)
+            {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists)
+            reconnect_macs.push_back(mac);
+    }
+    else
+    {
+        for (auto it = reconnect_macs.begin(); it != reconnect_macs.end(); ++it)
+        {
+            if (*it == mac)
+            {
+                reconnect_macs.erase(it);
+                break;
+            }
+        }
+    }
+    if (main_widget != nullptr && lv_obj_is_valid(main_widget))
+        reconnect_chip_refresh();
+    LV_UNLOCK();
+}
+
+// 连接失败提示框:无按键,点击或2.5秒后自动关闭
+static void ui_main_show_link_lost_msgbox(const char *line1, const char *line2)
+{
+    LV_LOCK();
+    char text[64];
+    if (line2 != nullptr)
+        snprintf(text, sizeof(text), "%s\n%s", line1, line2);
+    else
+        snprintf(text, sizeof(text), "%s", line1);
+
+    lv_obj_t *popup = ui_popwin_msgbox(text, nullptr, nullptr, &ui_img_tips, "连接断开:");
+    lv_timer_t *autoclose = lv_timer_create(
+        [](lv_timer_t *timer)
+        {
+            lv_obj_t *cont = (lv_obj_t *)lv_timer_get_user_data(timer);
+            if (cont != nullptr && lv_obj_is_valid(cont))
+                lv_obj_send_event(cont, LV_EVENT_CLICKED, NULL); // 复用弹窗点击关闭逻辑(恢复分组并销毁)
+        },
+        2500, popup);
+    lv_timer_set_repeat_count(autoclose, 1); // 仅执行一次,到点自动删除定时器
+    LV_UNLOCK();
+}
+
+bool ui_main_notify_link_lost(const std::string &mac)
+{
+    LV_LOCK();
+    bool has = main_widget != nullptr && lv_obj_is_valid(main_widget) &&
+               ui_info_get_obj(mac) != nullptr;
+    bool hidden = has && lv_obj_has_flag(main_widget, LV_OBJ_FLAG_HIDDEN);
+    bool last = has && (cards.size() == 1);
+    int idx = 0;
+    if (has)
+    {
+        for (size_t i = 0; i < cards.size(); i++)
+        {
+            if (cards[i]->device_mac == mac)
+            {
+                idx = (int)i + 1;
+                break;
+            }
+        }
+    }
+    for (auto it = reconnect_macs.begin(); it != reconnect_macs.end(); ++it)
+    {
+        if (*it == mac)
+        {
+            reconnect_macs.erase(it);
+            break;
+        }
+    }
+    LV_UNLOCK();
+
+    if (!has)
+        return false; // 设备不在主界面(如用户已在设备页手动断开)
+
+    // 移除卡片;若为最后一张,内部会切回设备连接页(设置页在前台时改为挂起请求)
+    ui_info_del_card(mac);
+
+    if (!hidden)
+    {
+        char line1[32];
+        snprintf(line1, sizeof(line1), "设备%d连接失败", idx);
+        ui_main_show_link_lost_msgbox(line1, last ? "已返回选择设备" : nullptr);
+    }
+    // 设置页在前台时静默处理:挂起的返回请求由刷新定时器执行,返回后再补提示
+    return true;
 }
