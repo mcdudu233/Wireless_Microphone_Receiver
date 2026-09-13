@@ -8,7 +8,8 @@
 #define AUDIO_BUFFER_MAX_BUFFER_SIZE 100
 
 // 传输延迟(等待多久才把数据输出,数值过低会导致爆音)
-#define AUDIO_BUFFER_DELAY_PACKET 10                                                      // 延迟多少个数据包
+// WiFi存在毫秒到几十毫秒级的传输抖动, 缓冲需要足够深避免周期性断续
+#define AUDIO_BUFFER_DELAY_PACKET 20                                                      // 延迟多少个数据包
 #define AUDIO_BUFFER_DELAY_TIME (AUDIO_BUFFER_DELAY_PACKET * AUDIO_DECODER_POLLING_CYCLE) // 计算得到传输延迟
 
 struct AudioData
