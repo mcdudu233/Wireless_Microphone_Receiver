@@ -13,11 +13,11 @@ void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, size_t &iram_c
 
 // audio页面读取回调
 void ui_setting_audio_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &rate, AudioGain &gain, AudioMode &mode);
-// audio页面保存回调 now: 是否立即生效
-void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode, bool now);
+// audio页面保存并立即生效回调
+void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode);
 
 void ui_setting_usb_page_rcb(USBMode &mode);
-void ui_setting_usb_page_scb(USBMode mode, bool now);
+void ui_setting_usb_page_scb(USBMode mode);
 
 void ui_setting_rf_page_rcb(RFMode &mode);
-void ui_setting_rf_page_scb(RFMode mode, bool now);
+void ui_setting_rf_page_scb(RFMode mode);

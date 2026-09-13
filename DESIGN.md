@@ -47,7 +47,7 @@ but each screen must have one obvious focus target and no decorative clutter.
 
 All three sizes are generated from the approved HarmonyOS Sans SC sources in
 `docs/resources/fonts/` (titles use Medium, body uses Regular) via the pipeline
-in `docs/tools/README.md`. They share one 151-glyph Chinese symbol set extracted
+in `docs/tools/README.md`. They share one 174-glyph Chinese symbol set extracted
 from every string literal in the Receiver sources, and every size falls back to
 the matching built-in Montserrat font for `LV_SYMBOL_*` glyphs. Generated font
 files must not be hand-edited.
@@ -177,6 +177,8 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 
 - Physical previous and next buttons move focus backward and forward. Pressing
   both together confirms the focused item. Do not add a competing input model.
+- Settings dropdowns and sliders save and apply their selected value as soon as
+  it changes. Returning from a settings subpage never asks whether to apply it.
 - Focus must always remain visible when a list scrolls. Returning from a subpage
   restores focus to the row that opened it.
 - Root settings rows may use the existing 300 ms horizontal entry transition.

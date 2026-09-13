@@ -1331,7 +1331,7 @@ void ui_setting_audio_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &
   mode = config::config.audio.mode;
 }
 
-void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode, bool now)
+void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode)
 {
   LOGGER_INFO("ui_setting_audio_page_scb");
   config::config.audio.bit = (AudioBit)bit;
@@ -1341,16 +1341,33 @@ void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rat
   config::config.audio.mode = (AudioMode)mode;
   config::save();
 
-  if (now)
+  // 立即将新音频配置发送到所有已连接设备
+  Device *devices = deviceManager.getAllDevices();
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
   {
-    // 立即将新音频配置发送到所有已连接设备
-    Device *devices = deviceManager.getAllDevices();
-    for (uint8_t i = 0; i < deviceManager.size(); i++)
+    Device &device = devices[i];
+    if (device.isBleConnected())
     {
-      Device &device = devices[i];
-      if (device.isBleConnected())
+      Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_AUDIO_SIZE);
+      if (packet)
       {
-        Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_AUDIO_SIZE);
+        packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+        packet->packet.serverControlAudio.start = true;
+        packet->packet.serverControlAudio.channel = channel;
+        packet->packet.serverControlAudio.rate = rate;
+        packet->packet.serverControlAudio.bit = bit;
+        packet->packet.serverControlAudio.mode = mode;
+        packet->packet.serverControlAudio.gain = gain;
+        ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+        free(packet);
+      }
+    }
+    if (device.isWifiConnected())
+    {
+      netbuf *buf = netbuf_new();
+      if (buf != NULL)
+      {
+        Packet *packet = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_AUDIO_SIZE);
         if (packet)
         {
           packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
@@ -1360,37 +1377,11 @@ void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rat
           packet->packet.serverControlAudio.bit = bit;
           packet->packet.serverControlAudio.mode = mode;
           packet->packet.serverControlAudio.gain = gain;
-          ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_AUDIO_SIZE);
-          free(packet);
-        }
-      }
-      if (device.isWifiConnected())
-      {
-        netbuf *buf = netbuf_new();
-        if (buf != NULL)
-        {
-          Packet *packet = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_AUDIO_SIZE);
-          if (packet)
-          {
-            packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
-            packet->packet.serverControlAudio.start = true;
-            packet->packet.serverControlAudio.channel = channel;
-            packet->packet.serverControlAudio.rate = rate;
-            packet->packet.serverControlAudio.bit = bit;
-            packet->packet.serverControlAudio.mode = mode;
-            packet->packet.serverControlAudio.gain = gain;
-            wifi_send(device, buf);
-          }
+          wifi_send(device, buf);
         }
       }
     }
   }
-  config::config.audio.bit = bit;
-  config::config.audio.channel = channel;
-  config::config.audio.rate = rate;
-  config::config.audio.gain = gain;
-  config::config.audio.mode = mode;
-  config::save();
 }
 
 void ui_setting_rf_page_rcb(RFMode &mode)
@@ -1398,31 +1389,27 @@ void ui_setting_rf_page_rcb(RFMode &mode)
   mode = config::config.rf.mode;
 }
 
-void ui_setting_rf_page_scb(RFMode mode, bool now)
+void ui_setting_rf_page_scb(RFMode mode)
 {
   LOGGER_INFO("ui_setting_rf_page_scb");
-  if (now)
+  // RF 模式切换需要向已连接设备发送新配置
+  Device *devices = deviceManager.getAllDevices();
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
   {
-    // RF 模式切换需要重启通信协议
-    Device *devices = deviceManager.getAllDevices();
-    for (uint8_t i = 0; i < deviceManager.size(); i++)
+    Device &device = devices[i];
+    if (device.isBleConnected())
     {
-      Device &device = devices[i];
-      if (device.isBleConnected())
+      Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_RF_SIZE);
+      if (packet)
       {
-        // 通过 BLE 发送 RF 模式切换命令
-        Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_RF_SIZE);
-        if (packet)
-        {
-          packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
-          packet->packet.serverControlRF.mode = mode;
-          snprintf(packet->packet.serverControlRF.ssid,
-                   sizeof(packet->packet.serverControlRF.ssid), "%s", WIFI_NAME);
-          snprintf(packet->packet.serverControlRF.password,
-                   sizeof(packet->packet.serverControlRF.password), "%s", WIFI_PASSWORD);
-          ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
-          free(packet);
-        }
+        packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
+        packet->packet.serverControlRF.mode = mode;
+        snprintf(packet->packet.serverControlRF.ssid,
+                 sizeof(packet->packet.serverControlRF.ssid), "%s", WIFI_NAME);
+        snprintf(packet->packet.serverControlRF.password,
+                 sizeof(packet->packet.serverControlRF.password), "%s", WIFI_PASSWORD);
+        ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
+        free(packet);
       }
     }
   }

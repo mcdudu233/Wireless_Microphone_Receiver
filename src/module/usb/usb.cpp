@@ -242,15 +242,12 @@ void ui_setting_usb_page_rcb(USBMode &mode)
 }
 
 // 界面保存USB设置
-void ui_setting_usb_page_scb(USBMode mode, bool now)
+void ui_setting_usb_page_scb(USBMode mode)
 {
   LOGGER_INFO("ui_setting_usb_page_scb");
   config::config.usb.mode = mode;
   config::save();
-  if (now)
-  {
-    usb::on(mode);
-  }
+  usb::on(mode);
 }
 /****************************/
 
