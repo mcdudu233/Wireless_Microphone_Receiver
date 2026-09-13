@@ -1,11 +1,12 @@
 #include "module/usb/usb_descriptors.h"
+#include "module/usb/usb.h"
 
 #include "tusb.h"
 
 //--------------------------------------------------------------------+
 // Device Descriptors
 //--------------------------------------------------------------------+
-tusb_desc_device_t const desc_device = {
+tusb_desc_device_t const desc_device_audio = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
@@ -27,17 +28,34 @@ tusb_desc_device_t const desc_device = {
 
     .bNumConfigurations = 0x01};
 
+tusb_desc_device_t const desc_device_msc = {
+    .bLength = sizeof(tusb_desc_device_t),
+    .bDescriptorType = TUSB_DESC_DEVICE,
+    .bcdUSB = 0x0200,
+    .bDeviceClass = 0x00,
+    .bDeviceSubClass = 0x00,
+    .bDeviceProtocol = 0x00,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .idVendor = 0x303A,
+    .idProduct = 0x8001,
+    .bcdDevice = 0x0100,
+    .iManufacturer = 0x01,
+    .iProduct = 0x02,
+    .iSerialNumber = 0x03,
+    .bNumConfigurations = 0x01};
+
 // Invoked when received GET DEVICE DESCRIPTOR
 // Application return pointer to descriptor
 uint8_t const *tud_descriptor_device_cb(void)
 {
-    return (uint8_t const *)&desc_device;
+    return reinterpret_cast<uint8_t const *>(usb::active_mode() == USB_MODE_SD ? &desc_device_msc : &desc_device_audio);
 }
 
 //--------------------------------------------------------------------+
 // Configuration Descriptor
 //--------------------------------------------------------------------+
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + CFG_TUD_AUDIO * TUD_AUDIO_MIC_TWO_CH_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN)
+#define AUDIO_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_AUDIO_MIC_TWO_CH_DESC_LEN + TUD_CDC_DESC_LEN)
+#define MSC_CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN)
 #define EPNUM_CDC_NOTIF 0x81
 #define EPNUM_CDC_OUT 0x02
 #define EPNUM_CDC_IN 0x82
@@ -45,10 +63,17 @@ uint8_t const *tud_descriptor_device_cb(void)
 
 uint8_t const desc_configuration[] = {
     // Config number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 500),
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, AUDIO_CONFIG_TOTAL_LEN, 0x00, 500),
     TUD_AUDIO_MIC_TWO_CH_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, 4, EPNUM_AUDIO_IN),
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_CMD, 5, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
 };
+static_assert(sizeof(desc_configuration) == AUDIO_CONFIG_TOTAL_LEN, "Audio USB descriptor length mismatch");
+
+uint8_t const desc_configuration_msc[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_MSC_TOTAL, 0, MSC_CONFIG_TOTAL_LEN, 0x00, 500),
+    TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, 6, 0x01, 0x81, 64),
+};
+static_assert(sizeof(desc_configuration_msc) == MSC_CONFIG_TOTAL_LEN, "MSC USB descriptor length mismatch");
 
 // Invoked when received GET CONFIGURATION DESCRIPTOR
 // Application return pointer to descriptor
@@ -56,7 +81,7 @@ uint8_t const desc_configuration[] = {
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
 {
     (void)index; // for multiple configurations
-    return desc_configuration;
+    return usb::active_mode() == USB_MODE_SD ? desc_configuration_msc : desc_configuration;
 }
 
 //--------------------------------------------------------------------+
@@ -71,6 +96,7 @@ char const *string_desc_arr[] = {
     "mic_2_192khz_32bit",             // 3: Serials, should use chip ID
     "WirelessMicrophone Audio (UAC)", // 4: UAC Interface
     "WirelessMicrophone UART (CDC)",  // 5: CDC Interface
+    "WirelessMicrophone TF (MSC)",    // 6: MSC Interface
 };
 
 static uint16_t _desc_str[32];
@@ -96,7 +122,9 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
             return NULL;
         }
 
-        const char *str = string_desc_arr[index];
+        const char *str = index == 2 && usb::active_mode() == USB_MODE_SD
+                              ? "Wireless Microphone TF Card"
+                              : string_desc_arr[index];
 
         // Cap at max char
         chr_count = (uint8_t)strlen(str);

@@ -110,6 +110,8 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 - **Structure**: one 160x80 root with zero padding and zero border.
 - **Typography**: explicit 12 px body font.
 - **Surface**: `surface-screen`; no nested full-screen borders.
+- **Settings header**: 19 px fixed height, leaving a 56 px content viewport in
+  the 155x75 settings menu surface.
 
 ### Focusable row
 - **Structure**: optional 16x16 icon, one-line label, optional value control.
@@ -148,6 +150,16 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   and a right-aligned primary-color dynamic value on the right.
 - **Usage**: system information pages; rows stay focusable so the encoder can
   scroll the page, with 2 px bottom separation.
+
+### USB mode detail block
+- **Structure**: one compact mode dropdown followed by a fixed two-line white
+  detail surface; the first line contains the mode's primary capability or TF
+  capacity/type, and the second line contains availability or access behavior.
+- **Layout**: the complete selector and detail block must fit in the USB page's
+  fixed viewport. The page is not scrollable and never shows a scrollbar.
+- **Behavior**: details preview the highlighted dropdown option immediately.
+  Missing TF media is shown as an unavailable state; mass-storage mode states
+  that the host has exclusive access while it is active.
 
 ### Device meter card
 - **Structure**: 20 px tab bar, two labeled 10 px meter rows, one compact status row.

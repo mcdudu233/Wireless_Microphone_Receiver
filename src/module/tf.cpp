@@ -14,6 +14,8 @@
 namespace
 {
   volatile bool mounted = false;
+  volatile bool usb_storage_active = false;
+  tf::StorageInfo storage_info = {};
   StaticSemaphore_t card_mutex_buffer;
   SemaphoreHandle_t card_mutex = nullptr;
   StaticSemaphore_t request_mutex_buffer;
@@ -91,6 +93,33 @@ namespace
   bool deletable_path(const char *path)
   {
     return path_has_prefix(path, TF_RECORDINGS_ROOT) || path_has_prefix(path, TF_LOG_ROOT);
+  }
+
+  tf::CardType current_card_type()
+  {
+    switch (SD_MMC.cardType())
+    {
+    case CARD_MMC:
+      return tf::CardType::MMC;
+    case CARD_SD:
+      return tf::CardType::SD;
+    case CARD_SDHC:
+      return tf::CardType::SDHC;
+    default:
+      return tf::CardType::UNKNOWN;
+    }
+  }
+
+  void refresh_storage_info()
+  {
+    const int sector_size = SD_MMC.sectorSize();
+    const int sector_count = SD_MMC.numSectors();
+    storage_info.type = current_card_type();
+    storage_info.capacity_bytes = SD_MMC.cardSize();
+    storage_info.total_bytes = SD_MMC.totalBytes();
+    storage_info.used_bytes = SD_MMC.usedBytes();
+    storage_info.sector_size = sector_size > 0 ? static_cast<uint16_t>(sector_size) : 0;
+    storage_info.sector_count = sector_count > 0 ? static_cast<uint32_t>(sector_count) : 0;
   }
 
   bool ensure_directory(const char *path)
@@ -200,19 +229,20 @@ void tf::setup()
   if (SD_MMC.begin(TF_MOUNT_POINT, TF_1BIT_MODE, false, TF_FREQ))
   {
     LOGGER_INFO("TF card is mounted.");
-    switch (SD_MMC.cardType())
+    refresh_storage_info();
+    switch (storage_info.type)
     {
-    case CARD_MMC:
+    case CardType::MMC:
     {
       LOGGER_INFO("TF card type is MMC.");
       break;
     }
-    case CARD_SD:
+    case CardType::SD:
     {
       LOGGER_INFO("TF card type is SD.");
       break;
     }
-    case CARD_SDHC:
+    case CardType::SDHC:
     {
       LOGGER_INFO("TF card type is SDHC.");
       break;
@@ -237,10 +267,12 @@ void tf::setup()
     {
       write_default_config();
       mounted = true;
+      storage_info.mounted = true;
       if (xTaskCreatePinnedToCore(tf_worker, "tf_worker", TASK_TF_STACK, nullptr, TASK_TF_PRIORITY, &worker_handle, TASK_TF_CORE) != pdPASS)
       {
         worker_handle = nullptr;
         mounted = false;
+        storage_info.mounted = false;
         LOGGER_WARN("TF worker creation failed.");
       }
     }
@@ -258,20 +290,98 @@ bool tf::is_mounted()
   return mounted;
 }
 
+void tf::get_info(StorageInfo &info)
+{
+  info = storage_info;
+  info.mounted = mounted;
+  info.usb_active = usb_storage_active;
+}
+
+bool tf::set_usb_storage_active(bool active)
+{
+  if (!card_mutex || !request_mutex)
+    return !active;
+
+  xSemaphoreTake(request_mutex, portMAX_DELAY);
+  if (active && (!mounted || request_status != RequestStatus::IDLE ||
+                 storage_info.sector_size != 512 || storage_info.sector_count == 0))
+  {
+    xSemaphoreGive(request_mutex);
+    return false;
+  }
+
+  CardLock lock;
+  if (!lock.acquired())
+  {
+    xSemaphoreGive(request_mutex);
+    return false;
+  }
+
+  usb_storage_active = active;
+  storage_info.usb_active = active;
+  if (!active && mounted)
+  {
+    mounted = false;
+    storage_info.mounted = false;
+    SD_MMC.end();
+    if (SD_MMC.begin(TF_MOUNT_POINT, TF_1BIT_MODE, false, TF_FREQ))
+    {
+      refresh_storage_info();
+      mounted = true;
+      storage_info.mounted = true;
+      if (!(ensure_directory(TF_DATA_ROOT) &&
+            ensure_directory(TF_RECORDINGS_ROOT) &&
+            ensure_directory(TF_CONFIG_ROOT) &&
+            ensure_directory(TF_LOG_ROOT)))
+        LOGGER_WARN("TF storage directory remount check failed.");
+      else
+        write_default_config();
+    }
+    else
+    {
+      storage_info.type = CardType::NONE;
+      LOGGER_WARN("TF card remount after USB storage failed.");
+    }
+  }
+  xSemaphoreGive(request_mutex);
+  return true;
+}
+
+bool tf::is_usb_storage_active()
+{
+  return usb_storage_active;
+}
+
+bool tf::read_sector(uint32_t sector, uint8_t *buffer)
+{
+  if (!usb_storage_active || !buffer || sector >= storage_info.sector_count)
+    return false;
+  CardLock lock;
+  return lock.acquired() && usb_storage_active && SD_MMC.readRAW(buffer, sector);
+}
+
+bool tf::write_sector(uint32_t sector, const uint8_t *buffer)
+{
+  if (!usb_storage_active || !buffer || sector >= storage_info.sector_count)
+    return false;
+  CardLock lock;
+  return lock.acquired() && usb_storage_active && SD_MMC.writeRAW(const_cast<uint8_t *>(buffer), sector);
+}
+
 bool tf::is_deletable_path(const char *path)
 {
-  return mounted && valid_path(path) && deletable_path(path);
+  return mounted && !usb_storage_active && valid_path(path) && deletable_path(path);
 }
 
 bool tf::list(const char *path, FileEntry *entries, size_t capacity, size_t &count, bool &truncated)
 {
   count = 0;
   truncated = false;
-  if (!mounted || !entries || capacity == 0 || !valid_path(path))
+  if (!mounted || usb_storage_active || !entries || capacity == 0 || !valid_path(path))
     return false;
 
   CardLock lock;
-  if (!lock.acquired())
+  if (!lock.acquired() || usb_storage_active)
     return false;
 
   File root = SD_MMC.open(path);
@@ -325,11 +435,11 @@ bool tf::list(const char *path, FileEntry *entries, size_t capacity, size_t &cou
 
 bool tf::remove_file(const char *path)
 {
-  if (!is_deletable_path(path))
+  if (usb_storage_active || !is_deletable_path(path))
     return false;
 
   CardLock lock;
-  if (!lock.acquired())
+  if (!lock.acquired() || usb_storage_active)
     return false;
   File file = SD_MMC.open(path);
   if (!file || file.isDirectory())
@@ -344,10 +454,10 @@ bool tf::remove_file(const char *path)
 
 bool tf::request_list(const char *path, uint32_t request_id_value)
 {
-  if (!mounted || !valid_path(path) || !request_mutex || !worker_handle)
+  if (!mounted || usb_storage_active || !valid_path(path) || !request_mutex || !worker_handle)
     return false;
   xSemaphoreTake(request_mutex, portMAX_DELAY);
-  if (request_status != RequestStatus::IDLE)
+  if (usb_storage_active || request_status != RequestStatus::IDLE)
   {
     xSemaphoreGive(request_mutex);
     return false;
@@ -383,10 +493,10 @@ bool tf::take_list_result(FileEntry *entries, size_t capacity, size_t &count, bo
 
 bool tf::request_remove_file(const char *path, uint32_t request_id_value)
 {
-  if (!mounted || !valid_path(path) || !request_mutex || !worker_handle)
+  if (!mounted || usb_storage_active || !valid_path(path) || !request_mutex || !worker_handle)
     return false;
   xSemaphoreTake(request_mutex, portMAX_DELAY);
-  if (request_status != RequestStatus::IDLE)
+  if (usb_storage_active || request_status != RequestStatus::IDLE)
   {
     xSemaphoreGive(request_mutex);
     return false;
@@ -419,7 +529,7 @@ bool tf::take_remove_result(bool &success, uint32_t &request_id_value)
 
 bool tf::make_recording_path(time_t timestamp, char *path, size_t path_size)
 {
-  if (!mounted || !path || path_size == 0)
+  if (!mounted || usb_storage_active || !path || path_size == 0)
     return false;
 
   struct tm local_time;
@@ -431,7 +541,7 @@ bool tf::make_recording_path(time_t timestamp, char *path, size_t path_size)
                 local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday);
 
   CardLock lock;
-  if (!lock.acquired() || !ensure_directory(TF_RECORDINGS_ROOT))
+  if (!lock.acquired() || usb_storage_active || !ensure_directory(TF_RECORDINGS_ROOT))
     return false;
   char year_path[TF_PATH_MAX];
   char month_path[TF_PATH_MAX];

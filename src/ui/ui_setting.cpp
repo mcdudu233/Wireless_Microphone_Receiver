@@ -41,6 +41,8 @@ static lv_obj_t *slider_audio_gain;
 static lv_obj_t *dd_rf_mode;
 
 static lv_obj_t *dd_usb_mode;
+static lv_obj_t *usb_detail_primary;
+static lv_obj_t *usb_detail_secondary;
 
 static lv_obj_t *sys_rows[4]; // 系统信息行容器，加入焦点组以支持滚动
 static lv_obj_t *cpu1;
@@ -68,6 +70,9 @@ static void file_parent_cb(lv_event_t *e);
 static bool join_file_path(const char *name, char *path, size_t path_size);
 static void set_settings_focus(uint8_t page);
 static void delete_settings_group();
+static USBMode selected_usb_mode();
+static void update_usb_mode_details();
+static void usb_mode_changed_cb(lv_event_t *e);
 
 static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt, lv_obj_t **label_o = nullptr, bool is_from_svg = false);
 static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
@@ -121,10 +126,13 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_t *main_header = lv_menu_get_main_header(menu);
     if (main_header)
     {
+        lv_obj_set_height(main_header, 19);
+        lv_obj_set_style_pad_ver(main_header, 1, 0);
         lv_obj_set_style_bg_color(main_header, lv_color_hex(0xFFFFFF), 0);
         main_back_btn = lv_obj_get_child_by_type(main_header, 0, &lv_button_class);
         if (main_back_btn)
         {
+            lv_obj_set_style_pad_all(main_back_btn, 1, 0);
             // 去除按钮本身的焦点边框
             lv_obj_set_style_outline_width(main_back_btn, 0, LV_STATE_FOCUSED);
             lv_obj_set_style_outline_width(main_back_btn, 0, LV_STATE_FOCUS_KEY);
@@ -152,8 +160,9 @@ void ui_setting_init(lv_obj_t *ui_from)
     /*Create sub pages*/
     lv_obj_t *sub_about_page = ui_create_sub_page(menu, "关于", false);
     lv_obj_set_user_data(sub_about_page, (void *)e_page::about_page);
-    lv_obj_t *sub_usb_page = ui_create_sub_page(menu, "USB传输设置");
+    lv_obj_t *sub_usb_page = ui_create_sub_page(menu, "USB传输设置", false);
     lv_obj_set_user_data(sub_usb_page, (void *)e_page::usb_page);
+    lv_obj_remove_flag(sub_usb_page, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *sub_file_page = ui_create_sub_page(menu, "文件管理");
     lv_obj_set_user_data(sub_file_page, (void *)e_page::file_page);
     file_page_ref = sub_file_page;
@@ -217,13 +226,41 @@ void ui_setting_init(lv_obj_t *ui_from)
     // ui_create_text(sub_system_page, NULL, "外置存储", &sd);
 
     // section = lv_menu_section_create(sub_usb_page);
-    ui_create_dropdown(sub_usb_page, NULL, "传输模式", "默认\n"
+    lv_obj_t *usb_mode_row = ui_create_dropdown(sub_usb_page, NULL, "传输模式", "关闭\n"
                                                        "音频\n"
                                                        "读卡器\n"
                                                        "JTAG",
 
                        &dd_usb_mode);
-    // lv_obj_add_event_cb(dd_usb_mode, &choose_cb, LV_EVENT_VALUE_CHANGED, (void *)1);
+    lv_obj_set_height(usb_mode_row, 24);
+    lv_obj_set_style_pad_ver(usb_mode_row, 2, 0);
+    lv_obj_set_height(dd_usb_mode, 18);
+    lv_obj_add_event_cb(dd_usb_mode, usb_mode_changed_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    lv_obj_t *usb_details = lv_obj_create(sub_usb_page);
+    lv_obj_set_size(usb_details, lv_pct(100), 30);
+    lv_obj_set_style_pad_all(usb_details, 0, 0);
+    lv_obj_set_style_pad_hor(usb_details, 5, 0);
+    lv_obj_set_style_border_width(usb_details, 0, 0);
+    lv_obj_set_style_radius(usb_details, 4, 0);
+    lv_obj_set_style_bg_color(usb_details, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_remove_flag(usb_details, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(usb_details, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(usb_details, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+
+    usb_detail_primary = lv_label_create(usb_details);
+    usb_detail_secondary = lv_label_create(usb_details);
+    lv_obj_set_width(usb_detail_primary, lv_pct(100));
+    lv_obj_set_height(usb_detail_primary, lv_font_get_line_height(UI_FONT_BODY));
+    lv_label_set_long_mode(usb_detail_primary, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(usb_detail_primary, UI_FONT_BODY, 0);
+    lv_obj_set_width(usb_detail_secondary, lv_pct(100));
+    lv_obj_set_height(usb_detail_secondary, lv_font_get_line_height(UI_FONT_BODY));
+    lv_label_set_long_mode(usb_detail_secondary, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(usb_detail_secondary, UI_FONT_BODY, 0);
+    lv_obj_set_style_text_color(usb_detail_primary, lv_color_hex(0x1F2937), 0);
+    lv_obj_set_style_text_color(usb_detail_secondary, lv_color_hex(0x6B7280), 0);
+    update_usb_mode_details();
     // 音频 频率 比特 通道 下拉菜单
     // 48000 96000 192000 Hz
     // 16 24 32 bit
@@ -732,6 +769,7 @@ static void enter_subpage_cb(lv_event_t *e)
             break;
         }
         lv_dropdown_set_selected(dd_usb_mode, sel);
+        update_usb_mode_details();
         break;
     }
     case e_page::rf_page:
@@ -839,6 +877,97 @@ static void scroll_event_cb(lv_event_t *e)
             }
         }
     }
+}
+
+static USBMode selected_usb_mode()
+{
+    switch (lv_dropdown_get_selected(dd_usb_mode))
+    {
+    case 1:
+        return USB_MODE_AUDIO;
+    case 2:
+        return USB_MODE_SD;
+    case 3:
+        return USB_MODE_JTAG;
+    default:
+        return USB_MODE_NONE;
+    }
+}
+
+static void update_usb_mode_details()
+{
+    if (!usb_detail_primary || !usb_detail_secondary)
+        return;
+
+    switch (selected_usb_mode())
+    {
+    case USB_MODE_AUDIO:
+    {
+        AudioBit bit;
+        AudioChannel channel;
+        AudioRate rate;
+        AudioGain gain;
+        AudioMode mode;
+        ui_setting_audio_page_rcb(bit, channel, rate, gain, mode);
+        lv_label_set_text_fmt(usb_detail_primary, "麦克风 %lukHz/%ubit/%s",
+                              static_cast<unsigned long>(rate) / 1000,
+                              static_cast<unsigned int>(bit),
+                              channel == AUDIO_CHANNEL_STEREO ? "立体声" : "单声道");
+        lv_label_set_text(usb_detail_secondary, "同时提供CDC串口");
+        break;
+    }
+    case USB_MODE_SD:
+    {
+        tf::StorageInfo info;
+        tf::get_info(info);
+        if (!info.mounted)
+        {
+            lv_label_set_text(usb_detail_primary, "未检测到TF卡");
+            lv_label_set_text(usb_detail_secondary, "此模式暂不可用");
+            break;
+        }
+        const char *type = "未知";
+        switch (info.type)
+        {
+        case tf::CardType::MMC:
+            type = "MMC";
+            break;
+        case tf::CardType::SD:
+            type = "SD";
+            break;
+        case tf::CardType::SDHC:
+            type = "SDHC";
+            break;
+        default:
+            break;
+        }
+        if (info.capacity_bytes >= 1024ULL * 1024 * 1024)
+        {
+            const uint32_t capacity_tenths = static_cast<uint32_t>(info.capacity_bytes * 10 / (1024ULL * 1024 * 1024));
+            lv_label_set_text_fmt(usb_detail_primary, "TF大小 %u.%uGB/%s",
+                                  capacity_tenths / 10, capacity_tenths % 10, type);
+        }
+        else
+            lv_label_set_text_fmt(usb_detail_primary, "TF大小 %luMB/%s",
+                                  static_cast<unsigned long>(info.capacity_bytes / (1024 * 1024)), type);
+        lv_label_set_text(usb_detail_secondary, info.usb_active ? "已连接/主机独占" : "读写模式/主机独占");
+        break;
+    }
+    case USB_MODE_JTAG:
+        lv_label_set_text(usb_detail_primary, "下载、调试与串口");
+        lv_label_set_text(usb_detail_secondary, "使用USB Serial/JTAG");
+        break;
+    case USB_MODE_NONE:
+    default:
+        lv_label_set_text(usb_detail_primary, "USB数据传输已关闭");
+        lv_label_set_text(usb_detail_secondary, "USB供电仍可使用");
+        break;
+    }
+}
+
+static void usb_mode_changed_cb(lv_event_t *)
+{
+    update_usb_mode_details();
 }
 
 static void save_config(uint8_t &p, bool now)

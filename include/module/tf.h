@@ -25,6 +25,27 @@
 
 namespace tf
 {
+  enum class CardType : uint8_t
+  {
+    NONE,
+    MMC,
+    SD,
+    SDHC,
+    UNKNOWN
+  };
+
+  struct StorageInfo
+  {
+    bool mounted;
+    bool usb_active;
+    CardType type;
+    uint64_t capacity_bytes;
+    uint64_t total_bytes;
+    uint64_t used_bytes;
+    uint32_t sector_count;
+    uint16_t sector_size;
+  };
+
   struct FileEntry
   {
     char name[TF_FILE_NAME_MAX];
@@ -43,6 +64,11 @@ namespace tf
 
   void setup();
   bool is_mounted();
+  void get_info(StorageInfo &info);
+  bool set_usb_storage_active(bool active);
+  bool is_usb_storage_active();
+  bool read_sector(uint32_t sector, uint8_t *buffer);
+  bool write_sector(uint32_t sector, const uint8_t *buffer);
   bool is_deletable_path(const char *path);
   bool list(const char *path, FileEntry *entries, size_t capacity, size_t &count, bool &truncated);
   bool remove_file(const char *path);

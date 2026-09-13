@@ -2,7 +2,9 @@
 #include "logger.h"
 #include "module/usb/usb.h"
 #include "module/usb/usb_device_cdc.h"
+#include "module/usb/usb_device_msc.h"
 #include "module/usb/usb_device_uac.h"
+#include "module/tf.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -12,13 +14,15 @@
 
 static bool usb_on = false;
 static bool usb_tusb_on = false;
-static bool usb_download_later = false;
-static TaskHandle_t usb_task;
-static usb_phy_handle_t usb_phy;
+static volatile bool usb_download_later = false;
+static TaskHandle_t usb_task = nullptr;
+static usb_phy_handle_t usb_phy = nullptr;
+static volatile USBMode usb_active_mode = USB_MODE_NONE;
 
 static void usb_jtag_mode();
 static void usb_audio_mode();
 static void usb_sd_mode();
+static bool usb_tinyusb_mode();
 
 static void usb_handle(void *arg)
 {
@@ -29,7 +33,8 @@ static void usb_handle(void *arg)
     xTaskDelayUntil(&xLastWakeTime, xFrequency);
 
     // 处理 UAC
-    usb::uac::_loop();
+    if (usb_active_mode == USB_MODE_AUDIO)
+      usb::uac::_loop();
 
     // 进入下载模式
     if (usb_download_later)
@@ -64,7 +69,11 @@ void usb::on(USBMode mode)
   if (usb_on)
   {
     off();
+    if (usb_on)
+      return;
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
+  usb_active_mode = mode;
   switch (mode)
   {
   case USB_MODE_JTAG:
@@ -90,14 +99,30 @@ void usb::on(USBMode mode)
   }
 }
 
+USBMode usb::active_mode()
+{
+  return usb_active_mode;
+}
+
 void usb::off()
 {
   // 关闭TUSB
   if (usb_tusb_on)
   {
-    usb::uac::_disconnect();
-    USBCDCSerial._disconnect();
-    vTaskDelete(usb_task);
+    if (usb_active_mode == USB_MODE_AUDIO)
+    {
+      usb::uac::_disconnect();
+      USBCDCSerial._disconnect();
+    }
+    else if (usb_active_mode == USB_MODE_SD)
+    {
+      usb::msc::_disconnect();
+    }
+    if (usb_task)
+    {
+      vTaskDelete(usb_task);
+      usb_task = nullptr;
+    }
     if (!tusb_teardown())
     {
       LOGGER_WARN("USB device stack deinit fail!");
@@ -106,14 +131,22 @@ void usb::off()
     usb_tusb_on = false;
   }
 
+  if (usb_active_mode == USB_MODE_SD)
+    tf::set_usb_storage_active(false);
+
   // 恢复物理接口
-  esp_err_t ret = usb_del_phy(usb_phy);
-  if (ret != ESP_OK)
+  if (usb_phy)
   {
-    LOGGER_WARN("USB PHY delete fail!");
-    return;
+    esp_err_t ret = usb_del_phy(usb_phy);
+    if (ret != ESP_OK)
+    {
+      LOGGER_WARN("USB PHY delete fail!");
+      return;
+    }
+    usb_phy = nullptr;
   }
   usb_on = false;
+  usb_active_mode = USB_MODE_NONE;
 }
 
 void usb::download_later()
@@ -130,12 +163,19 @@ static void usb_jtag_mode()
   if (ret != ESP_OK)
   {
     LOGGER_WARN("USB PHY init fail!");
+    usb_active_mode = USB_MODE_NONE;
     return;
   }
   usb_on = true;
 }
 
 static void usb_audio_mode()
+{
+  if (!usb_tinyusb_mode())
+    usb_active_mode = USB_MODE_NONE;
+}
+
+static bool usb_tinyusb_mode()
 {
   // 初始化USBOTG
   usb_phy_config_t phy_conf = {
@@ -148,7 +188,7 @@ static void usb_audio_mode()
   if (ret != ESP_OK)
   {
     LOGGER_WARN("USB PHY init fail!");
-    return;
+    return false;
   }
   usb_on = true;
 
@@ -156,14 +196,40 @@ static void usb_audio_mode()
   if (!tusb_init())
   {
     LOGGER_WARN("USB device stack init fail!");
-    return;
+    usb_del_phy(usb_phy);
+    usb_phy = nullptr;
+    usb_on = false;
+    return false;
   }
   usb_tusb_on = true;
-  xTaskCreatePinnedToCore(tusb_handle, "tusb_handle", TASK_TUSB_STACK, NULL, TASK_TUSB_PRIORITY, &usb_task, TASK_TUSB_CORE);
+  if (xTaskCreatePinnedToCore(tusb_handle, "tusb_handle", TASK_TUSB_STACK, NULL, TASK_TUSB_PRIORITY, &usb_task, TASK_TUSB_CORE) != pdPASS)
+  {
+    LOGGER_WARN("USB task creation failed!");
+    tusb_teardown();
+    usb_tusb_on = false;
+    usb_del_phy(usb_phy);
+    usb_phy = nullptr;
+    usb_on = false;
+    return false;
+  }
+  return true;
 }
 
 static void usb_sd_mode()
 {
+  if (!tf::set_usb_storage_active(true))
+  {
+    LOGGER_WARN("TF card is unavailable for USB storage mode.");
+    usb_active_mode = USB_MODE_NONE;
+    return;
+  }
+  usb::msc::_connect();
+  if (!usb_tinyusb_mode())
+  {
+    usb::msc::_disconnect();
+    tf::set_usb_storage_active(false);
+    usb_active_mode = USB_MODE_NONE;
+  }
 }
 
 /*****************************
