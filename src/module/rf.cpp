@@ -45,7 +45,9 @@ static bool wifi_send(const Device &device, netbuf *buf)
   }
   if (device.isWifiConnected())
   {
-    ip_addr_t socketDestination;
+    // 双栈 lwIP 的 ip_addr_t 含 type 字段，必须初始化(type=0 即 IPv4)，
+    // 否则未初始化的 type 会让 raw_sendto 走错协议栈导致发送失败
+    ip_addr_t socketDestination = {};
     socketDestination.u_addr.ip4.addr = htonl(device.getWifiIP());
     err_t err = netconn_sendto(socketSendInstance, buf, &socketDestination, WIFI_NO_PORT);
     if (err != ERR_OK)
@@ -1071,6 +1073,7 @@ static void rf_handle(void *arg)
       while (xQueueReceive(bleReceiveQueue, &receive, 0) == pdPASS)
       {
         rf_receive_packet(receive.device, receive.data, receive.size);
+        transmitSpeedData += receive.size;
       }
     }
 
@@ -1243,18 +1246,30 @@ void ui_bt_pause_search()
         }
 
         // 开启设备音频传输
-        netbuf *buf = netbuf_new();
-        if (buf != NULL)
+        // 裸IP传输不可靠且对端socket可能尚未就绪，重发多次确保送达(该包幂等)
+        for (uint8_t retry = 0; retry < 3; retry++)
         {
-          Packet *packet = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_AUDIO_SIZE);
-          packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
-          packet->packet.serverControlAudio.start = true;
-          packet->packet.serverControlAudio.channel = config::config.audio.channel;
-          packet->packet.serverControlAudio.rate = config::config.audio.rate;
-          packet->packet.serverControlAudio.bit = config::config.audio.bit;
-          packet->packet.serverControlAudio.mode = config::config.audio.mode;
-          packet->packet.serverControlAudio.gain = config::config.audio.gain;
-          wifi_send(device, buf);
+          netbuf *buf = netbuf_new();
+          if (buf != NULL)
+          {
+            Packet *packet = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+            if (packet != NULL)
+            {
+              packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+              packet->packet.serverControlAudio.start = true;
+              packet->packet.serverControlAudio.channel = config::config.audio.channel;
+              packet->packet.serverControlAudio.rate = config::config.audio.rate;
+              packet->packet.serverControlAudio.bit = config::config.audio.bit;
+              packet->packet.serverControlAudio.mode = config::config.audio.mode;
+              packet->packet.serverControlAudio.gain = config::config.audio.gain;
+              wifi_send(device, buf);
+            }
+            else
+            {
+              netbuf_delete(buf);
+            }
+          }
+          delay(50);
         }
       }
     }
