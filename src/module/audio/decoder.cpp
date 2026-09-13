@@ -180,7 +180,7 @@ static void audioHandle(void *arg)
     if (millis() - report_time >= 1000)
     {
       report_time = millis();
-      LOGGER_DEBUG("Audio output jack=%u enabled=%u mode=%u i2s=%u frames=%lu bytes=%lu peak=%lu empty=%lu errors=%lu",
+      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u frames=%lu bytes=%lu peak=%lu empty=%lu errors=%lu",
                    plugin ? 1U : 0U, config::config.audio_output.enabled ? 1U : 0U,
                    static_cast<unsigned int>(config::config.audio_output.mode), powerOn ? 1U : 0U,
                    static_cast<unsigned long>(frames_written), static_cast<unsigned long>(bytes_written_total),
