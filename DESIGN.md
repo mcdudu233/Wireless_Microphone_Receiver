@@ -163,8 +163,9 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 
 ### Audio and screen settings
 - Microphone capture and local 3.5 mm playback are separate root pages. The
-  output page always states its format relationship explicitly; the only
-  current mode follows the microphone sample rate, bit depth, and channels.
+  output page can either follow the 3.5 mm jack-detect signal or keep the DAC
+  enabled continuously; playback format always follows the microphone sample
+  rate, bit depth, and channels.
 - Screen brightness uses a 10-100% slider so an accidental edit cannot make the
   settings UI unreadable. Auto-off offers never, 30 seconds, 1 minute, and 5
   minutes; changing either value applies immediately.

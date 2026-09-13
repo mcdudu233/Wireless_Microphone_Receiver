@@ -304,7 +304,7 @@ void ui_setting_init(lv_obj_t *ui_from)
 
     ui_create_dropdown(sub_audio_output_page, NULL, "音频输出", "关闭\n开启", &dd_audio_output_enabled);
     lv_obj_add_event_cb(dd_audio_output_enabled, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_output_page);
-    ui_create_dropdown(sub_audio_output_page, NULL, "输出模式", "麦克风同步", &dd_audio_output_mode);
+    ui_create_dropdown(sub_audio_output_page, NULL, "启停方式", "插入检测\n始终开启", &dd_audio_output_mode);
     lv_obj_add_event_cb(dd_audio_output_mode, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_output_page);
 
     ui_create_slider(sub_screen_page, NULL, "亮度", 10, 100, 50, "%", &slider_screen_brightness);
@@ -1142,7 +1142,9 @@ static void save_config(uint8_t page)
         break;
     case e_page::audio_output_page:
         ui_setting_audio_output_page_scb(lv_dropdown_get_selected(dd_audio_output_enabled) == 1,
-                                         AUDIO_OUTPUT_SYNC_INPUT);
+                                         lv_dropdown_get_selected(dd_audio_output_mode) == 1
+                                             ? AUDIO_OUTPUT_ALWAYS_ON
+                                             : AUDIO_OUTPUT_AUTO);
         break;
     case e_page::screen_page:
     {

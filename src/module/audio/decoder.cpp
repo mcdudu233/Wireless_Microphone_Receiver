@@ -6,6 +6,7 @@
 
 #include "cctype"
 #include "driver/i2s_std.h"
+#include "esp_err.h"
 
 // I2S配置
 static const i2s_chan_config_t i2s_chan_cfg = {
@@ -30,12 +31,57 @@ static const i2s_std_gpio_config_t i2s_gpio_cfg = {
         .ws_inv = false,
     }};
 
-static i2s_chan_handle_t i2s_tx_handle;
+static i2s_chan_handle_t i2s_tx_handle = nullptr;
 static AudioChannel i2s_channel;
 static AudioRate i2s_rate;
 static AudioBit i2s_bit;
 static bool powerOn = false;
 static bool plugin = false;
+
+static uint32_t getPcmPeak(const uint8_t *pcm, size_t size, AudioBit bit)
+{
+  uint32_t peak = 0;
+  const size_t bytes_per_sample = static_cast<size_t>(bit) / 8;
+  if (bytes_per_sample == 0)
+  {
+    return 0;
+  }
+
+  for (size_t offset = 0; offset + bytes_per_sample <= size; offset += bytes_per_sample)
+  {
+    int64_t sample = 0;
+    if (bit == AUDIO_BIT_16)
+    {
+      sample = static_cast<int16_t>(static_cast<uint16_t>(pcm[offset]) |
+                                    (static_cast<uint16_t>(pcm[offset + 1]) << 8));
+    }
+    else if (bit == AUDIO_BIT_24)
+    {
+      int32_t value = static_cast<int32_t>(pcm[offset]) |
+                      (static_cast<int32_t>(pcm[offset + 1]) << 8) |
+                      (static_cast<int32_t>(pcm[offset + 2]) << 16);
+      if ((value & 0x00800000) != 0)
+      {
+        value |= 0xFF000000;
+      }
+      sample = value;
+    }
+    else
+    {
+      sample = static_cast<int32_t>(static_cast<uint32_t>(pcm[offset]) |
+                                    (static_cast<uint32_t>(pcm[offset + 1]) << 8) |
+                                    (static_cast<uint32_t>(pcm[offset + 2]) << 16) |
+                                    (static_cast<uint32_t>(pcm[offset + 3]) << 24));
+    }
+
+    const uint32_t magnitude = static_cast<uint32_t>(sample < 0 ? -sample : sample);
+    if (magnitude > peak)
+    {
+      peak = magnitude;
+    }
+  }
+  return peak;
+}
 
 // 记录丢包率
 // static unsigned long last_time = millis();
@@ -47,7 +93,14 @@ static void audioHandle(void *arg)
 {
   // 音频数据
   AudioData *data;
-  AudioData *data_channel = (AudioData *)heap_caps_malloc(sizeof(AudioData), MALLOC_CAP_SPIRAM);
+#ifdef BUILD_DEBUG
+  uint32_t report_time = millis();
+  uint32_t frames_written = 0;
+  uint32_t frames_missing = 0;
+  uint32_t write_errors = 0;
+  uint32_t bytes_written_total = 0;
+  uint32_t pcm_peak = 0;
+#endif
 
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(TASK_AUDIO_DECODER_PERIOD);
@@ -63,7 +116,9 @@ static void audioHandle(void *arg)
       LOGGER_INFO("%s", isPlugin ? "Audio Decoder found 3.5mm plug in!" : "Audio Decoder found 3.5mm plug out!");
     }
 
-    const bool should_power_on = plugin && config::config.audio_output.enabled;
+    // 自动模式由插孔检测控制；始终开启模式可绕过异常的检测脚。
+    const bool should_power_on = config::config.audio_output.enabled &&
+                                 (plugin || config::config.audio_output.mode == AUDIO_OUTPUT_ALWAYS_ON);
     if (should_power_on && !powerOn)
     {
       audio::decoder::on(config::config.audio.rate, config::config.audio.bit, config::config.audio.channel);
@@ -88,27 +143,56 @@ static void audioHandle(void *arg)
       data = audio::buffer::getDecoderData();
       if (data != nullptr)
       {
-        // LOGGER_INFO("Audio Decoder num=%d size=%d!", data->num, data->size);
-        if (i2s_channel_write(i2s_tx_handle, data->data, data->size, NULL, AUDIO_DECODER_POLLING_CYCLE * 2) != ESP_OK)
+        size_t bytes_written = 0;
+        const esp_err_t result = i2s_channel_write(i2s_tx_handle, data->data, data->size, &bytes_written,
+                                                   AUDIO_DECODER_POLLING_CYCLE * 2);
+        if (result != ESP_OK || bytes_written != data->size)
         {
-          LOGGER_INFO("Audio Decoder write fail!");
-          // last_fail++;
+          LOGGER_WARN("Audio Decoder write failed: %s, %u/%u bytes",
+                      esp_err_to_name(result), static_cast<unsigned int>(bytes_written),
+                      static_cast<unsigned int>(data->size));
+#ifdef BUILD_DEBUG
+          write_errors++;
+#endif
         }
-        // else
-        // {
-        //   last_ok++;
-        // }
-
-        // unsigned long now_time = millis();
-        // if (now_time - last_time > 1000)
-        // {
-        //   last_time = now_time;
-        //   logger::warnln("Audio Decoder write %d/%d!", last_ok, last_fail + last_ok);
-        //   last_ok = 0;
-        //   last_fail = 0;
-        // }
+#ifdef BUILD_DEBUG
+        else
+        {
+          frames_written++;
+          bytes_written_total += bytes_written;
+          const uint32_t frame_peak = getPcmPeak(data->data, data->size, i2s_bit);
+          if (frame_peak > pcm_peak)
+          {
+            pcm_peak = frame_peak;
+          }
+        }
+#endif
       }
+#ifdef BUILD_DEBUG
+      else
+      {
+        frames_missing++;
+      }
+#endif
     }
+
+#ifdef BUILD_DEBUG
+    if (millis() - report_time >= 1000)
+    {
+      report_time = millis();
+      LOGGER_DEBUG("Audio output jack=%u enabled=%u mode=%u i2s=%u frames=%lu bytes=%lu peak=%lu empty=%lu errors=%lu",
+                   plugin ? 1U : 0U, config::config.audio_output.enabled ? 1U : 0U,
+                   static_cast<unsigned int>(config::config.audio_output.mode), powerOn ? 1U : 0U,
+                   static_cast<unsigned long>(frames_written), static_cast<unsigned long>(bytes_written_total),
+                   static_cast<unsigned long>(pcm_peak), static_cast<unsigned long>(frames_missing),
+                   static_cast<unsigned long>(write_errors));
+      frames_written = 0;
+      frames_missing = 0;
+      write_errors = 0;
+      bytes_written_total = 0;
+      pcm_peak = 0;
+    }
+#endif
   }
 }
 
@@ -125,13 +209,18 @@ void audio::decoder::setup()
   LOGGER_INFO("Audio Decoder is started!");
 }
 
-void audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
+bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
 {
+  if (powerOn)
+  {
+    return true;
+  }
+
+  setMute(true);
   // 启动 i2s
   i2s_rate = rate;
   i2s_bit = bit;
   i2s_channel = channel;
-  i2s_new_channel(&i2s_chan_cfg, &i2s_tx_handle, NULL);
   i2s_std_config_t std_cfg = {
       .clk_cfg = {
           .sample_rate_hz = (uint32_t)i2s_rate,
@@ -154,19 +243,58 @@ void audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
       },
       .gpio_cfg = i2s_gpio_cfg,
   };
-  i2s_channel_init_std_mode(i2s_tx_handle, &std_cfg);
-  i2s_channel_enable(i2s_tx_handle);
+
+  esp_err_t result = i2s_new_channel(&i2s_chan_cfg, &i2s_tx_handle, NULL);
+  if (result != ESP_OK)
+  {
+    i2s_tx_handle = nullptr;
+    LOGGER_WARN("Audio Decoder cannot create I2S channel: %s", esp_err_to_name(result));
+    return false;
+  }
+
+  result = i2s_channel_init_std_mode(i2s_tx_handle, &std_cfg);
+  if (result != ESP_OK)
+  {
+    LOGGER_WARN("Audio Decoder cannot configure I2S: %s", esp_err_to_name(result));
+    i2s_del_channel(i2s_tx_handle);
+    i2s_tx_handle = nullptr;
+    return false;
+  }
+
+  result = i2s_channel_enable(i2s_tx_handle);
+  if (result != ESP_OK)
+  {
+    LOGGER_WARN("Audio Decoder cannot enable I2S: %s", esp_err_to_name(result));
+    i2s_del_channel(i2s_tx_handle);
+    i2s_tx_handle = nullptr;
+    return false;
+  }
+
   powerOn = true;
   setMute(false);
-  LOGGER_INFO("Audio Decoder is on.");
+  LOGGER_INFO("Audio Decoder is on: %luHz/%ubit/%uch, jack=%u.", static_cast<unsigned long>(i2s_rate),
+              static_cast<unsigned int>(i2s_bit), static_cast<unsigned int>(i2s_channel), plugin ? 1U : 0U);
+  return true;
 }
 
 void audio::decoder::off()
 {
   setMute(true);
-  i2s_channel_disable(i2s_tx_handle);
-  i2s_del_channel(i2s_tx_handle);
   powerOn = false;
+  if (i2s_tx_handle != nullptr)
+  {
+    const esp_err_t disable_result = i2s_channel_disable(i2s_tx_handle);
+    if (disable_result != ESP_OK)
+    {
+      LOGGER_WARN("Audio Decoder cannot disable I2S: %s", esp_err_to_name(disable_result));
+    }
+    const esp_err_t delete_result = i2s_del_channel(i2s_tx_handle);
+    if (delete_result != ESP_OK)
+    {
+      LOGGER_WARN("Audio Decoder cannot delete I2S channel: %s", esp_err_to_name(delete_result));
+    }
+    i2s_tx_handle = nullptr;
+  }
   LOGGER_INFO("Audio Decoder is off.");
 }
 

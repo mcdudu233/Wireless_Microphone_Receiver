@@ -18,7 +18,7 @@
 namespace audio::decoder
 {
   void setup();
-  void on(AudioRate rate, AudioBit bit, AudioChannel channel);
+  bool on(AudioRate rate, AudioBit bit, AudioChannel channel);
   void off();
   bool isOn();
 

@@ -104,7 +104,8 @@ typedef int8_t AudioGain;
 // 音频输出模式
 enum AudioOutputMode : uint8_t
 {
-  AUDIO_OUTPUT_SYNC_INPUT = 0 // 与麦克风采样率、位深和声道同步
+  AUDIO_OUTPUT_AUTO = 0,     // 插入3.5mm插头时启用
+  AUDIO_OUTPUT_ALWAYS_ON = 1 // 忽略插孔检测并始终启用
 };
 
 // 自动息屏时间
@@ -147,7 +148,7 @@ namespace config
     struct
     {
       bool enabled = true;
-      AudioOutputMode mode = AUDIO_OUTPUT_SYNC_INPUT;
+      AudioOutputMode mode = AUDIO_OUTPUT_AUTO;
     } audio_output;
     // 屏幕配置
     struct
