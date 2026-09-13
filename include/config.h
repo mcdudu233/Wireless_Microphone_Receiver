@@ -6,7 +6,7 @@
 #define CONFIG_NAME "config"
 #define CONFIG_DATA_NAME "config"
 #define CONFIG_VERSION_NAME "version"
-#define CONFIG_VERSION_VALUE 0x000B // 前两位大版本号 后两位小版本号
+#define CONFIG_VERSION_VALUE 0x000C // 前两位大版本号 后两位小版本号
 
 // 多线程任务配置
 #define TASK_SYSTEM_CORE 1
@@ -23,6 +23,7 @@
 #define TASK_SCREEN_PERIOD 5
 #define TASK_SCREEN_STACK 8192
 #define TASK_SCREEN_PRIORITY 3
+#define TASK_SCREEN_BACKLIGHT_STACK 2048
 
 #define TASK_USB_CORE 0
 #define TASK_USB_PERIOD 4
@@ -100,6 +101,21 @@ enum AudioMode : uint8_t
 // 音频增益 [-64, 63] 单位: dB
 typedef int8_t AudioGain;
 
+// 音频输出模式
+enum AudioOutputMode : uint8_t
+{
+  AUDIO_OUTPUT_SYNC_INPUT = 0 // 与麦克风采样率、位深和声道同步
+};
+
+// 自动息屏时间
+enum ScreenTimeout : uint16_t
+{
+  SCREEN_TIMEOUT_NEVER = 0,
+  SCREEN_TIMEOUT_30_SECONDS = 30,
+  SCREEN_TIMEOUT_1_MINUTE = 60,
+  SCREEN_TIMEOUT_5_MINUTES = 300
+};
+
 namespace config
 {
 
@@ -127,6 +143,18 @@ namespace config
     {
       USBMode mode = USB_MODE_AUDIO;
     } usb;
+    // 3.5mm 音频输出配置
+    struct
+    {
+      bool enabled = true;
+      AudioOutputMode mode = AUDIO_OUTPUT_SYNC_INPUT;
+    } audio_output;
+    // 屏幕配置
+    struct
+    {
+      uint8_t brightness = 50;
+      ScreenTimeout timeout = SCREEN_TIMEOUT_NEVER;
+    } screen;
   };
   extern ConfigValue config;
 

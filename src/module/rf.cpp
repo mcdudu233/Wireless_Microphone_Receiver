@@ -1322,7 +1322,7 @@ int8_t ui_info_get_signal(const std::string &mac)
   return 100;
 }
 
-void ui_setting_audio_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &rate, AudioGain &gain, AudioMode &mode)
+void ui_setting_audio_input_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &rate, AudioGain &gain, AudioMode &mode)
 {
   bit = config::config.audio.bit;
   channel = config::config.audio.channel;
@@ -1331,9 +1331,9 @@ void ui_setting_audio_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &
   mode = config::config.audio.mode;
 }
 
-void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode)
+void ui_setting_audio_input_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode)
 {
-  LOGGER_INFO("ui_setting_audio_page_scb");
+  LOGGER_INFO("ui_setting_audio_input_page_scb");
   config::config.audio.bit = (AudioBit)bit;
   config::config.audio.channel = (AudioChannel)channel;
   config::config.audio.rate = (AudioRate)rate;

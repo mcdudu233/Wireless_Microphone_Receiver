@@ -30,6 +30,12 @@ namespace screen
   // 设置屏幕背光亮度
   void backlight(float percent);
 
+  // 应用持久化的屏幕设置，并重置自动息屏计时。
+  void apply_settings();
+
+  // 记录按键活动；若本次活动唤醒了屏幕则返回 true。
+  bool note_activity();
+
   // LVGL 互斥锁
   bool lv_lock();
   void lv_lock_wait();

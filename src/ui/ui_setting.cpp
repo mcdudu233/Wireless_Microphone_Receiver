@@ -37,6 +37,11 @@ static lv_obj_t *dd_audio_channel;
 static lv_obj_t *dd_audio_rate;
 static lv_obj_t *dd_audio_audio_mode;
 static lv_obj_t *slider_audio_gain;
+static lv_obj_t *dd_audio_output_enabled;
+static lv_obj_t *dd_audio_output_mode;
+
+static lv_obj_t *slider_screen_brightness;
+static lv_obj_t *dd_screen_timeout;
 
 static lv_obj_t *dd_rf_mode;
 
@@ -77,18 +82,20 @@ static void usb_mode_changed_cb(lv_event_t *e);
 
 static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt, lv_obj_t **label_o = nullptr, bool is_from_svg = false);
 static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
-                                  int32_t val, lv_obj_t **slider_obj = nullptr);
+                                  int32_t val, const char *suffix, lv_obj_t **slider_obj = nullptr);
 static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const char *txt, const char *options, lv_obj_t **dd_o = nullptr);
 static lv_obj_t *ui_create_sub_page(lv_obj_t *parent, const char *title, bool display_scroll = true); // 新建子页面
 
 enum e_page
 {
     usb_page = 1,
-    audio_page = 2,
+    audio_input_page = 2,
     rf_page = 3,
     about_page = 4,
     system_page = 5,
-    file_page = 6
+    file_page = 6,
+    audio_output_page = 7,
+    screen_page = 8
 };
 
 void ui_setting_init(lv_obj_t *ui_from)
@@ -169,8 +176,12 @@ void ui_setting_init(lv_obj_t *ui_from)
     file_page_ref = sub_file_page;
     lv_obj_t *sub_system_page = ui_create_sub_page(menu, "系统信息");
     lv_obj_set_user_data(sub_system_page, (void *)e_page::system_page);
-    lv_obj_t *sub_audio_page = ui_create_sub_page(menu, "音频设置");
-    lv_obj_set_user_data(sub_audio_page, (void *)e_page::audio_page);
+    lv_obj_t *sub_audio_input_page = ui_create_sub_page(menu, "音频输入设置");
+    lv_obj_set_user_data(sub_audio_input_page, (void *)e_page::audio_input_page);
+    lv_obj_t *sub_audio_output_page = ui_create_sub_page(menu, "音频输出设置");
+    lv_obj_set_user_data(sub_audio_output_page, (void *)e_page::audio_output_page);
+    lv_obj_t *sub_screen_page = ui_create_sub_page(menu, "屏幕设置");
+    lv_obj_set_user_data(sub_screen_page, (void *)e_page::screen_page);
     lv_obj_t *sub_rf_page = ui_create_sub_page(menu, "无线连接设置");
     lv_obj_set_user_data(sub_rf_page, (void *)e_page::rf_page);
 
@@ -267,29 +278,39 @@ void ui_setting_init(lv_obj_t *ui_from)
     // 16 24 32 bit
     // 单声道 立体
     // section = lv_menu_section_create(sub_audio_page);
-    ui_create_dropdown(sub_audio_page, NULL, "采样率", "48000Hz\n"
+    ui_create_dropdown(sub_audio_input_page, NULL, "采样率", "48000Hz\n"
                                                        "96000Hz\n"
                                                        "192000Hz",
                        &dd_audio_rate);
-    lv_obj_add_event_cb(dd_audio_rate, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_page);
+    lv_obj_add_event_cb(dd_audio_rate, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_input_page);
     // section = lv_menu_section_create(sub_audio_page);
-    ui_create_dropdown(sub_audio_page, NULL, "位深度", "16bit\n"
+    ui_create_dropdown(sub_audio_input_page, NULL, "位深度", "16bit\n"
                                                        "24bit\n"
                                                        "32bit",
                        &dd_audio_bit);
-    lv_obj_add_event_cb(dd_audio_bit, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_page);
+    lv_obj_add_event_cb(dd_audio_bit, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_input_page);
     // section = lv_menu_section_create(sub_audio_page);
-    ui_create_dropdown(sub_audio_page, NULL, "通道数", "单通道\n"
+    ui_create_dropdown(sub_audio_input_page, NULL, "通道数", "单通道\n"
                                                        "立体声",
                        &dd_audio_channel);
-    lv_obj_add_event_cb(dd_audio_channel, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_page);
-    ui_create_dropdown(sub_audio_page, NULL, "增益模式", "自动增益\n"
+    lv_obj_add_event_cb(dd_audio_channel, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_input_page);
+    ui_create_dropdown(sub_audio_input_page, NULL, "增益模式", "自动增益\n"
                                                          "峰值减少\n"
                                                          "手动",
                        &dd_audio_audio_mode);
-    lv_obj_add_event_cb(dd_audio_audio_mode, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_page);
-    ui_create_slider(sub_audio_page, NULL, "增益", 0, 60, 0, &slider_audio_gain);
-    lv_obj_add_event_cb(slider_audio_gain, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_page);
+    lv_obj_add_event_cb(dd_audio_audio_mode, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_input_page);
+    ui_create_slider(sub_audio_input_page, NULL, "增益", 0, 60, 0, "dB", &slider_audio_gain);
+    lv_obj_add_event_cb(slider_audio_gain, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_input_page);
+
+    ui_create_dropdown(sub_audio_output_page, NULL, "音频输出", "关闭\n开启", &dd_audio_output_enabled);
+    lv_obj_add_event_cb(dd_audio_output_enabled, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_output_page);
+    ui_create_dropdown(sub_audio_output_page, NULL, "输出模式", "麦克风同步", &dd_audio_output_mode);
+    lv_obj_add_event_cb(dd_audio_output_mode, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_output_page);
+
+    ui_create_slider(sub_screen_page, NULL, "亮度", 10, 100, 50, "%", &slider_screen_brightness);
+    lv_obj_add_event_cb(slider_screen_brightness, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::screen_page);
+    ui_create_dropdown(sub_screen_page, NULL, "自动息屏", "永不\n30秒\n1分钟\n5分钟", &dd_screen_timeout);
+    lv_obj_add_event_cb(dd_screen_timeout, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::screen_page);
 
     ui_create_dropdown(sub_rf_page, NULL, "传输协议", "BLE\n"
                                                       "WIFI",
@@ -321,9 +342,16 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_add_style(root_page, &scroll_style, LV_PART_SCROLLBAR);
     lv_obj_add_event_cb(root_page, scroll_event_cb, LV_EVENT_SCROLL, NULL);
 
-    cont = ui_create_text(root_page, &ui_img_audio, "音频设置", nullptr, true);
-    lv_menu_set_load_page_event(menu, cont, sub_audio_page);
-    lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_audio_page);
+    cont = ui_create_text(root_page, &ui_img_audio, "音频输入设置", nullptr, true);
+    lv_menu_set_load_page_event(menu, cont, sub_audio_input_page);
+    lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_audio_input_page);
+    lv_obj_set_style_translate_x(cont, 100, 0);
+    lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
+
+    cont = ui_create_text(root_page, &ui_img_audio, "音频输出设置", nullptr, true);
+    lv_menu_set_load_page_event(menu, cont, sub_audio_output_page);
+    lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_audio_output_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
@@ -357,6 +385,13 @@ void ui_setting_init(lv_obj_t *ui_from)
     cont = ui_create_text(root_page, &ui_img_file, "文件管理",NULL,true);
     lv_menu_set_load_page_event(menu, cont, sub_file_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_file_page);
+    lv_obj_set_style_translate_x(cont, 100, 0);
+    lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
+
+    cont = ui_create_text(root_page, &ui_img_system_info, "屏幕设置", nullptr, true);
+    lv_menu_set_load_page_event(menu, cont, sub_screen_page);
+    lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_screen_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
@@ -417,13 +452,23 @@ static void set_settings_focus(uint8_t page)
         add_focus_object(dd_usb_mode);
         first = dd_usb_mode;
         break;
-    case e_page::audio_page:
+    case e_page::audio_input_page:
         add_focus_object(dd_audio_rate);
         add_focus_object(dd_audio_bit);
         add_focus_object(dd_audio_channel);
         add_focus_object(dd_audio_audio_mode);
         add_focus_object(slider_audio_gain);
         first = dd_audio_rate;
+        break;
+    case e_page::audio_output_page:
+        add_focus_object(dd_audio_output_enabled);
+        add_focus_object(dd_audio_output_mode);
+        first = dd_audio_output_enabled;
+        break;
+    case e_page::screen_page:
+        add_focus_object(slider_screen_brightness);
+        add_focus_object(dd_screen_timeout);
+        first = slider_screen_brightness;
         break;
     case e_page::rf_page:
         add_focus_object(dd_rf_mode);
@@ -562,7 +607,7 @@ static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *
     return obj;
 }
 static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
-                                  int32_t val, lv_obj_t **slider_obj)
+                                  int32_t val, const char *suffix, lv_obj_t **slider_obj)
 {
     lv_obj_t *title;
     lv_obj_t *obj = ui_create_text(parent, icon, txt, &title);
@@ -579,7 +624,8 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
     lv_slider_set_value(slider, val, LV_ANIM_OFF);
 
     lv_obj_t *pct = lv_label_create(slider);
-    lv_label_set_text_fmt(pct, "%ddB", 0);
+    lv_label_set_text_fmt(pct, "%d%s", static_cast<int>(val), suffix);
+    lv_obj_set_user_data(pct, const_cast<char *>(suffix));
     lv_obj_set_style_text_color(pct, lv_color_hex(0x1F2937), 0);
     lv_obj_align(pct, LV_ALIGN_CENTER, 0, 0);
 
@@ -587,7 +633,8 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
                         {
         lv_obj_t * slider = (lv_obj_t*)lv_event_get_target(e);
         lv_obj_t* pct = (lv_obj_t*) lv_event_get_user_data(e);
-        lv_label_set_text_fmt(pct,"%ddB",lv_slider_get_value(slider)); }, LV_EVENT_VALUE_CHANGED, pct);
+        const char* suffix = static_cast<const char*>(lv_obj_get_user_data(pct));
+        lv_label_set_text_fmt(pct,"%d%s",static_cast<int>(lv_slider_get_value(slider)), suffix); }, LV_EVENT_VALUE_CHANGED, pct);
     lv_obj_add_event_cb(slider, [](lv_event_t *e)
                         {
         lv_obj_t* target = lv_event_get_target_obj(e);
@@ -677,14 +724,14 @@ static void enter_subpage_cb(lv_event_t *e)
         lv_timer_resume(sys_info_timer);
         break;
     }
-    case e_page::audio_page:
+    case e_page::audio_input_page:
     {
         AudioBit l_bit;
         AudioChannel l_channel;
         AudioGain l_gain;
         AudioMode l_audio_mode;
         AudioRate l_rate;
-        ui_setting_audio_page_rcb(l_bit, l_channel, l_rate, l_gain, l_audio_mode);
+        ui_setting_audio_input_page_rcb(l_bit, l_channel, l_rate, l_gain, l_audio_mode);
 
         int sel_bit = 0;
         switch (l_bit)
@@ -738,6 +785,40 @@ static void enter_subpage_cb(lv_event_t *e)
         {
             lv_slider_set_value(slider_audio_gain, l_gain, LV_ANIM_OFF);
         }
+        break;
+    }
+    case e_page::audio_output_page:
+    {
+        bool enabled;
+        AudioOutputMode mode;
+        ui_setting_audio_output_page_rcb(enabled, mode);
+        lv_dropdown_set_selected(dd_audio_output_enabled, enabled ? 1 : 0);
+        lv_dropdown_set_selected(dd_audio_output_mode, static_cast<uint16_t>(mode));
+        break;
+    }
+    case e_page::screen_page:
+    {
+        uint8_t brightness;
+        ScreenTimeout timeout;
+        ui_setting_screen_page_rcb(brightness, timeout);
+        lv_slider_set_value(slider_screen_brightness, brightness, LV_ANIM_OFF);
+
+        int selected_timeout = 0;
+        switch (timeout)
+        {
+        case SCREEN_TIMEOUT_30_SECONDS:
+            selected_timeout = 1;
+            break;
+        case SCREEN_TIMEOUT_1_MINUTE:
+            selected_timeout = 2;
+            break;
+        case SCREEN_TIMEOUT_5_MINUTES:
+            selected_timeout = 3;
+            break;
+        default:
+            break;
+        }
+        lv_dropdown_set_selected(dd_screen_timeout, selected_timeout);
         break;
     }
     case e_page::usb_page:
@@ -900,7 +981,7 @@ static void update_usb_mode_details()
         AudioRate rate;
         AudioGain gain;
         AudioMode mode;
-        ui_setting_audio_page_rcb(bit, channel, rate, gain, mode);
+        ui_setting_audio_input_page_rcb(bit, channel, rate, gain, mode);
         lv_label_set_text_fmt(usb_detail_primary, "麦克风 %lukHz/%ubit/%s",
                               static_cast<unsigned long>(rate) / 1000,
                               static_cast<unsigned int>(bit),
@@ -989,7 +1070,7 @@ static void save_config(uint8_t page)
             break;
         }
         break;
-    case e_page::audio_page:
+    case e_page::audio_input_page:
         AudioBit v_bit;
         AudioChannel v_channel;
         AudioGain v_gain;
@@ -1043,8 +1124,32 @@ static void save_config(uint8_t page)
         }
 
         v_gain = lv_slider_get_value(slider_audio_gain);
-        ui_setting_audio_page_scb(v_bit, v_channel, v_rate, v_gain, v_audio_mode);
+        ui_setting_audio_input_page_scb(v_bit, v_channel, v_rate, v_gain, v_audio_mode);
         break;
+    case e_page::audio_output_page:
+        ui_setting_audio_output_page_scb(lv_dropdown_get_selected(dd_audio_output_enabled) == 1,
+                                         AUDIO_OUTPUT_SYNC_INPUT);
+        break;
+    case e_page::screen_page:
+    {
+        ScreenTimeout timeout = SCREEN_TIMEOUT_NEVER;
+        switch (lv_dropdown_get_selected(dd_screen_timeout))
+        {
+        case 1:
+            timeout = SCREEN_TIMEOUT_30_SECONDS;
+            break;
+        case 2:
+            timeout = SCREEN_TIMEOUT_1_MINUTE;
+            break;
+        case 3:
+            timeout = SCREEN_TIMEOUT_5_MINUTES;
+            break;
+        default:
+            break;
+        }
+        ui_setting_screen_page_scb(static_cast<uint8_t>(lv_slider_get_value(slider_screen_brightness)), timeout);
+        break;
+    }
     case e_page::rf_page:
         ui_setting_rf_page_scb(lv_dropdown_get_selected(dd_rf_mode) == 0 ? RF_MODE_BLE : RF_MODE_WIFI);
         break;

@@ -3,6 +3,7 @@
 #include "module/screen.h"
 #include "module/button.h"
 #include "ui/ui_loading.h"
+#include "ui/ui_setting.h"
 
 #include "lvgl.h"
 #include "esp_lcd_io_spi.h"
@@ -20,8 +21,25 @@ static esp_lcd_panel_handle_t lcd_panel_handle;
 static bool left = false;
 static bool right = false;
 static bool ok = false;
+static volatile uint32_t last_activity_ms = 0;
+static volatile bool backlight_off = false;
+static bool suppress_wake_input = false;
 static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
+  const bool any_button = button::left() || button::right() || button::ok();
+  if (any_button && screen::note_activity())
+  {
+    suppress_wake_input = true;
+  }
+  if (suppress_wake_input)
+  {
+    data->enc_diff = 0;
+    data->state = LV_INDEV_STATE_RELEASED;
+    if (!any_button)
+      suppress_wake_input = false;
+    return;
+  }
+
   // 往左往右
   if (button::left() && !left)
   {
@@ -63,7 +81,43 @@ static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 
 void screen::backlight(float percent)
 {
+  if (percent < 0)
+    percent = 0;
+  else if (percent > 100)
+    percent = 100;
   ledcWrite(TFT_BLK, (int)(percent / 100 * (pow(2.0, TFT_BLK_BIT) - 1)));
+}
+
+void screen::apply_settings()
+{
+  last_activity_ms = millis();
+  backlight_off = false;
+  backlight(config::config.screen.brightness);
+}
+
+bool screen::note_activity()
+{
+  last_activity_ms = millis();
+  if (!backlight_off)
+    return false;
+
+  backlight_off = false;
+  backlight(config::config.screen.brightness);
+  return true;
+}
+
+void ui_setting_screen_page_rcb(uint8_t &brightness, ScreenTimeout &timeout)
+{
+  brightness = config::config.screen.brightness;
+  timeout = config::config.screen.timeout;
+}
+
+void ui_setting_screen_page_scb(uint8_t brightness, ScreenTimeout timeout)
+{
+  config::config.screen.brightness = brightness;
+  config::config.screen.timeout = timeout;
+  config::save();
+  screen::apply_settings();
 }
 
 // LVGL 互斥锁
@@ -209,12 +263,24 @@ static void screen_backlight_on_handle(void *arg)
   // 先等待屏幕控件加载再渐亮
   vTaskDelay(pdMS_TO_TICKS(200));
   // 屏幕渐亮
-  for (int i = 0; i <= 50; i++)
+  const uint8_t target_brightness = config::config.screen.brightness;
+  for (int i = 0; i <= target_brightness; i++)
   {
     screen::backlight(i);
     vTaskDelay(pdMS_TO_TICKS(10));
   }
-  vTaskDelete(NULL);
+  last_activity_ms = millis();
+
+  while (true)
+  {
+    const uint32_t timeout_ms = static_cast<uint32_t>(config::config.screen.timeout) * 1000U;
+    if (timeout_ms > 0 && !backlight_off && millis() - last_activity_ms >= timeout_ms)
+    {
+      screen::backlight(0);
+      backlight_off = true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
 }
 
 void screen::setup()
@@ -224,7 +290,7 @@ void screen::setup()
   setup_lvgl();
 
   // 创建图形库处理线程
-  xTaskCreatePinnedToCore(screen_backlight_on_handle, "screen_backlight_on_handle", TASK_SCREEN_STACK, NULL, TASK_SCREEN_PRIORITY, NULL, TASK_SCREEN_CORE);
+  xTaskCreatePinnedToCore(screen_backlight_on_handle, "screen_backlight_on_handle", TASK_SCREEN_BACKLIGHT_STACK, NULL, TASK_SCREEN_PRIORITY, NULL, TASK_SCREEN_CORE);
 
   LV_LOCK();
   ui_loading_init();

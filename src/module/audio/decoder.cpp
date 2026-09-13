@@ -2,6 +2,7 @@
 #include "logger.h"
 #include "module/audio/buffer.h"
 #include "module/audio/decoder.h"
+#include "ui/ui_setting.h"
 
 #include "cctype"
 #include "driver/i2s_std.h"
@@ -59,16 +60,17 @@ static void audioHandle(void *arg)
     if (isPlugin != plugin)
     {
       plugin = isPlugin;
-      if (isPlugin)
-      {
-        LOGGER_INFO("Audio Decoder found 3.5mm plug in!");
-        audio::decoder::on(config::config.audio.rate, config::config.audio.bit, config::config.audio.channel);
-      }
-      else
-      {
-        LOGGER_INFO("Audio Decoder found 3.5mm plug out!");
-        audio::decoder::off();
-      }
+      LOGGER_INFO("%s", isPlugin ? "Audio Decoder found 3.5mm plug in!" : "Audio Decoder found 3.5mm plug out!");
+    }
+
+    const bool should_power_on = plugin && config::config.audio_output.enabled;
+    if (should_power_on && !powerOn)
+    {
+      audio::decoder::on(config::config.audio.rate, config::config.audio.bit, config::config.audio.channel);
+    }
+    else if (!should_power_on && powerOn)
+    {
+      audio::decoder::off();
     }
 
     // 启动了芯片才读取数据
@@ -171,6 +173,19 @@ void audio::decoder::off()
 bool audio::decoder::isOn()
 {
   return powerOn;
+}
+
+void ui_setting_audio_output_page_rcb(bool &enabled, AudioOutputMode &mode)
+{
+  enabled = config::config.audio_output.enabled;
+  mode = config::config.audio_output.mode;
+}
+
+void ui_setting_audio_output_page_scb(bool enabled, AudioOutputMode mode)
+{
+  config::config.audio_output.enabled = enabled;
+  config::config.audio_output.mode = mode;
+  config::save();
 }
 
 void audio::decoder::setMute(bool on)

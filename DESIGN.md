@@ -161,6 +161,14 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   Missing TF media is shown as an unavailable state; mass-storage mode states
   that the host has exclusive access while it is active.
 
+### Audio and screen settings
+- Microphone capture and local 3.5 mm playback are separate root pages. The
+  output page always states its format relationship explicitly; the only
+  current mode follows the microphone sample rate, bit depth, and channels.
+- Screen brightness uses a 10-100% slider so an accidental edit cannot make the
+  settings UI unreadable. Auto-off offers never, 30 seconds, 1 minute, and 5
+  minutes; changing either value applies immediately.
+
 ### Device meter card
 - **Structure**: 20 px tab bar, two labeled 10 px meter rows, one compact status row.
 - **Layout**: every pixel dimension is explicit; status values use short symbol
@@ -179,6 +187,8 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   both together confirms the focused item. Do not add a competing input model.
 - Settings dropdowns and sliders save and apply their selected value as soon as
   it changes. Returning from a settings subpage never asks whether to apply it.
+- When auto-off has blanked the display, the first physical-button action wakes
+  it and is consumed; navigation resumes with the next action.
 - Focus must always remain visible when a list scrolls. Returning from a subpage
   restores focus to the row that opened it.
 - Root settings rows may use the existing 300 ms horizontal entry transition.

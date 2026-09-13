@@ -11,10 +11,17 @@ void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, size_t &iram_c
 
 // 更新新的配置时调用
 
-// audio页面读取回调
-void ui_setting_audio_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &rate, AudioGain &gain, AudioMode &mode);
-// audio页面保存并立即生效回调
-void ui_setting_audio_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode);
+// 音频输入页面读取、保存并立即生效回调
+void ui_setting_audio_input_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &rate, AudioGain &gain, AudioMode &mode);
+void ui_setting_audio_input_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode);
+
+// 音频输出页面读取、保存并立即生效回调
+void ui_setting_audio_output_page_rcb(bool &enabled, AudioOutputMode &mode);
+void ui_setting_audio_output_page_scb(bool enabled, AudioOutputMode mode);
+
+// 屏幕页面读取、保存并立即生效回调
+void ui_setting_screen_page_rcb(uint8_t &brightness, ScreenTimeout &timeout);
+void ui_setting_screen_page_scb(uint8_t brightness, ScreenTimeout timeout);
 
 void ui_setting_usb_page_rcb(USBMode &mode);
 void ui_setting_usb_page_scb(USBMode mode);

@@ -8,6 +8,27 @@ config::ConfigValue config::config;
 
 static Preferences prefs;
 
+// v0.11 的持久化布局；升级时保留用户已有的音频、无线和 USB 设置。
+struct ConfigValueV000B
+{
+  struct
+  {
+    AudioChannel channel;
+    AudioRate rate;
+    AudioBit bit;
+    AudioMode mode;
+    AudioGain gain;
+  } audio;
+  struct
+  {
+    RFMode mode;
+  } rf;
+  struct
+  {
+    USBMode mode;
+  } usb;
+};
+
 void config::setup()
 {
   LOGGER_INFO("Config is starting...");
@@ -48,7 +69,25 @@ void config::setup()
   }
   else
   {
-    if (prefs.getUShort(CONFIG_VERSION_NAME) != CONFIG_VERSION_VALUE)
+    const uint16_t stored_version = prefs.getUShort(CONFIG_VERSION_NAME);
+    if (stored_version == 0x000B)
+    {
+      ConfigValueV000B old_config{};
+      if (prefs.getBytesLength(CONFIG_DATA_NAME) == sizeof(old_config) &&
+          prefs.getBytes(CONFIG_DATA_NAME, &old_config, sizeof(old_config)) == sizeof(old_config))
+      {
+        config.audio.channel = old_config.audio.channel;
+        config.audio.rate = old_config.audio.rate;
+        config.audio.bit = old_config.audio.bit;
+        config.audio.mode = old_config.audio.mode;
+        config.audio.gain = old_config.audio.gain;
+        config.rf.mode = old_config.rf.mode;
+        config.usb.mode = old_config.usb.mode;
+      }
+      prefs.putUShort(CONFIG_VERSION_NAME, CONFIG_VERSION_VALUE);
+      prefs.putBytes(CONFIG_DATA_NAME, &config, sizeof(ConfigValue));
+    }
+    else if (stored_version != CONFIG_VERSION_VALUE)
     {
       // 版本不一致重置配置
       prefs.clear();
