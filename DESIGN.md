@@ -168,6 +168,10 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 - Screen brightness uses a 10-100% slider so an accidental edit cannot make the
   settings UI unreadable. Auto-off offers never, 30 seconds, 1 minute, and 5
   minutes; changing either value applies immediately.
+- Sliders use a 64x6 px track with a 12 px knob, followed by a fixed-width,
+  right-aligned value label. Values never overlay the track or knob. The gray
+  track, blue filled portion, white knob, and blue focus outline use existing
+  design tokens.
 
 ### Device meter card
 - **Structure**: 20 px tab bar, two labeled 10 px meter rows, one compact status row.
@@ -189,6 +193,10 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   it changes. Returning from a settings subpage never asks whether to apply it.
 - When auto-off has blanked the display, the first physical-button action wakes
   it and is consumed; navigation resumes with the next action.
+- A short Previous/Next press changes a focused slider by one step. Holding the
+  button starts rapid one-step repeats after a brief delay; repeat is enabled
+  only when the press began on a slider, so holding a menu navigation action
+  cannot accidentally edit a slider reached later.
 - Focus must always remain visible when a list scrolls. Returning from a subpage
   restores focus to the row that opened it.
 - Root settings rows may use the existing 300 ms horizontal entry transition.

@@ -14,6 +14,7 @@
 
 // 图片资源
 extern const lv_image_dsc_t ui_img_system_info;
+extern const lv_image_dsc_t ui_img_screen;
 extern const lv_image_dsc_t ui_img_about;
 extern const lv_image_dsc_t ui_img_microphone;
 extern const lv_image_dsc_t ui_img_audio;

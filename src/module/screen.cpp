@@ -24,12 +24,33 @@ static bool ok = false;
 static volatile uint32_t last_activity_ms = 0;
 static volatile bool backlight_off = false;
 static bool suppress_wake_input = false;
+static bool slider_repeat_enabled = false;
+static int8_t slider_repeat_direction = 0;
+static uint32_t slider_repeat_at_ms = 0;
+
+static bool focused_object_is_slider(lv_indev_t *indev)
+{
+  lv_group_t *group = lv_indev_get_group(indev);
+  lv_obj_t *focused = group ? lv_group_get_focused(group) : nullptr;
+  return focused && lv_obj_check_type(focused, &lv_slider_class);
+}
+
 static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
-  const bool any_button = button::left() || button::right() || button::ok();
+  constexpr uint32_t SLIDER_REPEAT_DELAY_MS = 300;
+  constexpr uint32_t SLIDER_REPEAT_PERIOD_MS = 40;
+
+  const bool left_down = button::left();
+  const bool right_down = button::right();
+  const bool ok_down = button::ok();
+  const bool any_button = left_down || right_down || ok_down;
+  data->enc_diff = 0;
+
   if (any_button && screen::note_activity())
   {
     suppress_wake_input = true;
+    slider_repeat_enabled = false;
+    slider_repeat_direction = 0;
   }
   if (suppress_wake_input)
   {
@@ -41,33 +62,56 @@ static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
   }
 
   // 往左往右
-  if (button::left() && !left)
+  const uint32_t now_ms = millis();
+  if (left_down && !left)
   {
     left = true;
     data->enc_diff = -1;
+    slider_repeat_enabled = focused_object_is_slider(indev);
+    slider_repeat_direction = -1;
+    slider_repeat_at_ms = now_ms + SLIDER_REPEAT_DELAY_MS;
   }
-  else if (!button::left() && left)
+  else if (!left_down && left)
   {
     left = false;
-    data->enc_diff = 0;
+    if (slider_repeat_direction == -1)
+    {
+      slider_repeat_enabled = false;
+      slider_repeat_direction = 0;
+    }
   }
-  else if (button::right() && !right)
+  if (right_down && !right)
   {
     right = true;
     data->enc_diff = 1;
+    slider_repeat_enabled = focused_object_is_slider(indev);
+    slider_repeat_direction = 1;
+    slider_repeat_at_ms = now_ms + SLIDER_REPEAT_DELAY_MS;
   }
-  else if (!button::right() && right)
+  else if (!right_down && right)
   {
     right = false;
-    data->enc_diff = 0;
+    if (slider_repeat_direction == 1)
+    {
+      slider_repeat_enabled = false;
+      slider_repeat_direction = 0;
+    }
+  }
+
+  if (data->enc_diff == 0 && slider_repeat_enabled && slider_repeat_direction != 0 &&
+      ((slider_repeat_direction < 0 && left_down) || (slider_repeat_direction > 0 && right_down)) &&
+      static_cast<int32_t>(now_ms - slider_repeat_at_ms) >= 0)
+  {
+    data->enc_diff = slider_repeat_direction;
+    slider_repeat_at_ms = now_ms + SLIDER_REPEAT_PERIOD_MS;
   }
   // 按下
-  if (button::ok() && !ok)
+  if (ok_down && !ok)
   {
     ok = true;
     data->state = LV_INDEV_STATE_PRESSED;
   }
-  else if (!button::ok() && ok)
+  else if (!ok_down && ok)
   {
     ok = false;
     data->state = LV_INDEV_STATE_RELEASED;

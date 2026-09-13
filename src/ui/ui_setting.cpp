@@ -389,7 +389,7 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_set_style_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_user_data(cont, (void *)0); // 标记未播放动画
 
-    cont = ui_create_text(root_page, &ui_img_system_info, "屏幕设置", nullptr, true);
+    cont = ui_create_text(root_page, &ui_img_screen, "屏幕设置", nullptr, true);
     lv_menu_set_load_page_event(menu, cont, sub_screen_page);
     lv_obj_add_event_cb(cont, enter_subpage_cb, LV_EVENT_CLICKED, sub_screen_page);
     lv_obj_set_style_translate_x(cont, 100, 0);
@@ -616,18 +616,32 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
     lv_obj_set_height(title, lv_font_get_line_height(UI_FONT_BODY));
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     lv_obj_t *slider = lv_slider_create(obj);
-    lv_obj_set_style_pad_all(slider, 0, LV_PART_KNOB);
-    lv_obj_set_size(slider, 92, 18);
-    // 轨道两端内缩半个旋钮宽度，值为0/最大时球完全在轨道界内
-    lv_obj_set_style_pad_hor(slider, 9, LV_PART_MAIN);
+    lv_obj_set_size(slider, 64, 6);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(0xE5E7EB), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(slider, 3, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(0x2D6BDB), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(slider, 3, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_border_width(slider, 1, LV_PART_KNOB);
+    lv_obj_set_style_border_color(slider, lv_color_hex(0x2D6BDB), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(slider, 3, LV_PART_KNOB);
+    lv_obj_set_style_outline_width(slider, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_color(slider, lv_color_hex(0x2D6BDB), LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_pad(slider, 2, LV_STATE_FOCUSED);
+    lv_obj_add_flag(slider, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_slider_set_range(slider, min, max);
     lv_slider_set_value(slider, val, LV_ANIM_OFF);
 
-    lv_obj_t *pct = lv_label_create(slider);
+    lv_obj_t *pct = lv_label_create(obj);
     lv_label_set_text_fmt(pct, "%d%s", static_cast<int>(val), suffix);
     lv_obj_set_user_data(pct, const_cast<char *>(suffix));
+    lv_obj_set_size(pct, 34, lv_font_get_line_height(UI_FONT_BODY));
+    lv_obj_set_style_text_font(pct, UI_FONT_BODY, 0);
     lv_obj_set_style_text_color(pct, lv_color_hex(0x1F2937), 0);
-    lv_obj_align(pct, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_align(pct, LV_TEXT_ALIGN_RIGHT, 0);
 
     lv_obj_add_event_cb(slider, [](lv_event_t *e)
                         {
