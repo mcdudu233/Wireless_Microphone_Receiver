@@ -47,7 +47,7 @@ but each screen must have one obvious focus target and no decorative clutter.
 
 All three sizes are generated from the approved HarmonyOS Sans SC sources in
 `docs/resources/fonts/` (titles use Medium, body uses Regular) via the pipeline
-in `docs/tools/README.md`. They share one 174-glyph Chinese symbol set extracted
+in `docs/tools/README.md`. They share one 188-glyph Chinese symbol set extracted
 from every string literal in the Receiver sources, and every size falls back to
 the matching built-in Montserrat font for `LV_SYMBOL_*` glyphs. Generated font
 files must not be hand-edited.
@@ -69,9 +69,10 @@ files must not be hand-edited.
   64x64 with the `#1F2937` (`text-primary`) stroke in RGB565A8, displayed at
   16 px via `lv_img_set_zoom(img, 64)` inside a 16x16 box.
 - Tabler raster icons are for standalone 16x16 icon slots (menu rows, dialog
-  icons). Inline status glyphs inside text rows (main-screen status row,
-  device-card battery/signal labels) use `LV_SYMBOL_*` text symbols via the
-  Montserrat fallback so every glyph in one row shares the same visual style.
+  icons). Inline status glyphs inside text rows (main-screen status row) use
+  `LV_SYMBOL_*` text symbols via the Montserrat fallback so every glyph in one
+  row shares the same visual style; device-card battery and signal indications
+  are custom drawn widgets, not font glyphs.
 - The boot microphone icon is 128x128 displayed at 32 px.
 - Icon color stays neutral; focus and selection are expressed by row
   background/outline styles only (accent is functional, never decorative).
@@ -185,6 +186,14 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 - **Structure**: 20 px tab bar, two labeled 10 px meter rows, one compact status row.
 - **Layout**: every pixel dimension is explicit; status values use short symbol
   plus number forms so left and right values cannot collide.
+- **Status row**: bottom-left battery icon (24x10: 21x10 outlined body with 2x4
+  cap, 17x6 fill bar whose width maps the charge level and whose color sweeps
+  red→yellow→green with level); bottom-right 26..30 px packet-loss label
+  (`0%`-style, `status-success` at 0%, LVGL palette red above 0%) with a 14x10
+  four-bar signal widget (2 px bars, heights 4/6/8/10, 2 px gaps) to its left —
+  lit bar count maps RSSI (about -90..-35 dBm → 0..100%) and the lit color uses
+  the same red→yellow→green sweep. No numeric battery/percentage text and no
+  overall transmission-rate readout on the card or the main screen.
 
 ### Reconnect status chip
 - **Structure**: non-modal 94x18 rounded (4 px) strip centered over the device
