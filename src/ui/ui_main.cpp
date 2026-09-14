@@ -8,9 +8,26 @@
 static lv_style_t style_indic_h; // 横向bar样式
 static lv_obj_t *info_widget;
 static lv_obj_t *main_widget;
-static lv_obj_t *transmit_speed_label;
 static lv_obj_t *tabview;                                                                           // 最多4个                                                                              // 纵向bar样式
 static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac, bool color_test); // 创建自定义card容器组件
+
+// 电量/信号等级(0-100)映射为渐变色:0红→50黄→100绿
+static lv_color_t ui_level_color(uint8_t level)
+{
+    return lv_color_hsv_to_rgb(level * 120U / 100U, 80, 90);
+}
+
+// RSSI(dBm)映射为0-100信号强度;0视为未知信号
+static uint8_t ui_rssi_to_level(int8_t rssi)
+{
+    if (rssi == 0)
+        return 0;
+    if (rssi <= -90)
+        return 5; // 极弱信号仍显示一格(红色)
+    if (rssi >= -35)
+        return 100;
+    return (uint8_t)((rssi + 90) * 100 / 55);
+}
 
 static std::vector<std::string> linked_devices;
 static std::vector<device_card_data *> cards;
@@ -103,24 +120,6 @@ void ui_main_init()
         lv_obj_set_style_radius(btn, 4, 0);
     }
 
-    lv_obj_t *label_widget = lv_obj_create(main_widget);
-    lv_obj_set_style_pad_all(label_widget, 0, 0);      // 紧凑内边距
-    lv_obj_set_style_border_width(label_widget, 0, 0); // 去除边框
-    lv_obj_set_style_bg_color(label_widget, lv_color_hex(0xF4F5F7), 0);
-    lv_obj_set_style_radius(label_widget, 4, 0);
-    lv_obj_set_size(label_widget, 160 * 0.3 + 5, 35);
-    lv_obj_align_to(label_widget, info_widget, LV_ALIGN_OUT_RIGHT_MID, 2, -5);
-
-    transmit_speed_label = lv_label_create(label_widget);
-    lv_obj_set_width(transmit_speed_label, 51);
-    lv_obj_set_height(transmit_speed_label, lv_font_get_line_height(UI_FONT_BODY));
-    lv_obj_set_style_text_align(transmit_speed_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_long_mode(transmit_speed_label, LV_LABEL_LONG_DOT);
-    lv_label_set_text(transmit_speed_label, "--b/s");
-    lv_obj_set_style_text_color(transmit_speed_label, lv_color_hex(0x626367), 0);
-    lv_obj_set_style_text_font(transmit_speed_label, UI_FONT_BODY, 0);
-    lv_obj_align(transmit_speed_label, LV_ALIGN_CENTER, 0, 0);
-
     btn = ui_add_button(main_widget, "设置", 160 * 0.3, UI_ACTION_HEIGHT, UI_FONT_BODY);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_border_width(btn, 1, 0);
@@ -135,7 +134,7 @@ void ui_main_init()
     lv_label_set_text(img, LV_SYMBOL_USB);
     lv_obj_set_style_text_font(img, &lv_font_harmonyos_12, 0);
     lv_obj_set_style_text_color(img, lv_color_hex(0x6B7280), 0);
-    lv_obj_align_to(img, label_widget, LV_ALIGN_OUT_TOP_LEFT, 3, 0);
+    lv_obj_align(img, LV_ALIGN_TOP_LEFT, 106, 2);
     last = img;
     img = lv_label_create(main_widget);
     lv_label_set_text(img, LV_SYMBOL_WIFI);
@@ -184,16 +183,29 @@ void ui_main_init()
                                         // RF侧已经生成平滑包络，避免连续创建LVGL动画造成延迟和额外开销。
                                         lv_bar_set_value(card_data->left_voice_bar, ui_info_get_left_voice(card_data->device_mac), LV_ANIM_OFF);
                                         lv_bar_set_value(card_data->right_voice_bar, ui_info_get_right_voice(card_data->device_mac), LV_ANIM_OFF);
-                                        timer_update_elapsed += UPDATE_TIMER_PERIOD;
-                                        if (timer_update_elapsed >= UPDATE_INFO_PERIOD)
-                                        {
-                                            timer_update_elapsed = 0;
-                                            const std::string speed = ui_info_get_transmit_speed();
-                                            lv_label_set_text(transmit_speed_label, speed.c_str());
-                                            lv_obj_set_style_text_color(transmit_speed_label, lv_color_hex(0x2D6BDB), 0);
-                                            lv_label_set_text_fmt(card_data->power_label, "%s %d", LV_SYMBOL_BATTERY_FULL, ui_info_get_power(card_data->device_mac));
-                                            lv_label_set_text_fmt(card_data->signal_label, "%s %d", LV_SYMBOL_WIFI, ui_info_get_signal(card_data->device_mac));
-                                        } },
+                                         timer_update_elapsed += UPDATE_TIMER_PERIOD;
+                                         if (timer_update_elapsed >= UPDATE_INFO_PERIOD)
+                                         {
+                                             timer_update_elapsed = 0;
+                                             // 电池:电量条填充宽度+渐变色(满绿→半黄→低红)
+                                             const uint8_t battery = (uint8_t)std::clamp((int)ui_info_get_power(card_data->device_mac), 0, 100);
+                                             lv_bar_set_value(card_data->battery_fill, battery, LV_ANIM_OFF);
+                                             lv_obj_set_style_bg_color(card_data->battery_fill, ui_level_color(battery), LV_PART_INDICATOR);
+                                             // 信号:按RSSI点亮格数并用渐变色提示强弱
+                                             const uint8_t sig_level = ui_rssi_to_level(ui_info_get_signal(card_data->device_mac));
+                                             const uint8_t sig_bars = sig_level ? (uint8_t)((sig_level * 4 + 99) / 100) : 0;
+                                             const lv_color_t sig_color = ui_level_color(sig_level);
+                                             for (uint8_t i = 0; i < 4; i++)
+                                             {
+                                                 lv_obj_set_style_bg_color(card_data->signal_bars[i],
+                                                                           i < sig_bars ? sig_color : lv_color_hex(0xE5E7EB), 0);
+                                             }
+                                             // 丢包率:0%绿色,非0%红色
+                                             const uint8_t loss = ui_info_get_loss(card_data->device_mac);
+                                             lv_label_set_text_fmt(card_data->loss_label, "%u%%", (unsigned)loss);
+                                             lv_obj_set_style_text_color(card_data->loss_label,
+                                                                         loss ? lv_palette_main(LV_PALETTE_RED) : lv_color_hex(0x059669), 0);
+                                         } },
                                    UPDATE_TIMER_PERIOD, NULL);
 }
 
@@ -241,17 +253,76 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac
     lv_obj_align_to(data->right_voice_bar, right_label, LV_ALIGN_OUT_RIGHT_MID, 5, 3);
     lv_bar_set_range(data->right_voice_bar, 0, 100);
 
-    data->power_label = lv_label_create(card);
-    lv_obj_align(data->power_label, LV_ALIGN_BOTTOM_LEFT, 0, -1);
-    lv_obj_set_style_text_font(data->power_label, &lv_font_harmonyos_12, 0);
-    lv_obj_set_style_text_color(data->power_label, lv_color_hex(0x1F2937), 0);
-    lv_label_set_text_fmt(data->power_label, "%s %d", LV_SYMBOL_BATTERY_FULL, 100);
+    // 电池图标:边框+右侧极耳+内部电量填充条(填充宽度与颜色表示电量,满绿→黄→低红)
+    lv_obj_t *battery = lv_obj_create(card);
+    lv_obj_set_size(battery, 24, 10);
+    lv_obj_align(battery, LV_ALIGN_BOTTOM_LEFT, 0, -1);
+    lv_obj_set_style_pad_all(battery, 0, 0);
+    lv_obj_set_style_border_width(battery, 0, 0);
+    lv_obj_set_style_bg_opa(battery, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(battery, LV_OBJ_FLAG_SCROLLABLE);
 
-    data->signal_label = lv_label_create(card);
-    lv_obj_align(data->signal_label, LV_ALIGN_BOTTOM_RIGHT, 0, -1);
-    lv_obj_set_style_text_font(data->signal_label, &lv_font_harmonyos_12, 0);
-    lv_obj_set_style_text_color(data->signal_label, lv_color_hex(0x1F2937), 0);
-    lv_label_set_text_fmt(data->signal_label, "%s %d", LV_SYMBOL_WIFI, 100);
+    lv_obj_t *battery_body = lv_obj_create(battery);
+    lv_obj_set_size(battery_body, 21, 10);
+    lv_obj_align(battery_body, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_pad_all(battery_body, 1, 0);
+    lv_obj_set_style_border_width(battery_body, 1, 0);
+    lv_obj_set_style_border_color(battery_body, lv_color_hex(0x6B7280), 0);
+    lv_obj_set_style_radius(battery_body, 2, 0);
+    lv_obj_set_style_bg_opa(battery_body, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(battery_body, LV_OBJ_FLAG_SCROLLABLE);
+
+    data->battery_fill = lv_bar_create(battery_body);
+    lv_obj_set_size(data->battery_fill, 17, 6);
+    lv_bar_set_range(data->battery_fill, 0, 100);
+    lv_bar_set_value(data->battery_fill, 100, LV_ANIM_OFF);
+    lv_obj_set_style_bg_opa(data->battery_fill, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_radius(data->battery_fill, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(data->battery_fill, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(data->battery_fill, 1, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(data->battery_fill, ui_level_color(100), LV_PART_INDICATOR);
+
+    lv_obj_t *battery_cap = lv_obj_create(battery);
+    lv_obj_set_size(battery_cap, 2, 4);
+    lv_obj_align(battery_cap, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_pad_all(battery_cap, 0, 0);
+    lv_obj_set_style_border_width(battery_cap, 0, 0);
+    lv_obj_set_style_radius(battery_cap, 1, 0);
+    lv_obj_set_style_bg_color(battery_cap, lv_color_hex(0x6B7280), 0);
+    lv_obj_set_style_bg_opa(battery_cap, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(battery_cap, LV_OBJ_FLAG_SCROLLABLE);
+
+    // 丢包率:0%绿色,非0%红色
+    data->loss_label = lv_label_create(card);
+    lv_obj_align(data->loss_label, LV_ALIGN_BOTTOM_RIGHT, 0, -1);
+    lv_obj_set_size(data->loss_label, 30, lv_font_get_line_height(UI_FONT_BODY));
+    lv_label_set_long_mode(data->loss_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(data->loss_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_font(data->loss_label, UI_FONT_BODY, 0);
+    lv_label_set_text(data->loss_label, "0%");
+    lv_obj_set_style_text_color(data->loss_label, lv_color_hex(0x059669), 0);
+
+    // 信号强度:4根递增格,点亮数量与渐变色表示强弱
+    lv_obj_t *signal = lv_obj_create(card);
+    lv_obj_set_size(signal, 14, 10);
+    lv_obj_align(signal, LV_ALIGN_BOTTOM_RIGHT, -33, -1);
+    lv_obj_set_style_pad_all(signal, 0, 0);
+    lv_obj_set_style_border_width(signal, 0, 0);
+    lv_obj_set_style_bg_opa(signal, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(signal, LV_OBJ_FLAG_SCROLLABLE);
+    static const uint8_t signal_bar_heights[4] = {4, 6, 8, 10};
+    for (uint8_t i = 0; i < 4; i++)
+    {
+        data->signal_bars[i] = lv_obj_create(signal);
+        lv_obj_set_size(data->signal_bars[i], 2, signal_bar_heights[i]);
+        lv_obj_align(data->signal_bars[i], LV_ALIGN_BOTTOM_LEFT, i * 4, 0);
+        lv_obj_set_style_pad_all(data->signal_bars[i], 0, 0);
+        lv_obj_set_style_border_width(data->signal_bars[i], 0, 0);
+        lv_obj_set_style_radius(data->signal_bars[i], 1, 0);
+        lv_obj_set_style_bg_color(data->signal_bars[i], lv_color_hex(0xE5E7EB), 0);
+        lv_obj_set_style_bg_opa(data->signal_bars[i], LV_OPA_COVER, 0);
+        lv_obj_remove_flag(data->signal_bars[i], LV_OBJ_FLAG_SCROLLABLE);
+    }
 
     if (color_test)
     {
