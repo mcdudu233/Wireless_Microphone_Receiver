@@ -19,6 +19,7 @@ struct AudioData
   uint32_t size;
   uint32_t received_size;
   uint32_t received_parts;
+  uint16_t payload_capacity;
   uint8_t expected_parts;
   bool complete;
   uint8_t data[AUDIO_BUFFER_MAX_DATA_SIZE];

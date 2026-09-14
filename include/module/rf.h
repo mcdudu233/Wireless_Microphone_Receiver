@@ -26,6 +26,11 @@
 // 一个AMPDU批次可能同时到达数十个包；应能一次排空整个接收窗口。
 #define RF_WIFI_RX_BURST_MAX 32
 
+// 主界面音量表：稀疏采样PCM，在固定周期发布dBFS包络。
+#define RF_VOICE_METER_SAMPLE_STRIDE 4
+#define RF_VOICE_METER_UPDATE_MS 40
+#define RF_VOICE_METER_RELEASE_STEP 8
+
 // 断线重连监控
 #define RF_RECONNECT_TIMEOUT_MS 10000       // 断开后判定连接失败的宽限期
 #define RF_RECONNECT_RETRY_INTERVAL_MS 2000 // BLE模式下主动重连尝试间隔

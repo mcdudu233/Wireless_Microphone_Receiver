@@ -213,6 +213,132 @@ static const uint8_t *prepareValidFrame(const uint8_t *pcm, uint32_t size, bool 
   return pcm;
 }
 
+static void scalePcmFrames(uint8_t *pcm, uint32_t first_frame, uint32_t frame_count,
+                           bool fade_in)
+{
+  if (frame_count == 0)
+  {
+    return;
+  }
+  const uint32_t channels = static_cast<uint32_t>(i2s_channel);
+  const uint32_t bytes_per_sample = getBytesPerSample(i2s_bit);
+  const uint32_t bytes_per_frame = bytes_per_sample * channels;
+  for (uint32_t frame = 0; frame < frame_count; frame++)
+  {
+    const int64_t scale = fade_in ? static_cast<int64_t>(frame + 1)
+                                  : static_cast<int64_t>(frame_count - frame - 1);
+    for (uint32_t channel = 0; channel < channels; channel++)
+    {
+      uint8_t *sample_data = pcm + (first_frame + frame) * bytes_per_frame +
+                             channel * bytes_per_sample;
+      const int32_t sample = static_cast<int32_t>(
+          static_cast<int64_t>(readPcmSample(sample_data, i2s_bit)) * scale / frame_count);
+      writePcmSample(sample_data, i2s_bit, sample);
+    }
+  }
+}
+
+// 保留已收到的PCM，只将缺失网络分片覆盖为静音，并在缺口两侧淡变。
+static const uint8_t *preparePartialFrame(const AudioData *audio, bool &recovered)
+{
+  const uint32_t size = audio->size;
+  const uint32_t channels = static_cast<uint32_t>(i2s_channel);
+  const uint32_t bytes_per_sample = getBytesPerSample(i2s_bit);
+  const uint32_t bytes_per_frame = bytes_per_sample * channels;
+  if (bytes_per_frame == 0 || audio->payload_capacity == 0 || audio->expected_parts == 0)
+  {
+    recovered = false;
+    return prepareConcealmentFrame(size);
+  }
+
+  memcpy(concealment_data, audio->data, size);
+  const uint32_t total_frames = size / bytes_per_frame;
+  const uint32_t fade_frames = getFadeFrames(size);
+  const bool first_part_missing = (audio->received_parts & 1UL) == 0;
+  recovered = loss_active && !first_part_missing;
+
+  uint8_t part = 0;
+  while (part < audio->expected_parts)
+  {
+    if ((audio->received_parts & (1UL << part)) != 0)
+    {
+      part++;
+      continue;
+    }
+
+    const uint8_t missing_first = part;
+    while (part < audio->expected_parts &&
+           (audio->received_parts & (1UL << part)) == 0)
+    {
+      part++;
+    }
+    const uint8_t missing_end = part;
+    const uint32_t first_byte = static_cast<uint32_t>(missing_first) * audio->payload_capacity;
+    uint32_t end_byte = static_cast<uint32_t>(missing_end) * audio->payload_capacity;
+    if (end_byte > size)
+    {
+      end_byte = size;
+    }
+    const uint32_t first_missing_frame = first_byte / bytes_per_frame;
+    uint32_t end_missing_frame = (end_byte + bytes_per_frame - 1) / bytes_per_frame;
+    if (end_missing_frame > total_frames)
+    {
+      end_missing_frame = total_frames;
+    }
+
+    memset(concealment_data + first_missing_frame * bytes_per_frame, 0,
+           (end_missing_frame - first_missing_frame) * bytes_per_frame);
+
+    const uint32_t fade_out_count = first_missing_frame < fade_frames
+                                        ? first_missing_frame
+                                        : fade_frames;
+    scalePcmFrames(concealment_data, first_missing_frame - fade_out_count,
+                   fade_out_count, false);
+    const uint32_t available_after = total_frames - end_missing_frame;
+    const uint32_t fade_in_count = available_after < fade_frames
+                                       ? available_after
+                                       : fade_frames;
+    scalePcmFrames(concealment_data, end_missing_frame, fade_in_count, true);
+  }
+
+  if (first_part_missing && !loss_active)
+  {
+    const uint32_t first_gap_frames = (audio->payload_capacity + bytes_per_frame - 1) /
+                                      bytes_per_frame;
+    const uint32_t decay_frames = first_gap_frames < fade_frames ? first_gap_frames : fade_frames;
+    for (uint32_t frame = 0; frame < decay_frames; frame++)
+    {
+      const int64_t scale = static_cast<int64_t>(decay_frames - frame - 1);
+      for (uint32_t channel = 0; channel < channels; channel++)
+      {
+        const int32_t sample = static_cast<int32_t>(
+            static_cast<int64_t>(last_output_sample[channel]) * scale / decay_frames);
+        writePcmSample(concealment_data + frame * bytes_per_frame + channel * bytes_per_sample,
+                       i2s_bit, sample);
+      }
+    }
+  }
+  else if (!first_part_missing && loss_active)
+  {
+    const uint32_t fade_in_count = total_frames < fade_frames ? total_frames : fade_frames;
+    scalePcmFrames(concealment_data, 0, fade_in_count, true);
+  }
+
+  const bool last_part_missing =
+      (audio->received_parts & (1UL << (audio->expected_parts - 1))) == 0;
+  loss_active = last_part_missing;
+  if (last_part_missing)
+  {
+    last_output_sample[0] = 0;
+    last_output_sample[1] = 0;
+  }
+  else
+  {
+    rememberLastSamples(concealment_data, size);
+  }
+  return concealment_data;
+}
+
 // 记录丢包率
 // static unsigned long last_time = millis();
 // static int last_ok = 0;
@@ -282,11 +408,14 @@ static void audioHandle(void *arg)
       // 初次收到音频帧前让I2S DMA自行保持零输出，避免以192kHz持续搬运无意义静音。
       if (frame_size > 0 && playback_started)
       {
-        const bool complete = data != nullptr && data->complete && data->size == frame_size;
+        const bool sized_frame = data != nullptr && data->size == frame_size;
+        const bool complete = sized_frame && data->complete;
+        const bool partial = sized_frame && !complete && data->received_parts != 0;
         bool recovered = false;
         const uint8_t *output_data = complete
                                          ? prepareValidFrame(data->data, frame_size, recovered)
-                                         : prepareConcealmentFrame(frame_size);
+                                         : (partial ? preparePartialFrame(data, recovered)
+                                                    : prepareConcealmentFrame(frame_size));
 #ifndef BUILD_DEBUG
         (void)recovered;
 #endif
@@ -306,10 +435,10 @@ static void audioHandle(void *arg)
         else
         {
           bytes_written_total += bytes_written;
+          recovery_count += recovered ? 1U : 0U;
           if (complete)
           {
             valid_frames++;
-            recovery_count += recovered ? 1U : 0U;
             const uint32_t frame_peak = getPcmPeak(output_data, frame_size, i2s_bit);
             if (frame_peak > pcm_peak)
             {

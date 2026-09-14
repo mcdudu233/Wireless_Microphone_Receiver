@@ -47,17 +47,19 @@ static AudioData *getAudioDataFront()
 }
 
 static void initializeAudioData(AudioData *audio, uint32_t number, uint32_t frame_size,
-                                uint8_t expected_parts)
+                                uint8_t expected_parts, uint16_t payload_capacity)
 {
   audio->num = number;
   audio->size = frame_size;
   audio->received_size = 0;
   audio->received_parts = 0;
+  audio->payload_capacity = payload_capacity;
   audio->expected_parts = expected_parts;
   audio->complete = false;
 }
 
-static AudioData *appendAudioData(uint32_t number, uint32_t frame_size, uint8_t expected_parts)
+static AudioData *appendAudioData(uint32_t number, uint32_t frame_size, uint8_t expected_parts,
+                                  uint16_t payload_capacity)
 {
   AudioData *audio = &data[data_pointer];
   data_pointer = (data_pointer + 1) % AUDIO_BUFFER_MAX_BUFFER_SIZE;
@@ -66,7 +68,7 @@ static AudioData *appendAudioData(uint32_t number, uint32_t frame_size, uint8_t 
     buffered_slots++;
   }
   buffer_has_data = true;
-  initializeAudioData(audio, number, frame_size, expected_parts);
+  initializeAudioData(audio, number, frame_size, expected_parts, payload_capacity);
   return audio;
 }
 
@@ -117,7 +119,7 @@ static void writePacket(uint16_t packet_size, uint32_t packet_number,
   AudioData *audio = nullptr;
   if (!buffer_has_data)
   {
-    audio = appendAudioData(packet_number, frame_size, expected_parts);
+    audio = appendAudioData(packet_number, frame_size, expected_parts, payload_capacity);
   }
   else
   {
@@ -134,7 +136,7 @@ static void writePacket(uint16_t packet_size, uint32_t packet_number,
       const uint32_t first_number = packet_number - slots_to_add + 1;
       for (uint32_t index = 0; index < slots_to_add; index++)
       {
-        audio = appendAudioData(first_number + index, frame_size, expected_parts);
+        audio = appendAudioData(first_number + index, frame_size, expected_parts, payload_capacity);
       }
     }
     else
@@ -154,9 +156,10 @@ static void writePacket(uint16_t packet_size, uint32_t packet_number,
   }
 
   // 配置切换时同一槽位可能仍保留旧格式，收到新分片后按新格式重新初始化。
-  if (audio->size != frame_size || audio->expected_parts != expected_parts)
+  if (audio->size != frame_size || audio->expected_parts != expected_parts ||
+      audio->payload_capacity != payload_capacity)
   {
-    initializeAudioData(audio, packet_number, frame_size, expected_parts);
+    initializeAudioData(audio, packet_number, frame_size, expected_parts, payload_capacity);
   }
 
   const uint32_t part_mask = 1UL << packet_part;
@@ -310,6 +313,7 @@ void audio::buffer::restart()
     data[i].size = 0;
     data[i].received_size = 0;
     data[i].received_parts = 0;
+    data[i].payload_capacity = 0;
     data[i].expected_parts = 0;
     data[i].complete = false;
   }

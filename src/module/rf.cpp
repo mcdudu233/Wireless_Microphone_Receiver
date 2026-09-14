@@ -934,9 +934,80 @@ bool ble_send(const Device &device, const uint8_t *data, uint16_t len)
 }
 /****************************/
 
-// 解析音频包内PCM样本，计算左右声道实时峰值电平(0-100)并写入设备
-// 音频载荷为发送端按当前配置转换后的裸PCM: 采样位深=audio.bit, 声道数=audio.channel
-// 峰值保持: 仅当新峰值更高时更新，每秒由 rf_handle 统一衰减，避免闪烁
+struct VoiceMeterState
+{
+  Device *device = nullptr;
+  uint64_t peakL = 0;
+  uint64_t peakR = 0;
+};
+static VoiceMeterState voiceMeterStates[RF_MAX_CONNECTION];
+static uint32_t voiceMeterLastUpdate = 0;
+
+static VoiceMeterState *rf_get_voice_meter(Device *device)
+{
+  for (VoiceMeterState &state : voiceMeterStates)
+  {
+    if (state.device == device)
+      return &state;
+  }
+  for (VoiceMeterState &state : voiceMeterStates)
+  {
+    if (state.device == nullptr)
+    {
+      state.device = device;
+      return &state;
+    }
+  }
+  return nullptr;
+}
+
+// 将峰值映射到约-60dBFS至0dBFS的0-100显示范围，仅每40ms计算一次。
+static uint8_t rf_peak_to_meter(uint64_t peak, AudioBit bit)
+{
+  if (peak == 0)
+    return 0;
+  const uint32_t full_scale_exponent = static_cast<uint32_t>(bit) - 1U;
+  const uint32_t peak_exponent = 63U - static_cast<uint32_t>(__builtin_clzll(peak));
+  if (peak_exponent >= full_scale_exponent)
+    return 100;
+
+  const uint64_t exponent_base = 1ULL << peak_exponent;
+  const uint32_t fraction_tenths = static_cast<uint32_t>(
+      ((peak - exponent_base) * 10U) / exponent_base);
+  const uint32_t attenuation_tenths =
+      (full_scale_exponent - peak_exponent) * 10U - fraction_tenths;
+  return attenuation_tenths >= 100U ? 0U : static_cast<uint8_t>(100U - attenuation_tenths);
+}
+
+static uint8_t rf_apply_meter_envelope(uint8_t current, uint8_t target)
+{
+  if (target >= current)
+    return target;
+  const uint8_t released = current > RF_VOICE_METER_RELEASE_STEP
+                               ? static_cast<uint8_t>(current - RF_VOICE_METER_RELEASE_STEP)
+                               : 0;
+  return target > released ? target : released;
+}
+
+static void rf_publish_voice_levels(uint32_t now)
+{
+  if (now - voiceMeterLastUpdate < RF_VOICE_METER_UPDATE_MS)
+    return;
+  voiceMeterLastUpdate = now;
+  for (VoiceMeterState &state : voiceMeterStates)
+  {
+    if (state.device == nullptr)
+      continue;
+    const uint8_t targetL = rf_peak_to_meter(state.peakL, config::config.audio.bit);
+    const uint8_t targetR = rf_peak_to_meter(state.peakR, config::config.audio.bit);
+    state.device->setVoiceLevelL(rf_apply_meter_envelope(state.device->getVoiceLevelL(), targetL));
+    state.device->setVoiceLevelR(rf_apply_meter_envelope(state.device->getVoiceLevelR(), targetR));
+    state.peakL = 0;
+    state.peakR = 0;
+  }
+}
+
+// 解析每帧首分片中的稀疏PCM样本；热路径只保留整数读取和峰值比较。
 static void rf_update_voice_level(Device *device, const uint8_t *data, uint16_t size)
 {
   if (device == nullptr || data == nullptr || size == 0)
@@ -946,12 +1017,14 @@ static void rf_update_voice_level(Device *device, const uint8_t *data, uint16_t 
 
   const uint8_t bytesPerSample = (uint8_t)(config::config.audio.bit / 8); // 2/3/4
   const uint8_t channels = (uint8_t)config::config.audio.channel;         // 1/2
-  const int64_t fullScale = (int64_t)1 << (config::config.audio.bit - 1); // 2^(bit-1)
+  if (bytesPerSample < 2 || bytesPerSample > 4 || channels == 0 || channels > 2)
+    return;
   const size_t sampleCount = size / bytesPerSample;
 
   int64_t peakMagnitudeL = 0;
   int64_t peakMagnitudeR = 0;
-  for (size_t i = 0; i + channels <= sampleCount; i += channels)
+  for (size_t i = 0; i + channels <= sampleCount;
+       i += channels * RF_VOICE_METER_SAMPLE_STRIDE)
   {
     for (uint8_t ch = 0; ch < channels; ch++)
     {
@@ -986,16 +1059,15 @@ static void rf_update_voice_level(Device *device, const uint8_t *data, uint16_t 
     }
   }
 
-  // 热路径中只在每个分片末尾换算一次，避免对每个PCM样本执行64位除法。
-  const uint8_t peakL = static_cast<uint8_t>((peakMagnitudeL * 100) / fullScale);
-  const uint8_t peakR = channels == 1
-                            ? peakL
-                            : static_cast<uint8_t>((peakMagnitudeR * 100) / fullScale);
-
-  if (peakL > device->getVoiceLevelL())
-    device->setVoiceLevelL(peakL);
-  if (peakR > device->getVoiceLevelR())
-    device->setVoiceLevelR(peakR);
+  VoiceMeterState *state = rf_get_voice_meter(device);
+  if (state == nullptr)
+    return;
+  if (static_cast<uint64_t>(peakMagnitudeL) > state->peakL)
+    state->peakL = static_cast<uint64_t>(peakMagnitudeL);
+  const uint64_t peakR = channels == 1 ? static_cast<uint64_t>(peakMagnitudeL)
+                                       : static_cast<uint64_t>(peakMagnitudeR);
+  if (peakR > state->peakR)
+    state->peakR = peakR;
 }
 
 // 解析数据包
@@ -1019,7 +1091,7 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
     }
     audio::buffer::writeWiFiPacket(&packet->packet.audioDataWiFi);
     // 更新设备实时音频电平
-    if (device)
+    if (device && packet->packet.audioDataWiFi.part == 0)
     {
       rf_update_voice_level(device, packet->packet.audioDataWiFi.data, packet->packet.audioDataWiFi.size);
     }
@@ -1037,7 +1109,7 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
     }
     audio::buffer::writeBLEPacket(&packet->packet.audioDataBLE);
     // 更新设备实时音频电平
-    if (device)
+    if (device && packet->packet.audioDataBLE.part == 0)
     {
       rf_update_voice_level(device, packet->packet.audioDataBLE.data, packet->packet.audioDataBLE.size);
     }
@@ -1321,6 +1393,8 @@ static void rf_handle(void *arg)
 #endif
     }
 
+    rf_publish_voice_levels(millis());
+
     /* 每秒执行一次获取其他信息 */
     unsigned long secondNowTime = millis();
     if (secondNowTime - secondLastTime > 1000)
@@ -1331,26 +1405,23 @@ static void rf_handle(void *arg)
       secondLastTime = secondNowTime;
       // LOGGER_INFO("RF data speed %dKB/s", transmitSpeed / 1024);
 #ifdef BUILD_DEBUG
-      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu budget_hits=%lu max_drain_us=%lu",
+      uint8_t levelL = 0;
+      uint8_t levelR = 0;
+      if (deviceManager.size() > 0)
+      {
+        levelL = deviceManager.getAllDevices()[0].getVoiceLevelL();
+        levelR = deviceManager.getAllDevices()[0].getVoiceLevelR();
+      }
+      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu budget_hits=%lu max_drain_us=%lu level_l=%u level_r=%u",
                   static_cast<unsigned long>(wifiRxPackets), static_cast<unsigned long>(transmitSpeed),
                   static_cast<unsigned long>(wifiRxMaxBurst), static_cast<unsigned long>(wifiRxBudgetHits),
-                  static_cast<unsigned long>(wifiRxMaxDrainUs));
+                  static_cast<unsigned long>(wifiRxMaxDrainUs),
+                  static_cast<unsigned int>(levelL), static_cast<unsigned int>(levelR));
       wifiRxPackets = 0;
       wifiRxMaxBurst = 0;
       wifiRxBudgetHits = 0;
       wifiRxMaxDrainUs = 0;
 #endif
-
-      /* 衰减音频电平 (无新音频时逐渐归零) */
-      {
-        Device *levelDevices = deviceManager.getAllDevices();
-        for (uint8_t i = 0; i < deviceManager.size(); i++)
-        {
-          Device &levelDevice = levelDevices[i];
-          levelDevice.setVoiceLevelL(levelDevice.getVoiceLevelL() > 10 ? levelDevice.getVoiceLevelL() - 10 : 0);
-          levelDevice.setVoiceLevelR(levelDevice.getVoiceLevelR() > 10 ? levelDevice.getVoiceLevelR() - 10 : 0);
-        }
-      }
 
       /* 获取信号强度 */
       if (bleIsOpen)

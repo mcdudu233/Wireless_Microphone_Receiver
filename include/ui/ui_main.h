@@ -2,7 +2,8 @@
 #include "ui/ui.h"
 #include <vector>
 
-#define UPDATE_TIMER_PERIOD 500 // 主界面数据(实时音量条)刷新周期
+#define UPDATE_TIMER_PERIOD 50 // 主界面数据刷新周期；音量包络由RF侧限频至25Hz
+#define UPDATE_INFO_PERIOD 500 // 速率、电量、信号无需随音量条高频刷新
 
 typedef struct
 {

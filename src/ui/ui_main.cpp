@@ -16,6 +16,7 @@ static std::vector<std::string> linked_devices;
 static std::vector<device_card_data *> cards;
 
 static lv_timer_t *timer_update;
+static uint16_t timer_update_elapsed;
 static lv_group_t *main_group;
 static bool style_indic_h_initialized;
 
@@ -151,6 +152,7 @@ void ui_main_init()
 
     ui_bind_group_to_all_encoders(lv_group_get_default());
 
+    timer_update_elapsed = UPDATE_INFO_PERIOD;
     timer_update = lv_timer_create([](lv_timer_t *t)
                                    {
                                         // 挂起的"返回设备连接页":设置页退出、主界面重新可见后执行
@@ -162,9 +164,6 @@ void ui_main_init()
                                             ui_main_show_link_lost_msgbox("设备连接失败", "已返回选择设备");
                                             return;
                                         }
-
-                                         // 更新数据
-                                         std::string speed = ui_info_get_transmit_speed();
 
                                          uint32_t act = lv_tabview_get_tab_active(tabview);
                                          lv_obj_t *content = lv_tabview_get_content(tabview);
@@ -178,17 +177,23 @@ void ui_main_init()
                                              return;
                                         device_card_data *card_data = (device_card_data *)lv_obj_get_user_data(card);
                                         
-                                        lv_label_set_text(transmit_speed_label, speed.c_str());
-                                        lv_obj_set_style_text_color(transmit_speed_label, lv_color_hex(0x2D6BDB), 0);
-
                                         // 设置卡片内信息
                                         if (card_data == nullptr)
                                             return;
 
-                                        lv_bar_set_value(card_data->left_voice_bar, ui_info_get_left_voice(card_data->device_mac), LV_ANIM_ON);
-                                        lv_bar_set_value(card_data->right_voice_bar, ui_info_get_right_voice(card_data->device_mac), LV_ANIM_ON);
-                                         lv_label_set_text_fmt(card_data->power_label, "%s %d", LV_SYMBOL_BATTERY_FULL, ui_info_get_power(card_data->device_mac));
-                                         lv_label_set_text_fmt(card_data->signal_label, "%s %d", LV_SYMBOL_WIFI, ui_info_get_signal(card_data->device_mac)); },
+                                        // RF侧已经生成平滑包络，避免连续创建LVGL动画造成延迟和额外开销。
+                                        lv_bar_set_value(card_data->left_voice_bar, ui_info_get_left_voice(card_data->device_mac), LV_ANIM_OFF);
+                                        lv_bar_set_value(card_data->right_voice_bar, ui_info_get_right_voice(card_data->device_mac), LV_ANIM_OFF);
+                                        timer_update_elapsed += UPDATE_TIMER_PERIOD;
+                                        if (timer_update_elapsed >= UPDATE_INFO_PERIOD)
+                                        {
+                                            timer_update_elapsed = 0;
+                                            const std::string speed = ui_info_get_transmit_speed();
+                                            lv_label_set_text(transmit_speed_label, speed.c_str());
+                                            lv_obj_set_style_text_color(transmit_speed_label, lv_color_hex(0x2D6BDB), 0);
+                                            lv_label_set_text_fmt(card_data->power_label, "%s %d", LV_SYMBOL_BATTERY_FULL, ui_info_get_power(card_data->device_mac));
+                                            lv_label_set_text_fmt(card_data->signal_label, "%s %d", LV_SYMBOL_WIFI, ui_info_get_signal(card_data->device_mac));
+                                        } },
                                    UPDATE_TIMER_PERIOD, NULL);
 }
 
