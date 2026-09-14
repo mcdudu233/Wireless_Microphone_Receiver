@@ -37,9 +37,10 @@ static AudioRate i2s_rate;
 static AudioBit i2s_bit;
 static bool powerOn = false;
 static bool plugin = false;
-static uint8_t concealment_data[AUDIO_BUFFER_MAX_DATA_SIZE] __attribute__((aligned(4)));
+static uint8_t *concealment_data = nullptr;
 static int32_t last_output_sample[2] = {0, 0};
 static bool loss_active = true;
+static bool playback_started = false;
 
 static uint32_t getPcmPeak(const uint8_t *pcm, size_t size, AudioBit bit)
 {
@@ -274,7 +275,12 @@ static void audioHandle(void *arg)
       // 获取数据
       data = audio::buffer::getDecoderData();
       const uint32_t frame_size = audio::buffer::getFrameSize();
-      if (frame_size > 0)
+      if (data != nullptr)
+      {
+        playback_started = true;
+      }
+      // 初次收到音频帧前让I2S DMA自行保持零输出，避免以192kHz持续搬运无意义静音。
+      if (frame_size > 0 && playback_started)
       {
         const bool complete = data != nullptr && data->complete && data->size == frame_size;
         bool recovered = false;
@@ -363,6 +369,14 @@ static void audioHandle(void *arg)
 void audio::decoder::setup()
 {
   LOGGER_INFO("Audio Decoder is starting...");
+  concealment_data = static_cast<uint8_t *>(
+      heap_caps_malloc(AUDIO_BUFFER_MAX_DATA_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (concealment_data == nullptr)
+  {
+    LOGGER_ERROR("Audio Decoder concealment buffer allocation failed.");
+    return;
+  }
+  memset(concealment_data, 0, AUDIO_BUFFER_MAX_DATA_SIZE);
   pinMode(AUDIO_DECODER_MUTE, OUTPUT);
   pinMode(AUDIO_DECODER_FLT, OUTPUT);
   digitalWrite(AUDIO_DECODER_MUTE, LOW);
@@ -388,6 +402,7 @@ bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
   last_output_sample[0] = 0;
   last_output_sample[1] = 0;
   loss_active = true;
+  playback_started = false;
   i2s_std_config_t std_cfg = {
       .clk_cfg = {
           .sample_rate_hz = (uint32_t)i2s_rate,
@@ -451,6 +466,7 @@ void audio::decoder::off()
   last_output_sample[0] = 0;
   last_output_sample[1] = 0;
   loss_active = true;
+  playback_started = false;
   if (i2s_tx_handle != nullptr)
   {
     const esp_err_t disable_result = i2s_channel_disable(i2s_tx_handle);

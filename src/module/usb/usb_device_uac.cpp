@@ -1,5 +1,6 @@
 #include "config.h"
 #include "logger.h"
+#include "module/audio/buffer.h"
 #include "module/usb/usb_device_uac.h"
 #include "module/usb/tusb_config.h"
 #include "module/usb/usb_descriptors.h"
@@ -8,6 +9,7 @@
 
 // 已经连接上
 static bool isConnected = false;
+static uint8_t *usbSilence = nullptr;
 
 /**********************************************/
 /*               音频设备信息回调              */
@@ -260,6 +262,19 @@ bool usb::uac::connected()
 
 void usb::uac::_connect()
 {
+    if (usbSilence == nullptr)
+    {
+        usbSilence = static_cast<uint8_t *>(
+            heap_caps_malloc(AUDIO_BUFFER_MAX_DATA_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (usbSilence != nullptr)
+        {
+            memset(usbSilence, 0, AUDIO_BUFFER_MAX_DATA_SIZE);
+        }
+        else
+        {
+            LOGGER_WARN("USB audio silence buffer allocation failed.");
+        }
+    }
     isConnected = true;
 }
 
@@ -268,10 +283,8 @@ void usb::uac::_disconnect()
     isConnected = false;
 }
 
-#include "module/audio/buffer.h"
 // 音频数据
 static AudioData *data = nullptr;
-static uint8_t usbSilence[AUDIO_BUFFER_MAX_DATA_SIZE] = {};
 void usb::uac::_loop()
 {
     if (isConnected)
@@ -281,10 +294,11 @@ void usb::uac::_loop()
         if (frameSize > 0)
         {
             // 不完整帧绝不能作为PCM输出，否则缺失分片会让样本边界错位并产生爆音。
-            const uint8_t *output = data != nullptr && data->complete && data->size == frameSize
-                                        ? data->data
-                                        : usbSilence;
-            tud_audio_write(output, frameSize);
+            const bool complete = data != nullptr && data->complete && data->size == frameSize;
+            if (complete || usbSilence != nullptr)
+            {
+                tud_audio_write(complete ? data->data : usbSilence, frameSize);
+            }
         }
     }
 }
