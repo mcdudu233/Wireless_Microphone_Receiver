@@ -39,6 +39,7 @@ static lv_obj_t *dd_audio_channel;
 static lv_obj_t *dd_audio_rate;
 static lv_obj_t *dd_audio_audio_mode;
 static lv_obj_t *slider_audio_gain;
+static lv_obj_t *label_audio_gain;
 static lv_obj_t *dd_audio_output_enabled;
 static lv_obj_t *dd_audio_output_mode;
 
@@ -84,7 +85,8 @@ static void usb_mode_changed_cb(lv_event_t *e);
 
 static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *txt, lv_obj_t **label_o = nullptr, bool is_from_svg = false);
 static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
-                                  int32_t val, const char *suffix, lv_obj_t **slider_obj = nullptr);
+                                  int32_t val, const char *suffix, lv_obj_t **slider_obj = nullptr,
+                                  lv_obj_t **value_label_obj = nullptr);
 static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const char *txt, const char *options, lv_obj_t **dd_o = nullptr);
 static lv_obj_t *ui_create_sub_page(lv_obj_t *parent, const char *title, bool display_scroll = true); // 新建子页面
 
@@ -301,7 +303,7 @@ void ui_setting_init(lv_obj_t *ui_from)
                                                          "手动",
                        &dd_audio_audio_mode);
     lv_obj_add_event_cb(dd_audio_audio_mode, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_input_page);
-    ui_create_slider(sub_audio_input_page, NULL, "增益", 0, 60, 0, "dB", &slider_audio_gain);
+    ui_create_slider(sub_audio_input_page, NULL, "增益", 0, 60, 0, "dB", &slider_audio_gain, &label_audio_gain);
     lv_obj_add_event_cb(slider_audio_gain, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_input_page);
 
     ui_create_dropdown(sub_audio_output_page, NULL, "音频输出", "关闭\n开启", &dd_audio_output_enabled);
@@ -609,7 +611,7 @@ static lv_obj_t *ui_create_text(lv_obj_t *parent, const void *icon, const char *
     return obj;
 }
 static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char *txt, int32_t min, int32_t max,
-                                  int32_t val, const char *suffix, lv_obj_t **slider_obj)
+                                  int32_t val, const char *suffix, lv_obj_t **slider_obj, lv_obj_t **value_label_obj)
 {
     lv_obj_t *title;
     lv_obj_t *obj = ui_create_text(parent, icon, txt, &title);
@@ -659,6 +661,10 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
     if (slider_obj)
     {
         *slider_obj = slider;
+    }
+    if (value_label_obj)
+    {
+        *value_label_obj = pct;
     }
 
     return obj;
@@ -800,6 +806,10 @@ static void enter_subpage_cb(lv_event_t *e)
         if (slider_audio_gain)
         {
             lv_slider_set_value(slider_audio_gain, l_gain, LV_ANIM_OFF);
+        }
+        if (label_audio_gain)
+        {
+            lv_label_set_text_fmt(label_audio_gain, "%ddB", static_cast<int>(l_gain));
         }
         break;
     }

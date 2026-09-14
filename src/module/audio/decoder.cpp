@@ -42,6 +42,32 @@ static int32_t last_output_sample[2] = {0, 0};
 static bool loss_active = true;
 static bool playback_started = false;
 
+#ifdef BUILD_DEBUG
+static void logI2SClock(i2s_chan_handle_t handle, uint32_t requested_rate, uint32_t mclk_multiple)
+{
+  i2s_chan_info_t info = {};
+  i2s_tuning_info_t tuning = {};
+  const esp_err_t info_result = i2s_channel_get_info(handle, &info);
+  const esp_err_t tuning_result = i2s_channel_tune_rate(handle, nullptr, &tuning);
+  if (info_result != ESP_OK || tuning_result != ESP_OK || mclk_multiple == 0)
+  {
+    LOGGER_INFO("Audio Decoder I2S clock query failed: info=%s tuning=%s",
+                esp_err_to_name(info_result), esp_err_to_name(tuning_result));
+    return;
+  }
+
+  const uint64_t effective_millihz = static_cast<uint64_t>(tuning.curr_mclk_hz) * 1000ULL / mclk_multiple;
+  LOGGER_INFO("Audio Decoder I2S clock requested=%luHz source=%u sclk=%lu mclk=%ld bclk=%lu effective=%lu.%03luHz dma=%lu water=%lu%%",
+              static_cast<unsigned long>(requested_rate), static_cast<unsigned int>(info.clk_src),
+              static_cast<unsigned long>(info.sclk_hz), static_cast<long>(tuning.curr_mclk_hz),
+              static_cast<unsigned long>(info.bclk_hz),
+              static_cast<unsigned long>(effective_millihz / 1000ULL),
+              static_cast<unsigned long>(effective_millihz % 1000ULL),
+              static_cast<unsigned long>(info.total_dma_buf_size),
+              static_cast<unsigned long>(tuning.water_mark));
+}
+#endif
+
 static uint32_t getPcmPeak(const uint8_t *pcm, size_t size, AudioBit bit)
 {
   uint32_t peak = 0;
@@ -359,13 +385,18 @@ static void audioHandle(void *arg)
   uint32_t write_errors = 0;
   uint32_t bytes_written_total = 0;
   uint32_t pcm_peak = 0;
+  uint32_t write_wait_total_us = 0;
+  uint32_t write_wait_max_us = 0;
+  uint32_t write_calls = 0;
 #endif
 
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(TASK_AUDIO_DECODER_PERIOD);
   while (true)
   {
-    xTaskDelayUntil(&xLastWakeTime, xFrequency);
+    // 播放开始后由I2S DMA的阻塞写入定节拍，避免两台设备的4ms系统节拍误差耗尽抖动缓冲。
+    if (!powerOn || !playback_started)
+    {
+      vTaskDelay(pdMS_TO_TICKS(TASK_AUDIO_DECODER_PERIOD));
+    }
 
     // 判断是否插入3.5mm接口
     bool isPlugin = !digitalRead(AUDIO_DECODER_ON);
@@ -420,8 +451,20 @@ static void audioHandle(void *arg)
         (void)recovered;
 #endif
         size_t bytes_written = 0;
+#ifdef BUILD_DEBUG
+        const uint32_t write_start_us = micros();
+#endif
         const esp_err_t result = i2s_channel_write(i2s_tx_handle, output_data, frame_size, &bytes_written,
-                                                   AUDIO_DECODER_POLLING_CYCLE * 2);
+                                                   pdMS_TO_TICKS(AUDIO_DECODER_POLLING_CYCLE * 2));
+#ifdef BUILD_DEBUG
+        const uint32_t write_wait_us = micros() - write_start_us;
+        write_wait_total_us += write_wait_us;
+        write_calls++;
+        if (write_wait_us > write_wait_max_us)
+        {
+          write_wait_max_us = write_wait_us;
+        }
+#endif
         if (result != ESP_OK || bytes_written != frame_size)
         {
           LOGGER_WARN("Audio Decoder write failed: %s, %u/%u bytes",
@@ -468,14 +511,22 @@ static void audioHandle(void *arg)
       report_time = millis();
       AudioBufferDebugStats buffer_stats = {};
       audio::buffer::getDebugStats(buffer_stats);
-      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u valid=%lu concealed=%lu empty=%lu incomplete=%lu recovered=%lu bytes=%lu peak=%lu errors=%lu",
+      i2s_tuning_info_t tuning = {};
+      const esp_err_t tuning_result = powerOn && i2s_tx_handle != nullptr
+                                          ? i2s_channel_tune_rate(i2s_tx_handle, nullptr, &tuning)
+                                          : ESP_ERR_INVALID_STATE;
+      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u valid=%lu concealed=%lu empty=%lu incomplete=%lu recovered=%lu bytes=%lu peak=%lu errors=%lu wait_avg_us=%lu wait_max_us=%lu mclk=%ld water=%lu%%",
                    plugin ? 1U : 0U, config::config.audio_output.enabled ? 1U : 0U,
                    static_cast<unsigned int>(config::config.audio_output.mode), powerOn ? 1U : 0U,
                    static_cast<unsigned long>(valid_frames), static_cast<unsigned long>(concealed_frames),
                    static_cast<unsigned long>(empty_frames), static_cast<unsigned long>(incomplete_frames),
                    static_cast<unsigned long>(recovery_count), static_cast<unsigned long>(bytes_written_total),
                    static_cast<unsigned long>(pcm_peak),
-                   static_cast<unsigned long>(write_errors));
+                   static_cast<unsigned long>(write_errors),
+                   static_cast<unsigned long>(write_calls > 0 ? write_wait_total_us / write_calls : 0),
+                   static_cast<unsigned long>(write_wait_max_us),
+                   static_cast<long>(tuning_result == ESP_OK ? tuning.curr_mclk_hz : 0),
+                   static_cast<unsigned long>(tuning_result == ESP_OK ? tuning.water_mark : 0));
       LOGGER_INFO("Audio buffer rx_parts=%lu rx_bytes=%lu complete=%lu gaps=%lu incomplete=%lu missing_parts=%lu dup=%lu late=%lu invalid=%lu overrun=%lu depth=%lu",
                   static_cast<unsigned long>(buffer_stats.rx_parts), static_cast<unsigned long>(buffer_stats.rx_bytes),
                   static_cast<unsigned long>(buffer_stats.completed_frames), static_cast<unsigned long>(buffer_stats.gap_frames),
@@ -491,6 +542,9 @@ static void audioHandle(void *arg)
       write_errors = 0;
       bytes_written_total = 0;
       pcm_peak = 0;
+      write_wait_total_us = 0;
+      write_wait_max_us = 0;
+      write_calls = 0;
     }
 #endif
   }
@@ -533,12 +587,14 @@ bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
   last_output_sample[1] = 0;
   loss_active = true;
   playback_started = false;
+  const i2s_mclk_multiple_t mclk_multiple =
+      (i2s_bit == AUDIO_BIT_24) ? I2S_MCLK_MULTIPLE_384 : I2S_MCLK_MULTIPLE_256;
   i2s_std_config_t std_cfg = {
       .clk_cfg = {
           .sample_rate_hz = (uint32_t)i2s_rate,
-          .clk_src = I2S_CLK_SRC_PLL_240M,
+          .clk_src = I2S_CLK_SRC_PLL_160M,
           .ext_clk_freq_hz = 0,
-          .mclk_multiple = ((i2s_bit == AUDIO_BIT_24) ? I2S_MCLK_MULTIPLE_576 : I2S_MCLK_MULTIPLE_512),
+          .mclk_multiple = mclk_multiple,
           .bclk_div = 0,
       },
       .slot_cfg = {
@@ -582,6 +638,9 @@ bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
     return false;
   }
 
+#ifdef BUILD_DEBUG
+  logI2SClock(i2s_tx_handle, static_cast<uint32_t>(i2s_rate), static_cast<uint32_t>(mclk_multiple));
+#endif
   powerOn = true;
   setMute(false);
   LOGGER_INFO("Audio Decoder is on: %luHz/%ubit/%uch, jack=%u.", static_cast<unsigned long>(i2s_rate),
