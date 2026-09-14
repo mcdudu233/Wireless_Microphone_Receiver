@@ -12,8 +12,8 @@
 static const i2s_chan_config_t i2s_chan_cfg = {
     .id = I2S_NUM_AUTO,
     .role = I2S_ROLE_MASTER,
-    .dma_desc_num = 10,   // 多少个DMA
-    .dma_frame_num = 384, // 每个DMA大小
+    .dma_desc_num = AUDIO_DECODER_DMA_DESC_NUM,
+    .dma_frame_num = AUDIO_DECODER_DMA_FRAME_NUM,
     .auto_clear_after_cb = true,
     .auto_clear_before_cb = false,
     .allow_pd = false,
@@ -456,6 +456,7 @@ bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
   setMute(false);
   LOGGER_INFO("Audio Decoder is on: %luHz/%ubit/%uch, jack=%u.", static_cast<unsigned long>(i2s_rate),
               static_cast<unsigned int>(i2s_bit), static_cast<unsigned int>(i2s_channel), plugin ? 1U : 0U);
+  logger::memory("after audio I2S on");
   return true;
 }
 

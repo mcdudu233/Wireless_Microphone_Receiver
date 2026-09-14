@@ -2,6 +2,8 @@
 #include "ui/ui_setting.h"
 #include "module/tf.h"
 
+#include "esp_attr.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -22,7 +24,7 @@ static lv_obj_t *file_list;
 static lv_obj_t *file_page_ref; // 文件管理子页引用，用于动态刷新页标题
 static lv_timer_t *file_timer;
 static char current_file_path[TF_PATH_MAX] = "/";
-static tf::FileEntry file_entries[TF_FILE_LIST_MAX];
+EXT_RAM_BSS_ATTR static tf::FileEntry file_entries[TF_FILE_LIST_MAX];
 static char selected_file_path[TF_PATH_MAX];
 static size_t file_entry_count = 0;
 static bool file_list_truncated = false;

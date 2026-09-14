@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "esp_attr.h"
 
 #include <cstdio>
 #include <cstring>
@@ -24,7 +25,7 @@ namespace
   enum class RequestKind : uint8_t { NONE, LIST, REMOVE };
   volatile RequestKind request_kind = RequestKind::NONE;
   char request_path[TF_PATH_MAX];
-  tf::FileEntry result_entries[TF_FILE_LIST_MAX];
+  EXT_RAM_BSS_ATTR tf::FileEntry result_entries[TF_FILE_LIST_MAX];
   size_t result_count = 0;
   bool result_truncated = false;
   bool result_success = false;

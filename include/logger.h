@@ -22,6 +22,9 @@ namespace logger
 {
   void setup();
 
+  // 输出各类堆的剩余量和最大连续块，供硬件调试定位内存碎片。
+  void memory(const char *stage);
+
   // 当遇到严重错误时调用此函数
   void error(char *str);
 }

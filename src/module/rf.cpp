@@ -206,6 +206,7 @@ static void wifi_event_handle(void *arg, esp_event_base_t event_base, int32_t ev
       {
         device->setWifiConnected(true);
         LOGGER_INFO("WiFi station " MACSTR " IP is assigned", MAC2STR(event->mac));
+        logger::memory("after WiFi station IP");
       }
       else
       {
@@ -360,6 +361,7 @@ static bool wifi_open()
     wifi_close();
     return false;
   }
+  logger::memory("after WiFi/socket start");
   return true;
 }
 /****************************/

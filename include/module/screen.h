@@ -3,6 +3,8 @@
 // 屏幕分辨率
 #define TFT_HOR_RES 160
 #define TFT_VER_RES 80
+#define TFT_DRAW_BUFFER_LINES 10
+#define TFT_DRAW_BUFFER_PIXELS (TFT_HOR_RES * TFT_DRAW_BUFFER_LINES)
 
 // 屏幕引脚
 #define TFT_SPI_NUM SPI2_HOST

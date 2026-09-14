@@ -191,7 +191,7 @@ static void setup_lcd()
       .sclk_io_num = TFT_CLK,
       .quadwp_io_num = GPIO_NUM_NC,
       .quadhd_io_num = GPIO_NUM_NC,
-      .max_transfer_sz = TFT_HOR_RES * TFT_VER_RES * sizeof(uint16_t),
+      .max_transfer_sz = TFT_DRAW_BUFFER_PIXELS * sizeof(uint16_t),
   };
   ret = spi_bus_initialize(TFT_SPI_NUM, &spi_cfg, SPI_DMA_CH_AUTO);
   if (ret != ESP_OK)
@@ -206,9 +206,12 @@ static void setup_lcd()
       .dc_gpio_num = TFT_DC,
       .spi_mode = 0,
       .pclk_hz = TFT_SPI_FREQ,
-      .trans_queue_depth = 10,
+      .trans_queue_depth = 4,
       .lcd_cmd_bits = 8,
       .lcd_param_bits = 8,
+      .flags = {
+          .psram_dma_direct = true,
+      },
   };
   ret = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)1, &io_config, &io_handle);
   if (ret != ESP_OK)
@@ -271,9 +274,9 @@ static void setup_lvgl()
   const lvgl_port_display_cfg_t disp_cfg = {
       .io_handle = io_handle,
       .panel_handle = lcd_panel_handle,
-      .buffer_size = TFT_HOR_RES * TFT_VER_RES,
+      .buffer_size = TFT_DRAW_BUFFER_PIXELS,
       .double_buffer = true,
-      .trans_size = TFT_HOR_RES * TFT_VER_RES,
+      .trans_size = TFT_DRAW_BUFFER_PIXELS,
       .hres = TFT_HOR_RES,
       .vres = TFT_VER_RES,
       .monochrome = false,
@@ -288,7 +291,12 @@ static void setup_lvgl()
           .buff_spiram = true,
           .swap_bytes = true,
       }};
-  lvgl_port_add_disp(&disp_cfg);
+  if (lvgl_port_add_disp(&disp_cfg) == nullptr)
+  {
+    LOGGER_WARN("LVGL display buffer allocation failed.");
+    return;
+  }
+  logger::memory("after LCD/LVGL");
 
   // 初始化输入设备
   lv_indev_t *indev = lv_indev_create();
