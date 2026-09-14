@@ -36,9 +36,11 @@ static i2s_chan_handle_t i2s_tx_handle = nullptr;
 static AudioChannel i2s_channel;
 static AudioRate i2s_rate;
 static AudioBit i2s_bit;
+static AudioBit i2s_output_bit;
 static bool powerOn = false;
 static bool plugin = false;
 static uint8_t *concealment_data = nullptr;
+static uint8_t *i2s_output_data = nullptr;
 static int32_t last_output_sample[2] = {0, 0};
 static bool loss_active = true;
 static bool playback_started = false;
@@ -51,6 +53,8 @@ struct DecoderDebugSnapshot
   bool enabled;
   uint8_t mode;
   bool i2s;
+  uint8_t stream_bit;
+  uint8_t output_bit;
   uint32_t valid_frames;
   uint32_t concealed_frames;
   uint32_t empty_frames;
@@ -87,9 +91,11 @@ static void decoderDebugHandle(void *arg)
 
     if (snapshot.ready)
     {
-      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u valid=%lu concealed=%lu empty=%lu incomplete=%lu recovered=%lu bytes=%lu peak=%lu errors=%lu wait_avg_us=%lu wait_max_us=%lu mclk=%ld water=%lu%%",
+      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u stream_bit=%u dac_bit=%u valid=%lu concealed=%lu empty=%lu incomplete=%lu recovered=%lu bytes=%lu peak=%lu errors=%lu wait_avg_us=%lu wait_max_us=%lu mclk=%ld water=%lu%%",
                   snapshot.jack ? 1U : 0U, snapshot.enabled ? 1U : 0U,
                   static_cast<unsigned int>(snapshot.mode), snapshot.i2s ? 1U : 0U,
+                  static_cast<unsigned int>(snapshot.stream_bit),
+                  static_cast<unsigned int>(snapshot.output_bit),
                   static_cast<unsigned long>(snapshot.valid_frames),
                   static_cast<unsigned long>(snapshot.concealed_frames),
                   static_cast<unsigned long>(snapshot.empty_frames),
@@ -226,6 +232,26 @@ static void writePcmSample(uint8_t *pcm, AudioBit bit, int32_t sample)
   {
     pcm[3] = static_cast<uint8_t>(sample >> 24);
   }
+}
+
+// PCM1822只有24位有效数据。192kHz/32bit无线流在送入PCM5102A前压缩为24位，
+// 避开该板在12.288MHz BCK下无输出的问题，同时保留全部有效采样精度。
+static const uint8_t *prepareI2SOutput(const uint8_t *input, uint32_t input_size, uint32_t &output_size)
+{
+  output_size = input_size;
+  if (input == nullptr || i2s_bit != AUDIO_BIT_32 || i2s_output_bit != AUDIO_BIT_24)
+  {
+    return input;
+  }
+
+  const uint32_t sample_count = input_size / sizeof(int32_t);
+  for (uint32_t sample_index = 0; sample_index < sample_count; sample_index++)
+  {
+    const int32_t sample = readPcmSample(input + sample_index * sizeof(int32_t), AUDIO_BIT_32);
+    writePcmSample(i2s_output_data + sample_index * 3U, AUDIO_BIT_24, sample >> 8);
+  }
+  output_size = sample_count * 3U;
+  return i2s_output_data;
 }
 
 static uint32_t getFadeFrames(uint32_t frame_size)
@@ -519,10 +545,12 @@ static void audioHandle(void *arg)
         const bool complete = sized_frame && data->complete;
         const bool partial = sized_frame && !complete && data->received_parts != 0;
         bool recovered = false;
-        const uint8_t *output_data = complete
+        const uint8_t *stream_data = complete
                                          ? prepareValidFrame(data->data, frame_size, recovered)
                                          : (partial ? preparePartialFrame(data, recovered)
                                                     : prepareConcealmentFrame(frame_size));
+        uint32_t output_size = 0;
+        const uint8_t *output_data = prepareI2SOutput(stream_data, frame_size, output_size);
 #ifndef BUILD_DEBUG
         (void)recovered;
 #endif
@@ -530,7 +558,7 @@ static void audioHandle(void *arg)
 #ifdef BUILD_DEBUG
         const uint32_t write_start_us = micros();
 #endif
-        const esp_err_t result = i2s_channel_write(i2s_tx_handle, output_data, frame_size, &bytes_written,
+        const esp_err_t result = i2s_channel_write(i2s_tx_handle, output_data, output_size, &bytes_written,
                                                    pdMS_TO_TICKS(AUDIO_DECODER_POLLING_CYCLE * 2));
 #ifdef BUILD_DEBUG
         const uint32_t write_wait_us = micros() - write_start_us;
@@ -541,11 +569,11 @@ static void audioHandle(void *arg)
           write_wait_max_us = write_wait_us;
         }
 #endif
-        if (result != ESP_OK || bytes_written != frame_size)
+        if (result != ESP_OK || bytes_written != output_size)
         {
           LOGGER_WARN("Audio Decoder write failed: %s, %u/%u bytes",
                       esp_err_to_name(result), static_cast<unsigned int>(bytes_written),
-                      static_cast<unsigned int>(frame_size));
+                      static_cast<unsigned int>(output_size));
 #ifdef BUILD_DEBUG
           write_errors++;
 #endif
@@ -561,7 +589,7 @@ static void audioHandle(void *arg)
             // 峰值只抽样约1/16帧，诊断足够且避免在192kHz下重复扫描全部PCM。
             if ((valid_frames & 0x0FU) == 1U)
             {
-              const uint32_t frame_peak = getPcmPeak(output_data, frame_size, i2s_bit);
+              const uint32_t frame_peak = getPcmPeak(output_data, output_size, i2s_output_bit);
               if (frame_peak > pcm_peak)
               {
                 pcm_peak = frame_peak;
@@ -601,6 +629,8 @@ static void audioHandle(void *arg)
       snapshot.enabled = config::config.audio_output.enabled;
       snapshot.mode = static_cast<uint8_t>(config::config.audio_output.mode);
       snapshot.i2s = powerOn;
+      snapshot.stream_bit = static_cast<uint8_t>(i2s_bit);
+      snapshot.output_bit = static_cast<uint8_t>(i2s_output_bit);
       snapshot.valid_frames = valid_frames;
       snapshot.concealed_frames = concealed_frames;
       snapshot.empty_frames = empty_frames;
@@ -638,9 +668,11 @@ void audio::decoder::setup()
   LOGGER_INFO("Audio Decoder is starting...");
   concealment_data = static_cast<uint8_t *>(
       heap_caps_malloc(AUDIO_BUFFER_MAX_DATA_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (concealment_data == nullptr)
+  i2s_output_data = static_cast<uint8_t *>(
+      heap_caps_malloc(AUDIO_BUFFER_MAX_DATA_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (concealment_data == nullptr || i2s_output_data == nullptr)
   {
-    LOGGER_ERROR("Audio Decoder concealment buffer allocation failed.");
+    LOGGER_ERROR("Audio Decoder PSRAM buffer allocation failed.");
     return;
   }
   memset(concealment_data, 0, AUDIO_BUFFER_MAX_DATA_SIZE);
@@ -672,13 +704,16 @@ bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
   // 启动 i2s
   i2s_rate = rate;
   i2s_bit = bit;
+  i2s_output_bit = (i2s_rate == AUDIO_RATE_192000 && i2s_bit == AUDIO_BIT_32)
+                       ? AUDIO_BIT_24
+                       : i2s_bit;
   i2s_channel = channel;
   last_output_sample[0] = 0;
   last_output_sample[1] = 0;
   loss_active = true;
   playback_started = false;
   const i2s_mclk_multiple_t mclk_multiple =
-      (i2s_bit == AUDIO_BIT_24) ? I2S_MCLK_MULTIPLE_384 : I2S_MCLK_MULTIPLE_256;
+      (i2s_output_bit == AUDIO_BIT_24) ? I2S_MCLK_MULTIPLE_384 : I2S_MCLK_MULTIPLE_256;
   i2s_std_config_t std_cfg = {
       .clk_cfg = {
           .sample_rate_hz = (uint32_t)i2s_rate,
@@ -688,11 +723,11 @@ bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
           .bclk_div = 0,
       },
       .slot_cfg = {
-          .data_bit_width = (i2s_data_bit_width_t)i2s_bit,
-          .slot_bit_width = (i2s_slot_bit_width_t)i2s_bit,
+          .data_bit_width = (i2s_data_bit_width_t)i2s_output_bit,
+          .slot_bit_width = (i2s_slot_bit_width_t)i2s_output_bit,
           .slot_mode = (i2s_slot_mode_t)i2s_channel,
           .slot_mask = I2S_STD_SLOT_BOTH,
-          .ws_width = (uint32_t)i2s_bit,
+          .ws_width = (uint32_t)i2s_output_bit,
           .ws_pol = false,
           .bit_shift = true,
           .left_align = true,
@@ -733,8 +768,9 @@ bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
 #endif
   powerOn = true;
   setMute(false);
-  LOGGER_INFO("Audio Decoder is on: %luHz/%ubit/%uch, jack=%u.", static_cast<unsigned long>(i2s_rate),
-              static_cast<unsigned int>(i2s_bit), static_cast<unsigned int>(i2s_channel), plugin ? 1U : 0U);
+  LOGGER_INFO("Audio Decoder is on: %luHz stream=%ubit dac=%ubit %uch, jack=%u.",
+              static_cast<unsigned long>(i2s_rate), static_cast<unsigned int>(i2s_bit),
+              static_cast<unsigned int>(i2s_output_bit), static_cast<unsigned int>(i2s_channel), plugin ? 1U : 0U);
   logger::memory("after audio I2S on");
   return true;
 }
