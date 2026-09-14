@@ -9,6 +9,7 @@
 #include "ui/ui_setting.h"
 
 #include "string"
+#include "freertos/idf_additions.h"
 
 // 缓存的设备
 static DeviceManager deviceManager;
@@ -16,6 +17,50 @@ static DeviceManager deviceManager;
 // 计算音频传输速度
 static uint32_t transmitSpeed = 0;
 static uint32_t transmitSpeedData = 0;
+
+#ifdef BUILD_DEBUG
+struct RfDebugSnapshot
+{
+  bool ready;
+  uint32_t packets;
+  uint32_t bytes;
+  uint32_t max_burst;
+  uint32_t budget_hits;
+  uint32_t max_drain_us;
+  uint8_t level_l;
+  uint8_t level_r;
+};
+
+static portMUX_TYPE rf_debug_mux = portMUX_INITIALIZER_UNLOCKED;
+static RfDebugSnapshot rf_debug_snapshot = {};
+
+static void rfDebugHandle(void *arg)
+{
+  (void)arg;
+  // 错开解码诊断，避免两个长日志同时占用串口。
+  vTaskDelay(pdMS_TO_TICKS(750));
+  while (true)
+  {
+    RfDebugSnapshot snapshot = {};
+    portENTER_CRITICAL(&rf_debug_mux);
+    if (rf_debug_snapshot.ready)
+    {
+      snapshot = rf_debug_snapshot;
+      rf_debug_snapshot.ready = false;
+    }
+    portEXIT_CRITICAL(&rf_debug_mux);
+    if (snapshot.ready)
+    {
+      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu budget_hits=%lu max_drain_us=%lu level_l=%u level_r=%u",
+                  static_cast<unsigned long>(snapshot.packets), static_cast<unsigned long>(snapshot.bytes),
+                  static_cast<unsigned long>(snapshot.max_burst), static_cast<unsigned long>(snapshot.budget_hits),
+                  static_cast<unsigned long>(snapshot.max_drain_us),
+                  static_cast<unsigned int>(snapshot.level_l), static_cast<unsigned int>(snapshot.level_r));
+    }
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+}
+#endif
 
 /*****************************
           WIFI协议
@@ -1412,11 +1457,18 @@ static void rf_handle(void *arg)
         levelL = deviceManager.getAllDevices()[0].getVoiceLevelL();
         levelR = deviceManager.getAllDevices()[0].getVoiceLevelR();
       }
-      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu budget_hits=%lu max_drain_us=%lu level_l=%u level_r=%u",
-                  static_cast<unsigned long>(wifiRxPackets), static_cast<unsigned long>(transmitSpeed),
-                  static_cast<unsigned long>(wifiRxMaxBurst), static_cast<unsigned long>(wifiRxBudgetHits),
-                  static_cast<unsigned long>(wifiRxMaxDrainUs),
-                  static_cast<unsigned int>(levelL), static_cast<unsigned int>(levelR));
+      RfDebugSnapshot snapshot = {};
+      snapshot.ready = true;
+      snapshot.packets = wifiRxPackets;
+      snapshot.bytes = transmitSpeed;
+      snapshot.max_burst = wifiRxMaxBurst;
+      snapshot.budget_hits = wifiRxBudgetHits;
+      snapshot.max_drain_us = wifiRxMaxDrainUs;
+      snapshot.level_l = levelL;
+      snapshot.level_r = levelR;
+      portENTER_CRITICAL(&rf_debug_mux);
+      rf_debug_snapshot = snapshot;
+      portEXIT_CRITICAL(&rf_debug_mux);
       wifiRxPackets = 0;
       wifiRxMaxBurst = 0;
       wifiRxBudgetHits = 0;
@@ -1459,6 +1511,13 @@ void rf::setup()
   ble_open();
   // 启动发送接收线程
   xTaskCreatePinnedToCore(rf_handle, "rf_handle", TASK_RF_STACK, NULL, TASK_RF_PRIORITY, NULL, TASK_RF_CORE);
+#ifdef BUILD_DEBUG
+  if (xTaskCreatePinnedToCoreWithCaps(rfDebugHandle, "rf_debug", 2560, nullptr, 1, nullptr,
+                                      1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+  {
+    LOGGER_INFO("RF debug task creation failed.");
+  }
+#endif
 }
 
 /*****************************

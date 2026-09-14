@@ -7,6 +7,7 @@
 #include "cctype"
 #include "driver/i2s_std.h"
 #include "esp_err.h"
+#include "freertos/idf_additions.h"
 
 // I2S配置
 static const i2s_chan_config_t i2s_chan_cfg = {
@@ -43,6 +44,81 @@ static bool loss_active = true;
 static bool playback_started = false;
 
 #ifdef BUILD_DEBUG
+struct DecoderDebugSnapshot
+{
+  bool ready;
+  bool jack;
+  bool enabled;
+  uint8_t mode;
+  bool i2s;
+  uint32_t valid_frames;
+  uint32_t concealed_frames;
+  uint32_t empty_frames;
+  uint32_t incomplete_frames;
+  uint32_t recovery_count;
+  uint32_t bytes_written_total;
+  uint32_t pcm_peak;
+  uint32_t write_errors;
+  uint32_t write_wait_average_us;
+  uint32_t write_wait_max_us;
+  int32_t mclk_hz;
+  uint32_t water_mark;
+  AudioBufferDebugStats buffer;
+};
+
+static portMUX_TYPE decoder_debug_mux = portMUX_INITIALIZER_UNLOCKED;
+static DecoderDebugSnapshot decoder_debug_snapshot = {};
+
+static void decoderDebugHandle(void *arg)
+{
+  (void)arg;
+  // 与RF诊断错峰，且让串口格式化/输出始终运行在低优先级PSRAM栈任务中。
+  vTaskDelay(pdMS_TO_TICKS(350));
+  while (true)
+  {
+    DecoderDebugSnapshot snapshot = {};
+    portENTER_CRITICAL(&decoder_debug_mux);
+    if (decoder_debug_snapshot.ready)
+    {
+      snapshot = decoder_debug_snapshot;
+      decoder_debug_snapshot.ready = false;
+    }
+    portEXIT_CRITICAL(&decoder_debug_mux);
+
+    if (snapshot.ready)
+    {
+      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u valid=%lu concealed=%lu empty=%lu incomplete=%lu recovered=%lu bytes=%lu peak=%lu errors=%lu wait_avg_us=%lu wait_max_us=%lu mclk=%ld water=%lu%%",
+                  snapshot.jack ? 1U : 0U, snapshot.enabled ? 1U : 0U,
+                  static_cast<unsigned int>(snapshot.mode), snapshot.i2s ? 1U : 0U,
+                  static_cast<unsigned long>(snapshot.valid_frames),
+                  static_cast<unsigned long>(snapshot.concealed_frames),
+                  static_cast<unsigned long>(snapshot.empty_frames),
+                  static_cast<unsigned long>(snapshot.incomplete_frames),
+                  static_cast<unsigned long>(snapshot.recovery_count),
+                  static_cast<unsigned long>(snapshot.bytes_written_total),
+                  static_cast<unsigned long>(snapshot.pcm_peak),
+                  static_cast<unsigned long>(snapshot.write_errors),
+                  static_cast<unsigned long>(snapshot.write_wait_average_us),
+                  static_cast<unsigned long>(snapshot.write_wait_max_us),
+                  static_cast<long>(snapshot.mclk_hz),
+                  static_cast<unsigned long>(snapshot.water_mark));
+      LOGGER_INFO("Audio buffer rx_parts=%lu rx_bytes=%lu complete=%lu gaps=%lu incomplete=%lu missing_parts=%lu dup=%lu late=%lu invalid=%lu overrun=%lu depth=%lu",
+                  static_cast<unsigned long>(snapshot.buffer.rx_parts),
+                  static_cast<unsigned long>(snapshot.buffer.rx_bytes),
+                  static_cast<unsigned long>(snapshot.buffer.completed_frames),
+                  static_cast<unsigned long>(snapshot.buffer.gap_frames),
+                  static_cast<unsigned long>(snapshot.buffer.incomplete_playouts),
+                  static_cast<unsigned long>(snapshot.buffer.missing_parts),
+                  static_cast<unsigned long>(snapshot.buffer.duplicate_parts),
+                  static_cast<unsigned long>(snapshot.buffer.late_parts),
+                  static_cast<unsigned long>(snapshot.buffer.invalid_parts),
+                  static_cast<unsigned long>(snapshot.buffer.overrun_frames),
+                  static_cast<unsigned long>(snapshot.buffer.depth));
+    }
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+}
+
 static void logI2SClock(i2s_chan_handle_t handle, uint32_t requested_rate, uint32_t mclk_multiple)
 {
   i2s_chan_info_t info = {};
@@ -482,10 +558,14 @@ static void audioHandle(void *arg)
           if (complete)
           {
             valid_frames++;
-            const uint32_t frame_peak = getPcmPeak(output_data, frame_size, i2s_bit);
-            if (frame_peak > pcm_peak)
+            // 峰值只抽样约1/16帧，诊断足够且避免在192kHz下重复扫描全部PCM。
+            if ((valid_frames & 0x0FU) == 1U)
             {
-              pcm_peak = frame_peak;
+              const uint32_t frame_peak = getPcmPeak(output_data, frame_size, i2s_bit);
+              if (frame_peak > pcm_peak)
+              {
+                pcm_peak = frame_peak;
+              }
             }
           }
           else
@@ -515,25 +595,28 @@ static void audioHandle(void *arg)
       const esp_err_t tuning_result = powerOn && i2s_tx_handle != nullptr
                                           ? i2s_channel_tune_rate(i2s_tx_handle, nullptr, &tuning)
                                           : ESP_ERR_INVALID_STATE;
-      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u valid=%lu concealed=%lu empty=%lu incomplete=%lu recovered=%lu bytes=%lu peak=%lu errors=%lu wait_avg_us=%lu wait_max_us=%lu mclk=%ld water=%lu%%",
-                   plugin ? 1U : 0U, config::config.audio_output.enabled ? 1U : 0U,
-                   static_cast<unsigned int>(config::config.audio_output.mode), powerOn ? 1U : 0U,
-                   static_cast<unsigned long>(valid_frames), static_cast<unsigned long>(concealed_frames),
-                   static_cast<unsigned long>(empty_frames), static_cast<unsigned long>(incomplete_frames),
-                   static_cast<unsigned long>(recovery_count), static_cast<unsigned long>(bytes_written_total),
-                   static_cast<unsigned long>(pcm_peak),
-                   static_cast<unsigned long>(write_errors),
-                   static_cast<unsigned long>(write_calls > 0 ? write_wait_total_us / write_calls : 0),
-                   static_cast<unsigned long>(write_wait_max_us),
-                   static_cast<long>(tuning_result == ESP_OK ? tuning.curr_mclk_hz : 0),
-                   static_cast<unsigned long>(tuning_result == ESP_OK ? tuning.water_mark : 0));
-      LOGGER_INFO("Audio buffer rx_parts=%lu rx_bytes=%lu complete=%lu gaps=%lu incomplete=%lu missing_parts=%lu dup=%lu late=%lu invalid=%lu overrun=%lu depth=%lu",
-                  static_cast<unsigned long>(buffer_stats.rx_parts), static_cast<unsigned long>(buffer_stats.rx_bytes),
-                  static_cast<unsigned long>(buffer_stats.completed_frames), static_cast<unsigned long>(buffer_stats.gap_frames),
-                  static_cast<unsigned long>(buffer_stats.incomplete_playouts), static_cast<unsigned long>(buffer_stats.missing_parts),
-                  static_cast<unsigned long>(buffer_stats.duplicate_parts),
-                  static_cast<unsigned long>(buffer_stats.late_parts), static_cast<unsigned long>(buffer_stats.invalid_parts),
-                  static_cast<unsigned long>(buffer_stats.overrun_frames), static_cast<unsigned long>(buffer_stats.depth));
+      DecoderDebugSnapshot snapshot = {};
+      snapshot.ready = true;
+      snapshot.jack = plugin;
+      snapshot.enabled = config::config.audio_output.enabled;
+      snapshot.mode = static_cast<uint8_t>(config::config.audio_output.mode);
+      snapshot.i2s = powerOn;
+      snapshot.valid_frames = valid_frames;
+      snapshot.concealed_frames = concealed_frames;
+      snapshot.empty_frames = empty_frames;
+      snapshot.incomplete_frames = incomplete_frames;
+      snapshot.recovery_count = recovery_count;
+      snapshot.bytes_written_total = bytes_written_total;
+      snapshot.pcm_peak = pcm_peak;
+      snapshot.write_errors = write_errors;
+      snapshot.write_wait_average_us = write_calls > 0 ? write_wait_total_us / write_calls : 0;
+      snapshot.write_wait_max_us = write_wait_max_us;
+      snapshot.mclk_hz = tuning_result == ESP_OK ? tuning.curr_mclk_hz : 0;
+      snapshot.water_mark = tuning_result == ESP_OK ? tuning.water_mark : 0;
+      snapshot.buffer = buffer_stats;
+      portENTER_CRITICAL(&decoder_debug_mux);
+      decoder_debug_snapshot = snapshot;
+      portEXIT_CRITICAL(&decoder_debug_mux);
       valid_frames = 0;
       concealed_frames = 0;
       empty_frames = 0;
@@ -568,6 +651,13 @@ void audio::decoder::setup()
   // 启动插入检测
   pinMode(AUDIO_DECODER_ON, INPUT);
   xTaskCreatePinnedToCore(audioHandle, "audio_decoder_handle", TASK_AUDIO_DECODER_STACK, NULL, TASK_AUDIO_DECODER_PRIORITY, NULL, TASK_AUDIO_DECODER_CORE);
+#ifdef BUILD_DEBUG
+  if (xTaskCreatePinnedToCoreWithCaps(decoderDebugHandle, "audio_decoder_debug", 3072, nullptr, 1, nullptr,
+                                      1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+  {
+    LOGGER_INFO("Audio Decoder debug task creation failed.");
+  }
+#endif
   LOGGER_INFO("Audio Decoder is started!");
 }
 
