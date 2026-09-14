@@ -1052,6 +1052,69 @@ static VoiceMeterState *rf_get_voice_meter(Device *device)
   return nullptr;
 }
 
+// 每设备音频帧丢包统计:按帧序号跳变估算丢失帧,每秒汇总为百分比供主界面显示
+struct AudioLossState
+{
+  Device *device = nullptr;
+  uint32_t lastNumber = 0;  // 最近一次音频帧序号
+  bool hasNumber = false;   // 是否已收到首帧(首帧不计丢包)
+  uint32_t windowLost = 0;  // 统计窗口内丢失帧数
+  uint32_t windowTotal = 0; // 统计窗口内应收帧数(收到+丢失)
+  uint8_t lossPercent = 0;  // 上一窗口丢包率(0-100)
+};
+static AudioLossState audioLossStates[RF_MAX_CONNECTION];
+// 帧序号空隙超过该值视为码流重启(如断线重连),不计入丢包
+static const uint32_t RF_LOSS_RESTART_DELTA = 1000;
+
+static AudioLossState *rf_get_loss_state(Device *device)
+{
+  for (AudioLossState &state : audioLossStates)
+  {
+    if (state.device == device)
+      return &state;
+  }
+  for (AudioLossState &state : audioLossStates)
+  {
+    if (state.device == nullptr)
+    {
+      state.device = device;
+      return &state;
+    }
+  }
+  return nullptr;
+}
+
+static void rf_update_audio_loss(Device *device, uint32_t number)
+{
+  if (device == nullptr)
+  {
+    return;
+  }
+  AudioLossState *state = rf_get_loss_state(device);
+  if (state == nullptr)
+  {
+    return;
+  }
+  if (!state->hasNumber)
+  {
+    state->hasNumber = true;
+    state->lastNumber = number;
+    return;
+  }
+  const uint32_t delta = number - state->lastNumber; // 无符号减法对序号回绕安全
+  if (delta == 0)
+  {
+    return; // 同帧的其他分片或重复分片
+  }
+  state->lastNumber = number;
+  if (delta > RF_LOSS_RESTART_DELTA)
+  {
+    return;
+  }
+  state->windowTotal += delta;
+  state->windowLost += delta - 1;
+}
+
 // 将峰值映射到约-60dBFS至0dBFS的0-100显示范围，仅每40ms计算一次。
 static uint8_t rf_peak_to_meter(uint64_t peak, AudioBit bit)
 {
@@ -1181,6 +1244,8 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
       return false;
     }
     audio::buffer::writeWiFiPacket(&packet->packet.audioDataWiFi);
+    // 统计音频帧丢包率
+    rf_update_audio_loss(device, packet->packet.audioDataWiFi.number);
     // 更新设备实时音频电平
     if (device && packet->packet.audioDataWiFi.part == 0)
     {
@@ -1199,6 +1264,8 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
       return false;
     }
     audio::buffer::writeBLEPacket(&packet->packet.audioDataBLE);
+    // 统计音频帧丢包率
+    rf_update_audio_loss(device, packet->packet.audioDataBLE.number);
     // 更新设备实时音频电平
     if (device && packet->packet.audioDataBLE.part == 0)
     {
@@ -1640,6 +1707,23 @@ static void rf_handle(void *arg)
       /* 计算速度 */
       transmitSpeed = transmitSpeedData;
       transmitSpeedData = 0;
+      /* 汇总每设备丢包率 */
+      for (AudioLossState &state : audioLossStates)
+      {
+        if (state.device == nullptr)
+        {
+          continue;
+        }
+        state.lossPercent = state.windowTotal > 0
+                                ? (uint8_t)((state.windowLost * 100U + state.windowTotal / 2U) / state.windowTotal)
+                                : 0;
+        if (state.lossPercent > 100)
+        {
+          state.lossPercent = 100;
+        }
+        state.windowLost = 0;
+        state.windowTotal = 0;
+      }
       secondLastTime = secondNowTime;
       // LOGGER_INFO("RF data speed %dKB/s", transmitSpeed / 1024);
 #ifdef BUILD_DEBUG
@@ -1827,9 +1911,20 @@ int8_t ui_info_get_right_voice(const std::string &mac)
   return (device != nullptr) ? (int8_t)device->getVoiceLevelR() : 0;
 }
 
-const std::string ui_info_get_transmit_speed()
+uint8_t ui_info_get_loss(const std::string &mac)
 {
-  return std::to_string(transmitSpeed / 1024) + " KB/s";
+  Device *device = deviceManager.getDeviceByBleMAC(mac);
+  if (device != nullptr)
+  {
+    for (AudioLossState &state : audioLossStates)
+    {
+      if (state.device == device)
+      {
+        return state.lossPercent;
+      }
+    }
+  }
+  return 0;
 }
 
 int8_t ui_info_get_power(const std::string &mac)
