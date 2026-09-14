@@ -264,6 +264,11 @@ static AudioData *getConsumerData(uint32_t &last_number, bool &started, bool &de
   if (decoder_consumer && audio != nullptr && !audio->complete)
   {
     debug_stats.incomplete_playouts++;
+    const uint32_t expected_mask = audio->expected_parts == 32
+                                       ? UINT32_MAX
+                                       : ((1UL << audio->expected_parts) - 1UL);
+    debug_stats.missing_parts += static_cast<uint32_t>(
+        __builtin_popcount(expected_mask & ~audio->received_parts));
   }
 #else
   (void)decoder_consumer;

@@ -35,6 +35,7 @@ struct AudioBufferDebugStats
   uint32_t late_parts;
   uint32_t invalid_parts;
   uint32_t incomplete_playouts;
+  uint32_t missing_parts;
   uint32_t overrun_frames;
   uint32_t depth;
 };

@@ -949,8 +949,8 @@ static void rf_update_voice_level(Device *device, const uint8_t *data, uint16_t 
   const int64_t fullScale = (int64_t)1 << (config::config.audio.bit - 1); // 2^(bit-1)
   const size_t sampleCount = size / bytesPerSample;
 
-  uint8_t peakL = 0;
-  uint8_t peakR = 0;
+  int64_t peakMagnitudeL = 0;
+  int64_t peakMagnitudeR = 0;
   for (size_t i = 0; i + channels <= sampleCount; i += channels)
   {
     for (uint8_t ch = 0; ch < channels; ch++)
@@ -974,20 +974,23 @@ static void rf_update_voice_level(Device *device, const uint8_t *data, uint16_t 
       // 用int64取绝对值，避免 INT32_MIN 取负溢出
       int64_t magnitude = sample < 0 ? -(int64_t)sample : (int64_t)sample;
 
-      uint8_t pct = (uint8_t)((magnitude * 100) / fullScale);
       if (ch == 0)
       {
-        if (pct > peakL)
-          peakL = pct;
-        if (channels == 1 && pct > peakR)
-          peakR = pct; // 单声道同时驱动L/R
+        if (magnitude > peakMagnitudeL)
+          peakMagnitudeL = magnitude;
       }
-      else if (pct > peakR)
+      else if (magnitude > peakMagnitudeR)
       {
-        peakR = pct;
+        peakMagnitudeR = magnitude;
       }
     }
   }
+
+  // 热路径中只在每个分片末尾换算一次，避免对每个PCM样本执行64位除法。
+  const uint8_t peakL = static_cast<uint8_t>((peakMagnitudeL * 100) / fullScale);
+  const uint8_t peakR = channels == 1
+                            ? peakL
+                            : static_cast<uint8_t>((peakMagnitudeR * 100) / fullScale);
 
   if (peakL > device->getVoiceLevelL())
     device->setVoiceLevelL(peakL);
@@ -1246,6 +1249,7 @@ static void rf_handle(void *arg)
   uint32_t wifiRxPackets = 0;
   uint32_t wifiRxMaxBurst = 0;
   uint32_t wifiRxBudgetHits = 0;
+  uint32_t wifiRxMaxDrainUs = 0;
 #endif
 
   TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1277,6 +1281,9 @@ static void rf_handle(void *arg)
 
       /* 接收 */
       uint32_t wifiRxBurst = 0;
+#ifdef BUILD_DEBUG
+      const uint32_t wifiRxDrainStartUs = micros();
+#endif
       while (wifiRxBurst < RF_WIFI_RX_BURST_MAX && wifi_receive(&device, &receiveBuffer))
       {
         uint8_t *data;
@@ -1300,12 +1307,17 @@ static void rf_handle(void *arg)
         wifiRxBurst++;
       }
 #ifdef BUILD_DEBUG
+      const uint32_t wifiRxDrainUs = micros() - wifiRxDrainStartUs;
       wifiRxPackets += wifiRxBurst;
       if (wifiRxBurst > wifiRxMaxBurst)
       {
         wifiRxMaxBurst = wifiRxBurst;
       }
       wifiRxBudgetHits += wifiRxBurst == RF_WIFI_RX_BURST_MAX ? 1U : 0U;
+      if (wifiRxBurst > 0 && wifiRxDrainUs > wifiRxMaxDrainUs)
+      {
+        wifiRxMaxDrainUs = wifiRxDrainUs;
+      }
 #endif
     }
 
@@ -1319,12 +1331,14 @@ static void rf_handle(void *arg)
       secondLastTime = secondNowTime;
       // LOGGER_INFO("RF data speed %dKB/s", transmitSpeed / 1024);
 #ifdef BUILD_DEBUG
-      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu budget_hits=%lu",
+      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu budget_hits=%lu max_drain_us=%lu",
                   static_cast<unsigned long>(wifiRxPackets), static_cast<unsigned long>(transmitSpeed),
-                  static_cast<unsigned long>(wifiRxMaxBurst), static_cast<unsigned long>(wifiRxBudgetHits));
+                  static_cast<unsigned long>(wifiRxMaxBurst), static_cast<unsigned long>(wifiRxBudgetHits),
+                  static_cast<unsigned long>(wifiRxMaxDrainUs));
       wifiRxPackets = 0;
       wifiRxMaxBurst = 0;
       wifiRxBudgetHits = 0;
+      wifiRxMaxDrainUs = 0;
 #endif
 
       /* 衰减音频电平 (无新音频时逐渐归零) */

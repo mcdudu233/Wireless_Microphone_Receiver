@@ -347,10 +347,11 @@ static void audioHandle(void *arg)
                    static_cast<unsigned long>(recovery_count), static_cast<unsigned long>(bytes_written_total),
                    static_cast<unsigned long>(pcm_peak),
                    static_cast<unsigned long>(write_errors));
-      LOGGER_INFO("Audio buffer rx_parts=%lu rx_bytes=%lu complete=%lu gaps=%lu incomplete=%lu dup=%lu late=%lu invalid=%lu overrun=%lu depth=%lu",
+      LOGGER_INFO("Audio buffer rx_parts=%lu rx_bytes=%lu complete=%lu gaps=%lu incomplete=%lu missing_parts=%lu dup=%lu late=%lu invalid=%lu overrun=%lu depth=%lu",
                   static_cast<unsigned long>(buffer_stats.rx_parts), static_cast<unsigned long>(buffer_stats.rx_bytes),
                   static_cast<unsigned long>(buffer_stats.completed_frames), static_cast<unsigned long>(buffer_stats.gap_frames),
-                  static_cast<unsigned long>(buffer_stats.incomplete_playouts), static_cast<unsigned long>(buffer_stats.duplicate_parts),
+                  static_cast<unsigned long>(buffer_stats.incomplete_playouts), static_cast<unsigned long>(buffer_stats.missing_parts),
+                  static_cast<unsigned long>(buffer_stats.duplicate_parts),
                   static_cast<unsigned long>(buffer_stats.late_parts), static_cast<unsigned long>(buffer_stats.invalid_parts),
                   static_cast<unsigned long>(buffer_stats.overrun_frames), static_cast<unsigned long>(buffer_stats.depth));
       valid_frames = 0;
