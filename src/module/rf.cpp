@@ -25,6 +25,7 @@ struct RfDebugSnapshot
   uint32_t packets;
   uint32_t bytes;
   uint32_t max_burst;
+  uint32_t mailbox_peak;
   uint32_t budget_hits;
   uint32_t max_drain_us;
   uint8_t level_l;
@@ -51,9 +52,10 @@ static void rfDebugHandle(void *arg)
     portEXIT_CRITICAL(&rf_debug_mux);
     if (snapshot.ready)
     {
-      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu budget_hits=%lu max_drain_us=%lu level_l=%u level_r=%u",
+      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu mailbox_peak=%lu budget_hits=%lu max_drain_us=%lu level_l=%u level_r=%u",
                   static_cast<unsigned long>(snapshot.packets), static_cast<unsigned long>(snapshot.bytes),
-                  static_cast<unsigned long>(snapshot.max_burst), static_cast<unsigned long>(snapshot.budget_hits),
+                  static_cast<unsigned long>(snapshot.max_burst), static_cast<unsigned long>(snapshot.mailbox_peak),
+                  static_cast<unsigned long>(snapshot.budget_hits),
                   static_cast<unsigned long>(snapshot.max_drain_us),
                   static_cast<unsigned int>(snapshot.level_l), static_cast<unsigned int>(snapshot.level_r));
     }
@@ -80,6 +82,29 @@ static esp_event_handler_instance_t wifiHandlerInstance2;
 static bool socketIsOpen = false;
 static netconn *socketSendInstance = NULL;
 static netconn *socketReceiveInstance = NULL;
+
+// RAW netconn默认仅有6项邮箱。音频AMPDU会成批抵达，先在连接尚未收包时换成大邮箱，
+// 防止tcpip线程因邮箱满而在应用层之前静默丢弃音频分片。
+static bool wifi_expand_receive_mailbox(netconn *connection)
+{
+  if (connection == nullptr || !sys_mbox_valid(&connection->recvmbox))
+  {
+    return false;
+  }
+
+  sys_mbox_t replacement = nullptr;
+  if (sys_mbox_new(&replacement, RF_WIFI_RAW_RX_MBOX_SIZE) != ERR_OK)
+  {
+    return false;
+  }
+  sys_mbox_t original = connection->recvmbox;
+  connection->recvmbox = replacement;
+  sys_mbox_free(&original);
+#if LWIP_SO_RCVBUF
+  netconn_set_recvbufsize(connection, RF_WIFI_RAW_RX_MBOX_SIZE * 1600);
+#endif
+  return true;
+}
 
 // 发送数据 需要 netbuf_new
 static bool wifi_send(const Device &device, netbuf *buf)
@@ -178,7 +203,17 @@ static bool wifi_socket_open(uint32_t localIP)
   if (socketReceiveInstance == NULL)
   {
     netconn_delete(socketSendInstance);
+    socketSendInstance = NULL;
     LOGGER_WARN("WiFi Socket unable to create!");
+    return false;
+  }
+  if (!wifi_expand_receive_mailbox(socketReceiveInstance))
+  {
+    netconn_delete(socketSendInstance);
+    socketSendInstance = NULL;
+    netconn_delete(socketReceiveInstance);
+    socketReceiveInstance = NULL;
+    LOGGER_WARN("WiFi Socket unable to expand RAW receive mailbox!");
     return false;
   }
 
@@ -210,7 +245,7 @@ static bool wifi_socket_open(uint32_t localIP)
   netconn_set_nonblocking(socketReceiveInstance, true);
 
   socketIsOpen = true;
-  LOGGER_INFO("WiFi Socket is started.");
+  LOGGER_INFO("WiFi Socket is started, raw RX mailbox=%u.", RF_WIFI_RAW_RX_MBOX_SIZE);
   return true;
 }
 
@@ -1365,6 +1400,7 @@ static void rf_handle(void *arg)
 #ifdef BUILD_DEBUG
   uint32_t wifiRxPackets = 0;
   uint32_t wifiRxMaxBurst = 0;
+  uint32_t wifiRxMailboxPeak = 0;
   uint32_t wifiRxBudgetHits = 0;
   uint32_t wifiRxMaxDrainUs = 0;
 #endif
@@ -1399,6 +1435,14 @@ static void rf_handle(void *arg)
       /* 接收 */
       uint32_t wifiRxBurst = 0;
 #ifdef BUILD_DEBUG
+      if (socketReceiveInstance != nullptr && sys_mbox_valid(&socketReceiveInstance->recvmbox))
+      {
+        const uint32_t waiting = uxQueueMessagesWaiting(socketReceiveInstance->recvmbox->os_mbox);
+        if (waiting > wifiRxMailboxPeak)
+        {
+          wifiRxMailboxPeak = waiting;
+        }
+      }
       const uint32_t wifiRxDrainStartUs = micros();
 #endif
       while (wifiRxBurst < RF_WIFI_RX_BURST_MAX && wifi_receive(&device, &receiveBuffer))
@@ -1462,6 +1506,7 @@ static void rf_handle(void *arg)
       snapshot.packets = wifiRxPackets;
       snapshot.bytes = transmitSpeed;
       snapshot.max_burst = wifiRxMaxBurst;
+      snapshot.mailbox_peak = wifiRxMailboxPeak;
       snapshot.budget_hits = wifiRxBudgetHits;
       snapshot.max_drain_us = wifiRxMaxDrainUs;
       snapshot.level_l = levelL;
@@ -1471,6 +1516,7 @@ static void rf_handle(void *arg)
       portEXIT_CRITICAL(&rf_debug_mux);
       wifiRxPackets = 0;
       wifiRxMaxBurst = 0;
+      wifiRxMailboxPeak = 0;
       wifiRxBudgetHits = 0;
       wifiRxMaxDrainUs = 0;
 #endif

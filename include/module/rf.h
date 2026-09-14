@@ -25,6 +25,8 @@
 // 每个1ms调度周期最多批量处理的WiFi包数；192k/32bit/立体声约需1.25包/ms。
 // 一个AMPDU批次可能同时到达数十个包；应能一次排空整个接收窗口。
 #define RF_WIFI_RX_BURST_MAX 32
+// ESP-IDF默认RAW netconn接收邮箱只有6项，无法吸收192kHz音频的AMPDU突发。
+#define RF_WIFI_RAW_RX_MBOX_SIZE 64
 
 // 主界面音量表：稀疏采样PCM，在固定周期发布dBFS包络。
 #define RF_VOICE_METER_SAMPLE_STRIDE 4
