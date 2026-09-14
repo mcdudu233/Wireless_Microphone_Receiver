@@ -271,14 +271,20 @@ void usb::uac::_disconnect()
 #include "module/audio/buffer.h"
 // 音频数据
 static AudioData *data = nullptr;
+static uint8_t usbSilence[AUDIO_BUFFER_MAX_DATA_SIZE] = {};
 void usb::uac::_loop()
 {
     if (isConnected)
     {
         data = audio::buffer::getUSBData();
-        if (data != nullptr)
+        const uint32_t frameSize = audio::buffer::getFrameSize();
+        if (frameSize > 0)
         {
-            tud_audio_write(data->data, data->size);
+            // 不完整帧绝不能作为PCM输出，否则缺失分片会让样本边界错位并产生爆音。
+            const uint8_t *output = data != nullptr && data->complete && data->size == frameSize
+                                        ? data->data
+                                        : usbSilence;
+            tud_audio_write(output, frameSize);
         }
     }
 }

@@ -15,9 +15,30 @@
 struct AudioData
 {
   uint32_t num;
+  // 完整音频帧的期望长度。只有 complete=true 时 data 才可直接播放。
   uint32_t size;
+  uint32_t received_size;
+  uint32_t received_parts;
+  uint8_t expected_parts;
+  bool complete;
   uint8_t data[AUDIO_BUFFER_MAX_DATA_SIZE];
 };
+
+#ifdef BUILD_DEBUG
+struct AudioBufferDebugStats
+{
+  uint32_t rx_parts;
+  uint32_t rx_bytes;
+  uint32_t completed_frames;
+  uint32_t gap_frames;
+  uint32_t duplicate_parts;
+  uint32_t late_parts;
+  uint32_t invalid_parts;
+  uint32_t incomplete_playouts;
+  uint32_t overrun_frames;
+  uint32_t depth;
+};
+#endif
 
 namespace audio::buffer
 {
@@ -35,6 +56,14 @@ namespace audio::buffer
   AudioData *getDecoderData();
   // 获取USB的数据
   AudioData *getUSBData();
+
+  // 当前配置每个4ms音频帧应有的字节数。
+  uint32_t getFrameSize();
+
+#ifdef BUILD_DEBUG
+  // 读取并清零自上次调用后的重组统计。
+  void getDebugStats(AudioBufferDebugStats &stats);
+#endif
 }
 
 extern AudioData *AudioWhiteData;

@@ -37,6 +37,9 @@ static AudioRate i2s_rate;
 static AudioBit i2s_bit;
 static bool powerOn = false;
 static bool plugin = false;
+static uint8_t concealment_data[AUDIO_BUFFER_MAX_DATA_SIZE] __attribute__((aligned(4)));
+static int32_t last_output_sample[2] = {0, 0};
+static bool loss_active = true;
 
 static uint32_t getPcmPeak(const uint8_t *pcm, size_t size, AudioBit bit)
 {
@@ -83,6 +86,132 @@ static uint32_t getPcmPeak(const uint8_t *pcm, size_t size, AudioBit bit)
   return peak;
 }
 
+static uint8_t getBytesPerSample(AudioBit bit)
+{
+  return static_cast<uint8_t>(bit) / 8;
+}
+
+static int32_t readPcmSample(const uint8_t *pcm, AudioBit bit)
+{
+  if (bit == AUDIO_BIT_16)
+  {
+    return static_cast<int16_t>(static_cast<uint16_t>(pcm[0]) |
+                                (static_cast<uint16_t>(pcm[1]) << 8));
+  }
+  if (bit == AUDIO_BIT_24)
+  {
+    int32_t value = static_cast<int32_t>(pcm[0]) |
+                    (static_cast<int32_t>(pcm[1]) << 8) |
+                    (static_cast<int32_t>(pcm[2]) << 16);
+    return (value & 0x00800000) != 0 ? (value | 0xFF000000) : value;
+  }
+  return static_cast<int32_t>(static_cast<uint32_t>(pcm[0]) |
+                              (static_cast<uint32_t>(pcm[1]) << 8) |
+                              (static_cast<uint32_t>(pcm[2]) << 16) |
+                              (static_cast<uint32_t>(pcm[3]) << 24));
+}
+
+static void writePcmSample(uint8_t *pcm, AudioBit bit, int32_t sample)
+{
+  pcm[0] = static_cast<uint8_t>(sample);
+  pcm[1] = static_cast<uint8_t>(sample >> 8);
+  if (bit != AUDIO_BIT_16)
+  {
+    pcm[2] = static_cast<uint8_t>(sample >> 16);
+  }
+  if (bit == AUDIO_BIT_32)
+  {
+    pcm[3] = static_cast<uint8_t>(sample >> 24);
+  }
+}
+
+static uint32_t getFadeFrames(uint32_t frame_size)
+{
+  const uint32_t bytes_per_frame = getBytesPerSample(i2s_bit) * static_cast<uint32_t>(i2s_channel);
+  if (bytes_per_frame == 0)
+  {
+    return 0;
+  }
+  const uint32_t sample_frames = frame_size / bytes_per_frame;
+  const uint32_t fade_frames = static_cast<uint32_t>(i2s_rate) * AUDIO_DECODER_LOSS_FADE_MS / 1000U;
+  return fade_frames < sample_frames ? fade_frames : sample_frames;
+}
+
+static void rememberLastSamples(const uint8_t *pcm, uint32_t size)
+{
+  const uint32_t channels = static_cast<uint32_t>(i2s_channel);
+  const uint32_t bytes_per_sample = getBytesPerSample(i2s_bit);
+  const uint32_t bytes_per_frame = bytes_per_sample * channels;
+  if (channels == 0 || channels > 2 || bytes_per_frame == 0 || size < bytes_per_frame)
+  {
+    return;
+  }
+  const uint8_t *last_frame = pcm + size - bytes_per_frame;
+  for (uint32_t channel = 0; channel < channels; channel++)
+  {
+    last_output_sample[channel] = readPcmSample(last_frame + channel * bytes_per_sample, i2s_bit);
+  }
+  if (channels == 1)
+  {
+    last_output_sample[1] = last_output_sample[0];
+  }
+}
+
+static const uint8_t *prepareConcealmentFrame(uint32_t size)
+{
+  memset(concealment_data, 0, size);
+  if (!loss_active)
+  {
+    const uint32_t channels = static_cast<uint32_t>(i2s_channel);
+    const uint32_t bytes_per_sample = getBytesPerSample(i2s_bit);
+    const uint32_t bytes_per_frame = bytes_per_sample * channels;
+    const uint32_t fade_frames = getFadeFrames(size);
+    for (uint32_t frame = 0; frame < fade_frames; frame++)
+    {
+      const int64_t scale = static_cast<int64_t>(fade_frames - frame - 1);
+      for (uint32_t channel = 0; channel < channels; channel++)
+      {
+        const int32_t sample = static_cast<int32_t>(
+            static_cast<int64_t>(last_output_sample[channel]) * scale / fade_frames);
+        writePcmSample(concealment_data + frame * bytes_per_frame + channel * bytes_per_sample,
+                       i2s_bit, sample);
+      }
+    }
+  }
+  last_output_sample[0] = 0;
+  last_output_sample[1] = 0;
+  loss_active = true;
+  return concealment_data;
+}
+
+static const uint8_t *prepareValidFrame(const uint8_t *pcm, uint32_t size, bool &recovered)
+{
+  recovered = loss_active;
+  if (loss_active)
+  {
+    memcpy(concealment_data, pcm, size);
+    const uint32_t channels = static_cast<uint32_t>(i2s_channel);
+    const uint32_t bytes_per_sample = getBytesPerSample(i2s_bit);
+    const uint32_t bytes_per_frame = bytes_per_sample * channels;
+    const uint32_t fade_frames = getFadeFrames(size);
+    for (uint32_t frame = 0; frame < fade_frames; frame++)
+    {
+      const int64_t scale = static_cast<int64_t>(frame + 1);
+      for (uint32_t channel = 0; channel < channels; channel++)
+      {
+        uint8_t *sample_data = concealment_data + frame * bytes_per_frame + channel * bytes_per_sample;
+        const int32_t sample = static_cast<int32_t>(
+            static_cast<int64_t>(readPcmSample(sample_data, i2s_bit)) * scale / fade_frames);
+        writePcmSample(sample_data, i2s_bit, sample);
+      }
+    }
+    pcm = concealment_data;
+  }
+  loss_active = false;
+  rememberLastSamples(pcm, size);
+  return pcm;
+}
+
 // 记录丢包率
 // static unsigned long last_time = millis();
 // static int last_ok = 0;
@@ -95,8 +224,11 @@ static void audioHandle(void *arg)
   AudioData *data;
 #ifdef BUILD_DEBUG
   uint32_t report_time = millis();
-  uint32_t frames_written = 0;
-  uint32_t frames_missing = 0;
+  uint32_t valid_frames = 0;
+  uint32_t concealed_frames = 0;
+  uint32_t empty_frames = 0;
+  uint32_t incomplete_frames = 0;
+  uint32_t recovery_count = 0;
   uint32_t write_errors = 0;
   uint32_t bytes_written_total = 0;
   uint32_t pcm_peak = 0;
@@ -141,16 +273,25 @@ static void audioHandle(void *arg)
 
       // 获取数据
       data = audio::buffer::getDecoderData();
-      if (data != nullptr)
+      const uint32_t frame_size = audio::buffer::getFrameSize();
+      if (frame_size > 0)
       {
+        const bool complete = data != nullptr && data->complete && data->size == frame_size;
+        bool recovered = false;
+        const uint8_t *output_data = complete
+                                         ? prepareValidFrame(data->data, frame_size, recovered)
+                                         : prepareConcealmentFrame(frame_size);
+#ifndef BUILD_DEBUG
+        (void)recovered;
+#endif
         size_t bytes_written = 0;
-        const esp_err_t result = i2s_channel_write(i2s_tx_handle, data->data, data->size, &bytes_written,
+        const esp_err_t result = i2s_channel_write(i2s_tx_handle, output_data, frame_size, &bytes_written,
                                                    AUDIO_DECODER_POLLING_CYCLE * 2);
-        if (result != ESP_OK || bytes_written != data->size)
+        if (result != ESP_OK || bytes_written != frame_size)
         {
           LOGGER_WARN("Audio Decoder write failed: %s, %u/%u bytes",
                       esp_err_to_name(result), static_cast<unsigned int>(bytes_written),
-                      static_cast<unsigned int>(data->size));
+                      static_cast<unsigned int>(frame_size));
 #ifdef BUILD_DEBUG
           write_errors++;
 #endif
@@ -158,36 +299,59 @@ static void audioHandle(void *arg)
 #ifdef BUILD_DEBUG
         else
         {
-          frames_written++;
           bytes_written_total += bytes_written;
-          const uint32_t frame_peak = getPcmPeak(data->data, data->size, i2s_bit);
-          if (frame_peak > pcm_peak)
+          if (complete)
           {
-            pcm_peak = frame_peak;
+            valid_frames++;
+            recovery_count += recovered ? 1U : 0U;
+            const uint32_t frame_peak = getPcmPeak(output_data, frame_size, i2s_bit);
+            if (frame_peak > pcm_peak)
+            {
+              pcm_peak = frame_peak;
+            }
+          }
+          else
+          {
+            concealed_frames++;
+            if (data == nullptr)
+            {
+              empty_frames++;
+            }
+            else
+            {
+              incomplete_frames++;
+            }
           }
         }
 #endif
       }
-#ifdef BUILD_DEBUG
-      else
-      {
-        frames_missing++;
-      }
-#endif
     }
 
 #ifdef BUILD_DEBUG
     if (millis() - report_time >= 1000)
     {
       report_time = millis();
-      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u frames=%lu bytes=%lu peak=%lu empty=%lu errors=%lu",
+      AudioBufferDebugStats buffer_stats = {};
+      audio::buffer::getDebugStats(buffer_stats);
+      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u valid=%lu concealed=%lu empty=%lu incomplete=%lu recovered=%lu bytes=%lu peak=%lu errors=%lu",
                    plugin ? 1U : 0U, config::config.audio_output.enabled ? 1U : 0U,
                    static_cast<unsigned int>(config::config.audio_output.mode), powerOn ? 1U : 0U,
-                   static_cast<unsigned long>(frames_written), static_cast<unsigned long>(bytes_written_total),
-                   static_cast<unsigned long>(pcm_peak), static_cast<unsigned long>(frames_missing),
+                   static_cast<unsigned long>(valid_frames), static_cast<unsigned long>(concealed_frames),
+                   static_cast<unsigned long>(empty_frames), static_cast<unsigned long>(incomplete_frames),
+                   static_cast<unsigned long>(recovery_count), static_cast<unsigned long>(bytes_written_total),
+                   static_cast<unsigned long>(pcm_peak),
                    static_cast<unsigned long>(write_errors));
-      frames_written = 0;
-      frames_missing = 0;
+      LOGGER_INFO("Audio buffer rx_parts=%lu rx_bytes=%lu complete=%lu gaps=%lu incomplete=%lu dup=%lu late=%lu invalid=%lu overrun=%lu depth=%lu",
+                  static_cast<unsigned long>(buffer_stats.rx_parts), static_cast<unsigned long>(buffer_stats.rx_bytes),
+                  static_cast<unsigned long>(buffer_stats.completed_frames), static_cast<unsigned long>(buffer_stats.gap_frames),
+                  static_cast<unsigned long>(buffer_stats.incomplete_playouts), static_cast<unsigned long>(buffer_stats.duplicate_parts),
+                  static_cast<unsigned long>(buffer_stats.late_parts), static_cast<unsigned long>(buffer_stats.invalid_parts),
+                  static_cast<unsigned long>(buffer_stats.overrun_frames), static_cast<unsigned long>(buffer_stats.depth));
+      valid_frames = 0;
+      concealed_frames = 0;
+      empty_frames = 0;
+      incomplete_frames = 0;
+      recovery_count = 0;
       write_errors = 0;
       bytes_written_total = 0;
       pcm_peak = 0;
@@ -221,6 +385,9 @@ bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
   i2s_rate = rate;
   i2s_bit = bit;
   i2s_channel = channel;
+  last_output_sample[0] = 0;
+  last_output_sample[1] = 0;
+  loss_active = true;
   i2s_std_config_t std_cfg = {
       .clk_cfg = {
           .sample_rate_hz = (uint32_t)i2s_rate,
@@ -281,6 +448,9 @@ void audio::decoder::off()
 {
   setMute(true);
   powerOn = false;
+  last_output_sample[0] = 0;
+  last_output_sample[1] = 0;
+  loss_active = true;
   if (i2s_tx_handle != nullptr)
   {
     const esp_err_t disable_result = i2s_channel_disable(i2s_tx_handle);
