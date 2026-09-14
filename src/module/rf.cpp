@@ -1240,6 +1240,11 @@ static void rf_handle(void *arg)
   netbuf *receiveBuffer = NULL;
   // rssi
   wifi_sta_list_t staList;
+#ifdef BUILD_DEBUG
+  uint32_t wifiRxPackets = 0;
+  uint32_t wifiRxMaxBurst = 0;
+  uint32_t wifiRxBudgetHits = 0;
+#endif
 
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(TASK_RF_PERIOD);
@@ -1269,7 +1274,8 @@ static void rf_handle(void *arg)
       //////////
 
       /* 接收 */
-      if (wifi_receive(&device, &receiveBuffer))
+      uint32_t wifiRxBurst = 0;
+      while (wifiRxBurst < RF_WIFI_RX_BURST_MAX && wifi_receive(&device, &receiveBuffer))
       {
         uint8_t *data;
         uint16_t len;
@@ -1287,7 +1293,18 @@ static void rf_handle(void *arg)
           transmitSpeedData += len;
         } while (netbuf_next(receiveBuffer) >= 0);
         netbuf_delete(receiveBuffer);
+        receiveBuffer = NULL;
+        device = nullptr;
+        wifiRxBurst++;
       }
+#ifdef BUILD_DEBUG
+      wifiRxPackets += wifiRxBurst;
+      if (wifiRxBurst > wifiRxMaxBurst)
+      {
+        wifiRxMaxBurst = wifiRxBurst;
+      }
+      wifiRxBudgetHits += wifiRxBurst == RF_WIFI_RX_BURST_MAX ? 1U : 0U;
+#endif
     }
 
     /* 每秒执行一次获取其他信息 */
@@ -1299,6 +1316,14 @@ static void rf_handle(void *arg)
       transmitSpeedData = 0;
       secondLastTime = secondNowTime;
       // LOGGER_INFO("RF data speed %dKB/s", transmitSpeed / 1024);
+#ifdef BUILD_DEBUG
+      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu budget_hits=%lu",
+                  static_cast<unsigned long>(wifiRxPackets), static_cast<unsigned long>(transmitSpeed),
+                  static_cast<unsigned long>(wifiRxMaxBurst), static_cast<unsigned long>(wifiRxBudgetHits));
+      wifiRxPackets = 0;
+      wifiRxMaxBurst = 0;
+      wifiRxBudgetHits = 0;
+#endif
 
       /* 衰减音频电平 (无新音频时逐渐归零) */
       {

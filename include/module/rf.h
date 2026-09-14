@@ -22,6 +22,8 @@
 #define WIFI_IP_PROTOCOL 0xE9
 #define WIFI_NO_PORT 0
 #define WIFI_IP_HEAD_LEN 20
+// 每个1ms调度周期最多批量处理的WiFi包数；192k/32bit/立体声约需1.25包/ms。
+#define RF_WIFI_RX_BURST_MAX 8
 
 // 断线重连监控
 #define RF_RECONNECT_TIMEOUT_MS 10000       // 断开后判定连接失败的宽限期
