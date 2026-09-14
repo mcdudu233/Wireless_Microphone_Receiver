@@ -234,9 +234,9 @@ static AudioData *getConsumerData(uint32_t &last_number, bool &started, bool &de
       {
         delay_flag = true;
       }
-      else if (delay_flag && available_ahead < AUDIO_BUFFER_DELAY_PACKET)
+      else if (delay_flag && available_ahead < AUDIO_BUFFER_REBUFFER_PACKET)
       {
-        // 欠载后先重新积累抖动余量，此期间由输出端持续发送静音帧。
+        // 欠载后只积累短余量；长期速率偏差由解码端I2S时钟同步处理。
       }
       else
       {
@@ -288,6 +288,17 @@ AudioData *audio::buffer::getDecoderData()
 AudioData *audio::buffer::getUSBData()
 {
   return getConsumerData(usbLastNumber, usbStarted, usbDelayFlag, false);
+}
+
+uint32_t audio::buffer::getDecoderDepth()
+{
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  AudioData *front = getAudioDataFront();
+  const uint32_t depth = decoderStarted && front != nullptr
+                             ? static_cast<uint32_t>(front->num - decoderLastNumber)
+                             : buffered_slots;
+  xSemaphoreGive(mutex);
+  return depth;
 }
 
 #ifdef BUILD_DEBUG

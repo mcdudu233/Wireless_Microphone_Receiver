@@ -44,6 +44,14 @@ static uint8_t *i2s_output_data = nullptr;
 static int32_t last_output_sample[2] = {0, 0};
 static bool loss_active = true;
 static bool playback_started = false;
+static uint32_t i2s_origin_mclk_hz = 0;
+static int32_t clock_integral_ppm = 0;
+static int32_t clock_tune_ppm = 0;
+
+static constexpr int32_t AUDIO_CLOCK_MAX_TUNE_PPM = 15000;
+static constexpr int32_t AUDIO_CLOCK_ERROR_LIMIT = 30;
+static constexpr int32_t AUDIO_CLOCK_KP_PPM = 160;
+static constexpr int32_t AUDIO_CLOCK_KI_PPM = 60;
 
 #ifdef BUILD_DEBUG
 struct DecoderDebugSnapshot
@@ -67,6 +75,7 @@ struct DecoderDebugSnapshot
   uint32_t write_wait_max_us;
   int32_t mclk_hz;
   uint32_t water_mark;
+  int32_t tune_ppm;
   AudioBufferDebugStats buffer;
 };
 
@@ -91,7 +100,7 @@ static void decoderDebugHandle(void *arg)
 
     if (snapshot.ready)
     {
-      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u stream_bit=%u dac_bit=%u valid=%lu concealed=%lu empty=%lu incomplete=%lu recovered=%lu bytes=%lu peak=%lu errors=%lu wait_avg_us=%lu wait_max_us=%lu mclk=%ld water=%lu%%",
+      LOGGER_INFO("Audio output jack=%u enabled=%u mode=%u i2s=%u stream_bit=%u dac_bit=%u valid=%lu concealed=%lu empty=%lu incomplete=%lu recovered=%lu bytes=%lu peak=%lu errors=%lu wait_avg_us=%lu wait_max_us=%lu mclk=%ld tune_ppm=%ld water=%lu%%",
                   snapshot.jack ? 1U : 0U, snapshot.enabled ? 1U : 0U,
                   static_cast<unsigned int>(snapshot.mode), snapshot.i2s ? 1U : 0U,
                   static_cast<unsigned int>(snapshot.stream_bit),
@@ -107,6 +116,7 @@ static void decoderDebugHandle(void *arg)
                   static_cast<unsigned long>(snapshot.write_wait_average_us),
                   static_cast<unsigned long>(snapshot.write_wait_max_us),
                   static_cast<long>(snapshot.mclk_hz),
+                  static_cast<long>(snapshot.tune_ppm),
                   static_cast<unsigned long>(snapshot.water_mark));
       LOGGER_INFO("Audio buffer rx_parts=%lu rx_bytes=%lu complete=%lu gaps=%lu incomplete=%lu missing_parts=%lu dup=%lu late=%lu invalid=%lu overrun=%lu depth=%lu",
                   static_cast<unsigned long>(snapshot.buffer.rx_parts),
@@ -264,6 +274,63 @@ static uint32_t getFadeFrames(uint32_t frame_size)
   const uint32_t sample_frames = frame_size / bytes_per_frame;
   const uint32_t fade_frames = static_cast<uint32_t>(i2s_rate) * AUDIO_DECODER_LOSS_FADE_MS / 1000U;
   return fade_frames < sample_frames ? fade_frames : sample_frames;
+}
+
+static void synchronizePlaybackClock()
+{
+  if (!powerOn || !playback_started || i2s_tx_handle == nullptr || i2s_origin_mclk_hz == 0)
+  {
+    return;
+  }
+
+  const int32_t depth = static_cast<int32_t>(audio::buffer::getDecoderDepth());
+  int32_t error = depth - AUDIO_BUFFER_DELAY_PACKET;
+  if (error > AUDIO_CLOCK_ERROR_LIMIT)
+  {
+    error = AUDIO_CLOCK_ERROR_LIMIT;
+  }
+  else if (error < -AUDIO_CLOCK_ERROR_LIMIT)
+  {
+    error = -AUDIO_CLOCK_ERROR_LIMIT;
+  }
+
+  clock_integral_ppm += error * AUDIO_CLOCK_KI_PPM;
+  if (clock_integral_ppm > AUDIO_CLOCK_MAX_TUNE_PPM)
+  {
+    clock_integral_ppm = AUDIO_CLOCK_MAX_TUNE_PPM;
+  }
+  else if (clock_integral_ppm < -AUDIO_CLOCK_MAX_TUNE_PPM)
+  {
+    clock_integral_ppm = -AUDIO_CLOCK_MAX_TUNE_PPM;
+  }
+
+  int32_t requested_ppm = clock_integral_ppm + error * AUDIO_CLOCK_KP_PPM;
+  if (requested_ppm > AUDIO_CLOCK_MAX_TUNE_PPM)
+  {
+    requested_ppm = AUDIO_CLOCK_MAX_TUNE_PPM;
+  }
+  else if (requested_ppm < -AUDIO_CLOCK_MAX_TUNE_PPM)
+  {
+    requested_ppm = -AUDIO_CLOCK_MAX_TUNE_PPM;
+  }
+
+  const int32_t max_delta_mclk = static_cast<int32_t>(
+      static_cast<int64_t>(i2s_origin_mclk_hz) * AUDIO_CLOCK_MAX_TUNE_PPM / 1000000LL);
+  const int32_t target_mclk_hz = static_cast<int32_t>(i2s_origin_mclk_hz) +
+                                 static_cast<int32_t>(static_cast<int64_t>(i2s_origin_mclk_hz) *
+                                                      requested_ppm / 1000000LL);
+  const i2s_tuning_config_t tune_config = {
+      .tune_mode = I2S_TUNING_MODE_SET,
+      .tune_mclk_val = target_mclk_hz,
+      .max_delta_mclk = max_delta_mclk,
+      .min_delta_mclk = -max_delta_mclk,
+  };
+  i2s_tuning_info_t tune_info = {};
+  if (i2s_channel_tune_rate(i2s_tx_handle, &tune_config, &tune_info) == ESP_OK)
+  {
+    clock_tune_ppm = static_cast<int32_t>(
+        static_cast<int64_t>(tune_info.delta_mclk_hz) * 1000000LL / i2s_origin_mclk_hz);
+  }
 }
 
 static void rememberLastSamples(const uint8_t *pcm, uint32_t size)
@@ -477,6 +544,7 @@ static void audioHandle(void *arg)
 {
   // 音频数据
   AudioData *data;
+  uint32_t clock_sync_time = millis();
 #ifdef BUILD_DEBUG
   uint32_t report_time = millis();
   uint32_t valid_frames = 0;
@@ -613,6 +681,12 @@ static void audioHandle(void *arg)
       }
     }
 
+    if (millis() - clock_sync_time >= 500)
+    {
+      clock_sync_time = millis();
+      synchronizePlaybackClock();
+    }
+
 #ifdef BUILD_DEBUG
     if (millis() - report_time >= 1000)
     {
@@ -643,6 +717,7 @@ static void audioHandle(void *arg)
       snapshot.write_wait_max_us = write_wait_max_us;
       snapshot.mclk_hz = tuning_result == ESP_OK ? tuning.curr_mclk_hz : 0;
       snapshot.water_mark = tuning_result == ESP_OK ? tuning.water_mark : 0;
+      snapshot.tune_ppm = clock_tune_ppm;
       snapshot.buffer = buffer_stats;
       portENTER_CRITICAL(&decoder_debug_mux);
       decoder_debug_snapshot = snapshot;
@@ -708,6 +783,10 @@ bool audio::decoder::on(AudioRate rate, AudioBit bit, AudioChannel channel)
                        ? AUDIO_BIT_24
                        : i2s_bit;
   i2s_channel = channel;
+  i2s_origin_mclk_hz = static_cast<uint32_t>(i2s_rate) * static_cast<uint32_t>(
+      (i2s_output_bit == AUDIO_BIT_24) ? I2S_MCLK_MULTIPLE_384 : I2S_MCLK_MULTIPLE_256);
+  clock_integral_ppm = 0;
+  clock_tune_ppm = 0;
   last_output_sample[0] = 0;
   last_output_sample[1] = 0;
   loss_active = true;
@@ -783,6 +862,9 @@ void audio::decoder::off()
   last_output_sample[1] = 0;
   loss_active = true;
   playback_started = false;
+  i2s_origin_mclk_hz = 0;
+  clock_integral_ppm = 0;
+  clock_tune_ppm = 0;
   if (i2s_tx_handle != nullptr)
   {
     const esp_err_t disable_result = i2s_channel_disable(i2s_tx_handle);

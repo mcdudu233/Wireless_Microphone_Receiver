@@ -10,6 +10,7 @@
 // 传输延迟(等待多久才把数据输出,数值过低会导致爆音)
 // WiFi存在毫秒到几十毫秒级的传输抖动, 缓冲需要足够深避免周期性断续
 #define AUDIO_BUFFER_DELAY_PACKET 50                                                      // 延迟多少个数据包
+#define AUDIO_BUFFER_REBUFFER_PACKET 8                                                     // 欠载后仅回填短余量，避免长时间静音
 #define AUDIO_BUFFER_DELAY_TIME (AUDIO_BUFFER_DELAY_PACKET * AUDIO_DECODER_POLLING_CYCLE) // 计算得到传输延迟
 
 struct AudioData
@@ -61,6 +62,8 @@ namespace audio::buffer
 
   // 当前配置每个4ms音频帧应有的字节数。
   uint32_t getFrameSize();
+  // 解码器当前落后最新接收帧的深度，用于播放时钟同步。
+  uint32_t getDecoderDepth();
 
 #ifdef BUILD_DEBUG
   // 读取并清零自上次调用后的重组统计。
