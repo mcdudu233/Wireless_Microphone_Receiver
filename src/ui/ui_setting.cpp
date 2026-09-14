@@ -40,6 +40,7 @@ static lv_obj_t *dd_audio_rate;
 static lv_obj_t *dd_audio_audio_mode;
 static lv_obj_t *slider_audio_gain;
 static lv_obj_t *label_audio_gain;
+static lv_obj_t *label_audio_ble_hint; // BLE模式固定格式的提示行(WIFI模式隐藏)
 static lv_obj_t *dd_audio_output_enabled;
 static lv_obj_t *dd_audio_output_mode;
 
@@ -61,7 +62,8 @@ static lv_obj_t *psram;
 
 static void save_config(uint8_t page);
 static void setting_value_changed_cb(lv_event_t *e);
-static void back_cb(lv_event_t *e);          // 设置页面back按钮回调
+static void back_cb(lv_event_t *e);                        // 设置页面back按钮回调
+static void ui_set_audio_format_locked(bool locked); // BLE模式锁定采样格式下拉框
 static void relink_bt_cb(lv_event_t *e);     // 重新链接蓝牙回调
 static void enter_subpage_cb(lv_event_t *e); // 记录进入子页的来源条目
 static void focus_async_cb(void *obj_p);     // 异步将焦点移回来源条目
@@ -281,6 +283,17 @@ void ui_setting_init(lv_obj_t *ui_from)
     // 48000 96000 192000 Hz
     // 16 24 32 bit
     // 单声道 立体
+    // BLE模式带宽仅支持48000Hz/16bit/单通道,此时三个格式下拉框锁定并显示提示(WIFI模式隐藏)
+    label_audio_ble_hint = lv_label_create(sub_audio_input_page);
+    lv_label_set_text(label_audio_ble_hint, "BLE模式已固定格式");
+    lv_obj_set_width(label_audio_ble_hint, lv_pct(100));
+    lv_obj_set_height(label_audio_ble_hint, lv_font_get_line_height(UI_FONT_BODY));
+    lv_label_set_long_mode(label_audio_ble_hint, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(label_audio_ble_hint, UI_FONT_BODY, 0);
+    lv_obj_set_style_text_align(label_audio_ble_hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(label_audio_ble_hint, lv_color_hex(0x9CA3AF), 0);
+    lv_obj_set_style_margin_bottom(label_audio_ble_hint, UI_SPACE_1, 0);
+    lv_obj_add_flag(label_audio_ble_hint, LV_OBJ_FLAG_HIDDEN);
     // section = lv_menu_section_create(sub_audio_page);
     ui_create_dropdown(sub_audio_input_page, NULL, "采样率", "48000Hz\n"
                                                        "96000Hz\n"
@@ -811,6 +824,16 @@ static void enter_subpage_cb(lv_event_t *e)
         {
             lv_label_set_text_fmt(label_audio_gain, "%ddB", static_cast<int>(l_gain));
         }
+
+        // BLE模式固定48000Hz/16bit/单通道(WIFI模式恢复可编辑)
+        const bool bleFixed = config::config.rf.mode == RF_MODE_BLE;
+        if (bleFixed)
+        {
+            lv_dropdown_set_selected(dd_audio_rate, 0);
+            lv_dropdown_set_selected(dd_audio_bit, 0);
+            lv_dropdown_set_selected(dd_audio_channel, 0);
+        }
+        ui_set_audio_format_locked(bleFixed);
         break;
     }
     case e_page::audio_output_page:
@@ -1075,6 +1098,30 @@ static void setting_value_changed_cb(lv_event_t *e)
     save_config((uint8_t)(intptr_t)lv_event_get_user_data(e));
 }
 
+// BLE模式锁定采样率/位深/通道数下拉框:置灰不可聚焦并显示提示,恢复WIFI模式时还原
+static void ui_set_audio_format_locked(bool locked)
+{
+    lv_obj_t *dropdowns[3] = {dd_audio_rate, dd_audio_bit, dd_audio_channel};
+    for (lv_obj_t *dd : dropdowns)
+    {
+        if (dd == nullptr)
+            continue;
+        if (locked)
+            lv_obj_add_state(dd, LV_STATE_DISABLED);
+        else
+            lv_obj_remove_state(dd, LV_STATE_DISABLED);
+        lv_obj_set_style_text_opa(dd, locked ? LV_OPA_60 : LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(dd, locked ? lv_color_hex(0xE5E7EB) : lv_color_hex(0xD1D5DB), 0);
+    }
+    if (label_audio_ble_hint != nullptr)
+    {
+        if (locked)
+            lv_obj_remove_flag(label_audio_ble_hint, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(label_audio_ble_hint, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 static void save_config(uint8_t page)
 {
     switch (page)
@@ -1150,6 +1197,13 @@ static void save_config(uint8_t page)
         }
 
         v_gain = lv_slider_get_value(slider_audio_gain);
+        // BLE模式下格式被锁定为48000Hz/16bit/单通道(下拉框已禁用,双保险)
+        if (config::config.rf.mode == RF_MODE_BLE)
+        {
+            v_bit = AUDIO_BIT_16;
+            v_channel = AUDIO_CHANNEL_SINGLE;
+            v_rate = AUDIO_RATE_48000;
+        }
         ui_setting_audio_input_page_scb(v_bit, v_channel, v_rate, v_gain, v_audio_mode);
         break;
     case e_page::audio_output_page:

@@ -28,6 +28,8 @@ struct RfDebugSnapshot
   uint32_t mailbox_peak;
   uint32_t budget_hits;
   uint32_t max_drain_us;
+  uint32_t ble_packets;
+  uint32_t ble_bytes;
   uint8_t level_l;
   uint8_t level_r;
 };
@@ -52,12 +54,22 @@ static void rfDebugHandle(void *arg)
     portEXIT_CRITICAL(&rf_debug_mux);
     if (snapshot.ready)
     {
-      LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu mailbox_peak=%lu budget_hits=%lu max_drain_us=%lu level_l=%u level_r=%u",
-                  static_cast<unsigned long>(snapshot.packets), static_cast<unsigned long>(snapshot.bytes),
-                  static_cast<unsigned long>(snapshot.max_burst), static_cast<unsigned long>(snapshot.mailbox_peak),
-                  static_cast<unsigned long>(snapshot.budget_hits),
-                  static_cast<unsigned long>(snapshot.max_drain_us),
-                  static_cast<unsigned int>(snapshot.level_l), static_cast<unsigned int>(snapshot.level_r));
+      if (snapshot.ble_packets > 0)
+      {
+        LOGGER_INFO("Audio RX BLE packets=%lu bytes=%lu level_l=%u level_r=%u",
+                    static_cast<unsigned long>(snapshot.ble_packets),
+                    static_cast<unsigned long>(snapshot.ble_bytes),
+                    static_cast<unsigned int>(snapshot.level_l), static_cast<unsigned int>(snapshot.level_r));
+      }
+      else
+      {
+        LOGGER_INFO("Audio RX WiFi packets=%lu bytes=%lu max_burst=%lu mailbox_peak=%lu budget_hits=%lu max_drain_us=%lu level_l=%u level_r=%u",
+                    static_cast<unsigned long>(snapshot.packets), static_cast<unsigned long>(snapshot.bytes),
+                    static_cast<unsigned long>(snapshot.max_burst), static_cast<unsigned long>(snapshot.mailbox_peak),
+                    static_cast<unsigned long>(snapshot.budget_hits),
+                    static_cast<unsigned long>(snapshot.max_drain_us),
+                    static_cast<unsigned int>(snapshot.level_l), static_cast<unsigned int>(snapshot.level_r));
+      }
     }
     vTaskDelay(pdMS_TO_TICKS(200));
   }
@@ -575,7 +587,6 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
         LOGGER_WARN("BLE receive queue is full.");
       }
       os_mbuf_free(event->receive.sdu_rx);
-      LOGGER_INFO("BLE received %d bytes on L2CAP channel.", size);
     }
 
     // 响应数据 准备接收下一个数据包
@@ -1390,6 +1401,138 @@ static void rf_reconnect_monitor()
   }
 }
 
+// 将BLE连接的发射器迁移到WiFi并恢复音频(设备页完成流程与设置页协议切换共用)
+static void rf_migrate_devices_to_wifi()
+{
+  Device *devices = deviceManager.getAllDevices();
+
+  // 必须先开AP再通知发射器切换,否则它连不上AP会在重试耗尽后重启
+  wifi_open();
+
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    Device &device = devices[i];
+    if (!device.isBleConnected())
+    {
+      continue;
+    }
+
+    // 让设备以 WiFi 模式接入
+    Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_RF_SIZE);
+    if (packet != nullptr)
+    {
+      packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
+      packet->packet.serverControlRF.mode = RF_MODE_WIFI;
+      // TODO: WiFi 名字和密码随机加密
+      snprintf(packet->packet.serverControlRF.ssid,
+               sizeof(packet->packet.serverControlRF.ssid), "%s", WIFI_NAME);
+      snprintf(packet->packet.serverControlRF.password,
+               sizeof(packet->packet.serverControlRF.password), "%s", WIFI_PASSWORD);
+      ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
+      free(packet);
+    }
+
+    // 等待设备通过 WiFi 连接成功(限时,避免调用线程无限阻塞)
+    uint32_t waitStart = millis();
+    while (!device.isWifiConnected() && millis() - waitStart < RF_MODE_SWITCH_TIMEOUT_MS)
+    {
+      delay(100);
+    }
+    if (!device.isWifiConnected())
+    {
+      LOGGER_WARN("Device %s did not join WiFi in %d ms.",
+                  device.getBleMACString().c_str(), (int)RF_MODE_SWITCH_TIMEOUT_MS);
+      continue;
+    }
+
+    // 开启设备音频传输
+    // 裸IP传输不可靠且对端socket可能尚未就绪，重发多次确保送达(该包幂等)
+    for (uint8_t retry = 0; retry < 3; retry++)
+    {
+      netbuf *buf = netbuf_new();
+      if (buf != NULL)
+      {
+        Packet *audio = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+        if (audio != NULL)
+        {
+          audio->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+          audio->packet.serverControlAudio.start = true;
+          audio->packet.serverControlAudio.channel = config::config.audio.channel;
+          audio->packet.serverControlAudio.rate = config::config.audio.rate;
+          audio->packet.serverControlAudio.bit = config::config.audio.bit;
+          audio->packet.serverControlAudio.mode = config::config.audio.mode;
+          audio->packet.serverControlAudio.gain = config::config.audio.gain;
+          wifi_send(device, buf);
+        }
+        else
+        {
+          netbuf_delete(buf);
+        }
+      }
+      delay(50);
+    }
+  }
+
+  // WiFi迁移完成后关闭BLE释放内存与空口时间
+  ble_close();
+}
+
+// 将WiFi连接的发射器迁回BLE:重开扫描,由重连监控自动回连并恢复音频
+static void rf_migrate_devices_to_ble()
+{
+  Device *devices = deviceManager.getAllDevices();
+
+  // 通过WiFi通知发射器切回BLE(发射器会停止WiFi重新广播)
+  // 裸IP传输不可靠,重发多次确保送达
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    Device &device = devices[i];
+    if (!device.isWifiConnected())
+    {
+      continue;
+    }
+    for (uint8_t retry = 0; retry < 3; retry++)
+    {
+      netbuf *buf = netbuf_new();
+      if (buf == NULL)
+      {
+        break;
+      }
+      Packet *packet = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_RF_SIZE);
+      if (packet == NULL)
+      {
+        netbuf_delete(buf);
+        continue;
+      }
+      packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
+      packet->packet.serverControlRF.mode = RF_MODE_BLE;
+      snprintf(packet->packet.serverControlRF.ssid,
+               sizeof(packet->packet.serverControlRF.ssid), "%s", WIFI_NAME);
+      snprintf(packet->packet.serverControlRF.password,
+               sizeof(packet->packet.serverControlRF.password), "%s", WIFI_PASSWORD);
+      if (!wifi_send(device, buf))
+      {
+        break;
+      }
+      delay(50);
+    }
+  }
+
+  // 关闭WiFi并重开BLE扫描;停止AP不一定逐站触发断开事件,这里显式清位
+  wifi_close();
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    devices[i].setWifiConnected(false);
+  }
+  if (!bleIsOpen)
+  {
+    // 协议栈未就绪时由ble_on_sync补启扫描
+    ble_scan_on_sync = true;
+    ble_open();
+  }
+  ble_start_scanning();
+}
+
 static void rf_handle(void *arg)
 {
   // 缓存
@@ -1403,6 +1546,8 @@ static void rf_handle(void *arg)
   uint32_t wifiRxMailboxPeak = 0;
   uint32_t wifiRxBudgetHits = 0;
   uint32_t wifiRxMaxDrainUs = 0;
+  uint32_t bleRxPackets = 0;
+  uint32_t bleRxBytes = 0;
 #endif
 
   TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1423,6 +1568,10 @@ static void rf_handle(void *arg)
       {
         rf_receive_packet(receive.device, receive.data, receive.size);
         transmitSpeedData += receive.size;
+#ifdef BUILD_DEBUG
+        bleRxPackets++;
+        bleRxBytes += receive.size;
+#endif
       }
     }
 
@@ -1509,6 +1658,8 @@ static void rf_handle(void *arg)
       snapshot.mailbox_peak = wifiRxMailboxPeak;
       snapshot.budget_hits = wifiRxBudgetHits;
       snapshot.max_drain_us = wifiRxMaxDrainUs;
+      snapshot.ble_packets = bleRxPackets;
+      snapshot.ble_bytes = bleRxBytes;
       snapshot.level_l = levelL;
       snapshot.level_r = levelR;
       portENTER_CRITICAL(&rf_debug_mux);
@@ -1519,11 +1670,26 @@ static void rf_handle(void *arg)
       wifiRxMailboxPeak = 0;
       wifiRxBudgetHits = 0;
       wifiRxMaxDrainUs = 0;
+      bleRxPackets = 0;
+      bleRxBytes = 0;
 #endif
 
       /* 获取信号强度 */
       if (bleIsOpen)
       {
+        // BLE模式下已连接设备读取实时RSSI(阻塞式HCI读,每秒一次开销可忽略)
+        Device *allDevices = deviceManager.getAllDevices();
+        for (uint8_t i = 0; i < deviceManager.size(); i++)
+        {
+          if (allDevices[i].isBleConnected())
+          {
+            int8_t rssi = 0;
+            if (ble_gap_conn_rssi(allDevices[i].getBleHandle(), &rssi) == 0)
+            {
+              allDevices[i].setRssi(rssi);
+            }
+          }
+        }
       }
       else if (wifiIsOpen && socketIsOpen)
       {
@@ -1625,61 +1791,7 @@ void ui_bt_pause_search()
   case RF_MODE_WIFI:
   {
     LOGGER_INFO("RF start WiFi audio transmission");
-    wifi_open();
-
-    for (uint8_t i = 0; i < deviceManager.size(); i++)
-    {
-      Device &device = devices[i];
-      if (device.isBleConnected())
-      {
-        // 让设备以 WiFi 模式接入
-        Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_RF_SIZE);
-        packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
-        packet->packet.serverControlRF.mode = RF_MODE_WIFI;
-        // TODO: WiFi 名字和密码随机加密
-        snprintf(packet->packet.serverControlRF.ssid,
-                 sizeof(packet->packet.serverControlRF.ssid), "%s", WIFI_NAME);
-        snprintf(packet->packet.serverControlRF.password,
-                 sizeof(packet->packet.serverControlRF.password), "%s", WIFI_PASSWORD);
-        ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
-        free(packet);
-
-        // 等待设备通过 WiFi 连接成功
-        while (!device.isWifiConnected())
-        {
-          delay(100);
-        }
-
-        // 开启设备音频传输
-        // 裸IP传输不可靠且对端socket可能尚未就绪，重发多次确保送达(该包幂等)
-        for (uint8_t retry = 0; retry < 3; retry++)
-        {
-          netbuf *buf = netbuf_new();
-          if (buf != NULL)
-          {
-            Packet *packet = (Packet *)netbuf_alloc(buf, PACKET_SERVER_CONTROL_AUDIO_SIZE);
-            if (packet != NULL)
-            {
-              packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
-              packet->packet.serverControlAudio.start = true;
-              packet->packet.serverControlAudio.channel = config::config.audio.channel;
-              packet->packet.serverControlAudio.rate = config::config.audio.rate;
-              packet->packet.serverControlAudio.bit = config::config.audio.bit;
-              packet->packet.serverControlAudio.mode = config::config.audio.mode;
-              packet->packet.serverControlAudio.gain = config::config.audio.gain;
-              wifi_send(device, buf);
-            }
-            else
-            {
-              netbuf_delete(buf);
-            }
-          }
-          delay(50);
-        }
-      }
-    }
-
-    ble_close();
+    rf_migrate_devices_to_wifi();
     break;
   }
   }
@@ -1754,6 +1866,15 @@ void ui_setting_audio_input_page_rcb(AudioBit &bit, AudioChannel &channel, Audio
 void ui_setting_audio_input_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode)
 {
   LOGGER_INFO("ui_setting_audio_input_page_scb");
+  // BLE带宽仅支持48000Hz/16bit/单声道,收到更高格式时收敛(未来支持立体声)
+  if (config::config.rf.mode == RF_MODE_BLE &&
+      (channel != AUDIO_CHANNEL_SINGLE || rate != AUDIO_RATE_48000 || bit != AUDIO_BIT_16))
+  {
+    LOGGER_INFO("BLE mode fixes audio format to 48000Hz/16bit/mono.");
+    channel = AUDIO_CHANNEL_SINGLE;
+    rate = AUDIO_RATE_48000;
+    bit = AUDIO_BIT_16;
+  }
   config::config.audio.bit = (AudioBit)bit;
   config::config.audio.channel = (AudioChannel)channel;
   config::config.audio.rate = (AudioRate)rate;
@@ -1812,27 +1933,43 @@ void ui_setting_rf_page_rcb(RFMode &mode)
 void ui_setting_rf_page_scb(RFMode mode)
 {
   LOGGER_INFO("ui_setting_rf_page_scb");
-  // RF 模式切换需要向已连接设备发送新配置
+  if (config::config.rf.mode == mode)
+  {
+    config::save();
+    return;
+  }
+
+  // BLE带宽仅支持48000Hz/16bit/单声道,切到BLE前先收敛已保存的音频格式
+  if (mode == RF_MODE_BLE &&
+      (config::config.audio.channel != AUDIO_CHANNEL_SINGLE ||
+       config::config.audio.rate != AUDIO_RATE_48000 ||
+       config::config.audio.bit != AUDIO_BIT_16))
+  {
+    LOGGER_INFO("BLE mode fixes audio format to 48000Hz/16bit/mono.");
+    config::config.audio.channel = AUDIO_CHANNEL_SINGLE;
+    config::config.audio.rate = AUDIO_RATE_48000;
+    config::config.audio.bit = AUDIO_BIT_16;
+  }
+
+  // 已连接设备迁移到新协议;未连接设备只保存配置,待设备页配对后按新模式工作
   Device *devices = deviceManager.getAllDevices();
+  bool anyBle = false;
+  bool anyWifi = false;
   for (uint8_t i = 0; i < deviceManager.size(); i++)
   {
-    Device &device = devices[i];
-    if (device.isBleConnected())
-    {
-      Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_RF_SIZE);
-      if (packet)
-      {
-        packet->type = PACKET_TYPE_SERVER_CONTROL_RF;
-        packet->packet.serverControlRF.mode = mode;
-        snprintf(packet->packet.serverControlRF.ssid,
-                 sizeof(packet->packet.serverControlRF.ssid), "%s", WIFI_NAME);
-        snprintf(packet->packet.serverControlRF.password,
-                 sizeof(packet->packet.serverControlRF.password), "%s", WIFI_PASSWORD);
-        ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
-        free(packet);
-      }
-    }
+    anyBle = anyBle || devices[i].isBleConnected();
+    anyWifi = anyWifi || devices[i].isWifiConnected();
   }
+  if (mode == RF_MODE_WIFI && anyBle)
+  {
+    rf_migrate_devices_to_wifi();
+  }
+  else if (mode == RF_MODE_BLE && anyWifi)
+  {
+    // 迁回BLE后由重连监控自动回连,重连成功会把收敛后的音频格式下发给发射器
+    rf_migrate_devices_to_ble();
+  }
+
   config::config.rf.mode = mode;
   config::save();
 }

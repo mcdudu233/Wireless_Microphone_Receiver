@@ -37,6 +37,9 @@
 #define RF_RECONNECT_TIMEOUT_MS 10000       // 断开后判定连接失败的宽限期
 #define RF_RECONNECT_RETRY_INTERVAL_MS 2000 // BLE模式下主动重连尝试间隔
 
+// 协议切换时等待发射器接入WiFi的最长时间
+#define RF_MODE_SWITCH_TIMEOUT_MS 10000
+
 // 客户端状态
 #define PACKET_CLIENT_STATUS_SIZE (sizeof(uint8_t) + sizeof(ClientStatusPacket))
 enum PacketClientStatus : uint8_t

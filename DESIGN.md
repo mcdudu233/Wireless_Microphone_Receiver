@@ -166,6 +166,13 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   output page can either follow the 3.5 mm jack-detect signal or keep the DAC
   enabled continuously; playback format always follows the microphone sample
   rate, bit depth, and channels.
+- While the transport protocol is BLE, the microphone format is fixed at
+  48 kHz / 16 bit / mono: the sample-rate, bit-depth, and channel dropdowns are
+  shown in a muted disabled state (60% text opacity, `border-subtle` outline)
+  with a centered one-line quiet hint `BLE模式已固定格式` above them; gain mode
+  and gain stay editable. Switching the protocol to BLE resets a stored wider
+  format to the BLE-supported one, and switching back to WiFi re-enables the
+  dropdowns.
 - Screen brightness uses a 10-100% slider so an accidental edit cannot make the
   settings UI unreadable. Auto-off offers never, 30 seconds, 1 minute, and 5
   minutes; changing either value applies immediately.
