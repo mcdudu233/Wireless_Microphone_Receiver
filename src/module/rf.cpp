@@ -1100,15 +1100,20 @@ bool ble_send(const Device &device, const uint8_t *data, uint16_t len)
   }
 
   int rc = ble_l2cap_send(device.getBleChannel(), om);
-  if (rc != 0)
+  if (rc == 0 || rc == BLE_HS_ESTALLED)
   {
-    LOGGER_WARN("BLE failed to send data: %d", rc);
+    // 0=已发出;ESTALLED=栈已接管SDU等待信用自动续发,mbuf归栈所有,均视为成功
+    return true;
+  }
+  if (rc == BLE_HS_EBUSY || rc == BLE_HS_EBADDATA)
+  {
+    // SDU未被栈接收,缓冲仍归调用方,可释放
     os_mbuf_free_chain(om);
     return false;
   }
-
-  LOGGER_INFO("BLE sent %d bytes.", len);
-  return true;
+  // 其余错误路径中栈已自行释放SDU,不得重复释放
+  LOGGER_WARN("BLE failed to send data: %d", rc);
+  return false;
 }
 /****************************/
 

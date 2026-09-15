@@ -14,7 +14,8 @@
 #define BLE_CE_LEN_MIN 12
 #define BLE_CE_LEN_MAX 30
 #define BLE_L2CAP_PSM 0x1001
-#define BLE_L2CAP_MTU 512
+// COC MTU决定初始信用数(=ceil(MTU/MPS),MPS=504):512只有2个信用,余量不足
+#define BLE_L2CAP_MTU 1024
 // WIFI
 #define WIFI_NAME "MicRx"
 #define WIFI_PASSWORD "Cx^9Xbg5wih3"
