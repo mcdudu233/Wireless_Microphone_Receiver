@@ -531,6 +531,9 @@ static bool wifi_open()
 #include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
+#include "store/config/ble_store_config.h"
+// IDF的ble_store_config.h未声明init函数,官方示例同样是手动前置声明(注意保持C链接)
+extern "C" void ble_store_config_init(void);
 
 static bool bleIsOpen = false;
 static bool bleScanning = false;
@@ -910,10 +913,13 @@ static bool ble_open()
     return false;
   }
 
+  // 初始化键值存储回调:否则协议栈启动时"Failed to persist local IRK"告警
+  // (本机不使用加密/绑定,仅注册RAM存储让IRK写入成功)
+  ble_store_config_init();
+
   // 初始化配置
   ble_hs_cfg.reset_cb = ble_on_reset;
   ble_hs_cfg.sync_cb = ble_on_sync;
-  ble_hs_cfg.store_status_cb = NULL;
   ble_hs_cfg.sm_sc = 0; // 关闭安全连接
   ble_hs_cfg.sm_bonding = 0;
 
@@ -1792,6 +1798,11 @@ static bool rf_migrate_devices_to_ble()
     }
     for (uint8_t retry = 0; retry < 3; retry++)
     {
+      // 发射器收到命令后会立即断开WiFi切回BLE,此时离线属预期,静默结束重发
+      if (!device.isWifiConnected())
+      {
+        break;
+      }
       netbuf *buf = netbuf_new();
       if (buf == NULL)
       {
@@ -2234,6 +2245,16 @@ std::vector<std::string> ui_bt_get_linked()
     }
   }
   return strs;
+}
+
+void ui_bt_seed_devices()
+{
+  Device *devices = deviceManager.getAllDevices();
+  const uint8_t size = deviceManager.size();
+  for (uint8_t i = 0; i < size; i++)
+  {
+    ui_bt_update(devices[i].getBleMACString(), devices[i].isBleConnected() || devices[i].isWifiConnected());
+  }
 }
 
 int8_t ui_info_get_left_voice(const std::string &mac)

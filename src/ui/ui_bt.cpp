@@ -121,6 +121,8 @@ void ui_bt_init()
     lv_obj_add_event_cb(bt_list, bt_list_click_event_cb, LV_EVENT_CLICKED, NULL); // click回调使内层group作用到编码器上
     ui_bind_group_to_all_encoders(g1);
 
+    // 已连接设备不会重新广播,先注入设备管理器中的已知设备,再开始扫描新设备
+    ui_bt_seed_devices();
     ui_bt_search();
 }
 

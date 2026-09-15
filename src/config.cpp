@@ -3,10 +3,15 @@
 
 #include "nvs_flash.h"
 #include "Preferences.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 config::ConfigValue config::config;
 
 static Preferences prefs;
+// save()会被多个任务(界面/解码器/USB/协议切换)并发调用,
+// 同一NVS句柄并发读写会导致句柄状态破坏而崩溃,必须串行化
+static SemaphoreHandle_t saveMutex = nullptr;
 
 // v0.11 的持久化布局；升级时保留用户已有的音频、无线和 USB 设置。
 struct ConfigValueV000B
@@ -32,6 +37,12 @@ struct ConfigValueV000B
 void config::setup()
 {
   LOGGER_INFO("Config is starting...");
+
+  saveMutex = xSemaphoreCreateMutex();
+  if (saveMutex == nullptr)
+  {
+    LOGGER_ERROR("Config save mutex creation failed!");
+  }
 
   esp_err_t err = nvs_flash_init();
   if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -104,5 +115,12 @@ void config::setup()
 
 void config::save()
 {
+  if (saveMutex == nullptr || xSemaphoreTake(saveMutex, portMAX_DELAY) != pdTRUE)
+  {
+    // 锁不可用时仍执行保存(保底),仅在互斥锁创建失败时出现
+    prefs.putBytes(CONFIG_DATA_NAME, &config, sizeof(ConfigValue));
+    return;
+  }
   prefs.putBytes(CONFIG_DATA_NAME, &config, sizeof(ConfigValue));
+  xSemaphoreGive(saveMutex);
 }

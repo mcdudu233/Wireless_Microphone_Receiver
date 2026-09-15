@@ -13,6 +13,8 @@
 
 // api
 void ui_bt_update(const std::string &mac, bool is_link = false);
+// 初始化设备页时填充已知设备;已连接设备不会重新广播,扫描无法再次发现
+void ui_bt_seed_devices();
 
 // 定义
 bool ui_bt_unlink(const std::string &mac);
