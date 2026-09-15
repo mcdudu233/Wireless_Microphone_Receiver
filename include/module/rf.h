@@ -40,6 +40,9 @@
 // 协议切换时等待发射器接入WiFi的最长时间
 #define RF_MODE_SWITCH_TIMEOUT_MS 10000
 
+// BLE下发切换命令后等待链路层发完的时间,之后才能关闭BLE协议栈
+#define RF_BLE_SHUTDOWN_FLUSH_MS 200
+
 // 客户端状态
 #define PACKET_CLIENT_STATUS_SIZE (sizeof(uint8_t) + sizeof(ClientStatusPacket))
 enum PacketClientStatus : uint8_t

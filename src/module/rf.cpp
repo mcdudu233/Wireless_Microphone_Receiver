@@ -1598,13 +1598,13 @@ static void rf_reconnect_monitor()
 }
 
 // 将BLE连接的发射器迁移到WiFi并恢复音频(设备页完成流程与设置页协议切换共用)
-static void rf_migrate_devices_to_wifi()
+// BLE与WiFi绝不同时运行:先经BLE下发命令,彻底关闭BLE后再启动WiFi AP,避免IRAM被同时占满
+static bool rf_migrate_devices_to_wifi()
 {
   Device *devices = deviceManager.getAllDevices();
 
-  // 必须先开AP再通知发射器切换,否则它连不上AP会在重试耗尽后重启
-  wifi_open();
-
+  // 第一阶段(纯BLE):向所有已连接发射器下发WiFi接入命令
+  bool commanded[RF_MAX_CONNECTION] = {};
   for (uint8_t i = 0; i < deviceManager.size(); i++)
   {
     Device &device = devices[i];
@@ -1624,9 +1624,49 @@ static void rf_migrate_devices_to_wifi()
                sizeof(packet->packet.serverControlRF.ssid), "%s", WIFI_NAME);
       snprintf(packet->packet.serverControlRF.password,
                sizeof(packet->packet.serverControlRF.password), "%s", WIFI_PASSWORD);
-      ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE);
+      if (ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_RF_SIZE))
+      {
+        commanded[i] = true;
+      }
       free(packet);
     }
+  }
+
+  // 等待命令经BLE链路层发送完成,再关闭BLE协议栈
+  delay(RF_BLE_SHUTDOWN_FLUSH_MS);
+
+  // 第二阶段(关闭BLE):此时WiFi尚未启动,两套协议栈绝不共存
+  if (!ble_close())
+  {
+    LOGGER_ERROR("BLE close failed before starting WiFi, migration aborted.");
+    return false;
+  }
+  // BLE链路已断,不再有断开事件到达,显式清除连接状态
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    devices[i].setBleConnected(false);
+    devices[i].setBleChannel(nullptr);
+  }
+
+  // 第三阶段(纯WiFi):启动AP,发射器收到命令后同样会先关闭自身BLE再来连接
+  if (!wifi_open())
+  {
+    // AP启动失败:回退到BLE扫描,发射器连不上WiFi会自动回退到BLE广播,重新配对即可恢复
+    LOGGER_ERROR("WiFi open failed after BLE closed, rolling back to BLE.");
+    ble_scan_on_sync = true;
+    ble_open();
+    ble_start_scanning(); // 协议栈未就绪时由ble_on_sync补启
+    return false;
+  }
+
+  // 第四阶段(纯WiFi):等待已通知的设备接入并发送音频启动命令
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    if (!commanded[i])
+    {
+      continue;
+    }
+    Device &device = devices[i];
 
     // 等待设备通过 WiFi 连接成功(限时,避免调用线程无限阻塞)
     uint32_t waitStart = millis();
@@ -1668,9 +1708,7 @@ static void rf_migrate_devices_to_wifi()
       delay(50);
     }
   }
-
-  // WiFi迁移完成后关闭BLE释放内存与空口时间
-  ble_close();
+  return true;
 }
 
 // 将WiFi连接的发射器迁回BLE:重开扫描,由重连监控自动回连并恢复音频
@@ -2008,7 +2046,11 @@ void ui_bt_pause_search()
   case RF_MODE_WIFI:
   {
     LOGGER_INFO("RF start WiFi audio transmission");
-    rf_migrate_devices_to_wifi();
+    if (!rf_migrate_devices_to_wifi())
+    {
+      // 迁移失败已回退到BLE扫描,发射器也会自动回到BLE广播,等待重新连接
+      LOGGER_WARN("WiFi migration failed, keep BLE connection flow.");
+    }
     break;
   }
   }
@@ -2190,7 +2232,13 @@ void ui_setting_rf_page_scb(RFMode mode)
   }
   if (mode == RF_MODE_WIFI && anyBle)
   {
-    rf_migrate_devices_to_wifi();
+    if (!rf_migrate_devices_to_wifi())
+    {
+      // 迁移失败已回退到BLE,保持原射频模式不切换
+      LOGGER_WARN("WiFi migration failed, keep BLE mode.");
+      config::save();
+      return;
+    }
   }
   else if (mode == RF_MODE_BLE && anyWifi)
   {
