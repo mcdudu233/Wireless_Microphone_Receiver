@@ -47,6 +47,8 @@ lv_obj_t *ui_add_list_obj(lv_obj_t *list, std::string content, lv_event_cb_t cb,
 
 lv_obj_t **ui_popwin(bool has_bg = true, lv_group_t *g = nullptr, lv_obj_t *obj = nullptr);
 lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g = nullptr, lv_obj_t *obj = nullptr, const void *icon = &ui_img_tips, const char *title = "提示:", bool is_from_svg = true, const char *btn1_title = nullptr, lv_event_cb_t event_cb1 = nullptr, void *user_data1 = NULL, const char *btn2_title = nullptr, lv_event_cb_t event_cb2 = nullptr, void *user_data2 = NULL);
+// 关闭当前弹窗(调用方需持有LVGL锁;供协议切换任务等非LVGL上下文使用)
+void ui_close_popup();
 
 void ui_free_main_widget();
 void ui_set_bar_val(void *bar, int32_t val);

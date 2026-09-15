@@ -1,5 +1,6 @@
 #include "ui/ui_bt.h"
 #include "module/screen.h"
+#include "config.h"
 #include <utility>
 #include <vector>
 // static bool in_select_mode = false;
@@ -170,15 +171,36 @@ static void button_setting_cb(lv_event_t *e)
 static void button_finish_cb(lv_event_t *e)
 {
     uint8_t n = ui_list_get_link_num();
-    if (n >= 1)
+    if (n < 1)
     {
+        ui_popwin_msgbox("请先连接设备", g1, bt_list);
+        return;
+    }
+    if (config::config.rf.mode == RF_MODE_WIFI)
+    {
+        // WiFi模式:先显示连接提示,BLE->WiFi迁移由协议切换任务完成后自动进入主界面
+        ui_popwin_msgbox("正在连接...", g1, bt_list);
         ui_bt_pause_search();
-        ui_main_init();
-        lv_obj_delete(bt_widget);
-        delete_bt_groups();
     }
     else
-        ui_popwin_msgbox("请先连接设备", g1, bt_list);
+    {
+        // BLE模式:下发音频启动命令后直接进入主界面
+        ui_bt_pause_search();
+        ui_bt_finish_to_main();
+    }
+}
+
+// 完成设备连接并切换到主界面(调用方需持有LVGL锁;供完成按钮与协议切换任务共用)
+void ui_bt_finish_to_main()
+{
+    ui_main_init();
+    if (bt_widget != nullptr && lv_obj_is_valid(bt_widget))
+        lv_obj_delete(bt_widget);
+    // 置空控件引用,避免悬空指针被ui_bt_update访问
+    bt_widget = nullptr;
+    bt_list = nullptr;
+    bt_title = nullptr;
+    delete_bt_groups();
 }
 
 // 蓝牙列表点击事件回调

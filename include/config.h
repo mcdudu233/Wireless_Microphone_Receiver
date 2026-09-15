@@ -44,6 +44,12 @@
 #define TASK_RF_STACK 4096
 #define TASK_RF_PRIORITY 9
 
+// 射频协议切换任务:BLE/WiFi迁移耗时可达数十秒,必须在独立任务执行,
+// 否则会阻塞LVGL界面任务并与NimBLE回调的LVGL锁形成死锁
+#define TASK_RF_SWITCH_CORE 1
+#define TASK_RF_SWITCH_STACK 8192
+#define TASK_RF_SWITCH_PRIORITY 4
+
 #define TASK_TF_CORE 1
 #define TASK_TF_STACK 6144
 #define TASK_TF_PRIORITY 2

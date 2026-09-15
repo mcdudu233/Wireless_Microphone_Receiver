@@ -1,9 +1,11 @@
 #include "logger.h"
 #include "config.h"
 #include "module/rf.h"
+#include "module/screen.h"
 #include "module/audio/buffer.h"
 #include "module/audio/decoder.h"
 #include "tool/device.h"
+#include "ui/ui.h"
 #include "ui/ui_bt.h"
 #include "ui/ui_main.h"
 #include "ui/ui_setting.h"
@@ -85,6 +87,10 @@ static void rfDebugHandle(void *arg)
 #include "lwip/err.h"
 #include "lwip/api.h"
 static bool wifiIsOpen = false;
+static bool wifiIsClosing = false;
+// socket互斥锁:socket会被rf任务(收发)与协议切换任务(重建/释放)并发访问,
+// netconn在另一线程netconn_recv期间被delete会造成lwIP内存破坏导致卡死
+static SemaphoreHandle_t wifiSocketMutex = nullptr;
 static bool netifInitialized = false;
 static bool eventLoopInitialized = false;
 static uint32_t wifiIP;
@@ -118,43 +124,62 @@ static bool wifi_expand_receive_mailbox(netconn *connection)
   return true;
 }
 
-// 发送数据 需要 netbuf_new
+// 发送数据 需要 netbuf_new (会被rf任务/切换任务/界面回调并发调用,由互斥锁串行化)
 static bool wifi_send(const Device &device, netbuf *buf)
 {
-  if (buf == NULL || socketSendInstance == NULL)
+  if (buf == NULL)
   {
-    if (buf != NULL) netbuf_delete(buf);
     return false;
   }
-  if (device.isWifiConnected())
+  bool sent = false;
+  if (xSemaphoreTake(wifiSocketMutex, pdMS_TO_TICKS(500)) == pdTRUE)
   {
-    // 双栈 lwIP 的 ip_addr_t 含 type 字段，必须初始化(type=0 即 IPv4)，
-    // 否则未初始化的 type 会让 raw_sendto 走错协议栈导致发送失败
-    ip_addr_t socketDestination = {};
-    socketDestination.u_addr.ip4.addr = htonl(device.getWifiIP());
-    err_t err = netconn_sendto(socketSendInstance, buf, &socketDestination, WIFI_NO_PORT);
-    if (err != ERR_OK)
+    if (socketSendInstance != NULL && device.isWifiConnected())
     {
-      LOGGER_WARN("WiFi Socket send failed: %d", err);
-      netbuf_delete(buf);
-      return false;
+      // 双栈 lwIP 的 ip_addr_t 含 type 字段，必须初始化(type=0 即 IPv4)，
+      // 否则未初始化的 type 会让 raw_sendto 走错协议栈导致发送失败
+      ip_addr_t socketDestination = {};
+      socketDestination.u_addr.ip4.addr = htonl(device.getWifiIP());
+      err_t err = netconn_sendto(socketSendInstance, buf, &socketDestination, WIFI_NO_PORT);
+      if (err == ERR_OK)
+      {
+        sent = true;
+      }
+      else
+      {
+        LOGGER_WARN("WiFi Socket send failed: %d", err);
+      }
     }
-    // 释放
-    netbuf_delete(buf);
-    return true;
+    else
+    {
+      LOGGER_WARN("WiFi Socket send failed, device haven't connect to WiFi.");
+    }
+    xSemaphoreGive(wifiSocketMutex);
   }
   else
   {
-    LOGGER_WARN("WiFi Socket send failed, device haven't connect to WiFi.");
-    netbuf_delete(buf);
-    return false;
+    LOGGER_WARN("WiFi Socket send failed: socket is busy.");
   }
+  netbuf_delete(buf);
+  return sent;
 }
 
 // 读取数据 需要 netbuf_delete
 static bool wifi_receive(Device **device, netbuf **buf)
 {
+  *buf = NULL;
+  if (xSemaphoreTake(wifiSocketMutex, 0) != pdTRUE)
+  {
+    // socket正在重建/释放时直接跳过本轮,避免与netconn_delete竞争
+    return false;
+  }
+  if (socketReceiveInstance == NULL)
+  {
+    xSemaphoreGive(wifiSocketMutex);
+    return false;
+  }
   err_t err = netconn_recv(socketReceiveInstance, buf);
+  xSemaphoreGive(wifiSocketMutex);
   if (err == ERR_WOULDBLOCK)
   {
     return false;
@@ -176,7 +201,8 @@ static bool wifi_receive(Device **device, netbuf **buf)
   return true;
 }
 
-static bool wifi_socket_close()
+// 以下两个_locked函数在持有wifiSocketMutex时执行,内部可直接return
+static void wifi_socket_close_locked()
 {
   if (socketIsOpen)
   {
@@ -191,19 +217,11 @@ static bool wifi_socket_close()
       netconn_delete(socketReceiveInstance);
       socketReceiveInstance = NULL;
     }
-    socketReceiveInstance = NULL;
   }
-  LOGGER_INFO("WiFi Socket is shutdown.");
-  return true;
 }
 
-static bool wifi_socket_open(uint32_t localIP)
+static bool wifi_socket_open_locked(uint32_t localIP)
 {
-  if (socketIsOpen)
-  {
-    wifi_socket_close();
-  }
-
   // 创建
   socketSendInstance = netconn_new_with_proto_and_callback(NETCONN_RAW, WIFI_IP_PROTOCOL, NULL);
   if (socketSendInstance == NULL)
@@ -257,12 +275,52 @@ static bool wifi_socket_open(uint32_t localIP)
   netconn_set_nonblocking(socketReceiveInstance, true);
 
   socketIsOpen = true;
+  return true;
+}
+
+static bool wifi_socket_close()
+{
+  // 与收发路径互斥:防止在rf任务netconn_recv执行期间释放netconn
+  if (xSemaphoreTake(wifiSocketMutex, portMAX_DELAY) != pdTRUE)
+  {
+    LOGGER_WARN("WiFi socket close: mutex take failed.");
+    return false;
+  }
+  wifi_socket_close_locked();
+  xSemaphoreGive(wifiSocketMutex);
+  LOGGER_INFO("WiFi Socket is shutdown.");
+  return true;
+}
+
+static bool wifi_socket_open(uint32_t localIP)
+{
+  if (socketIsOpen)
+  {
+    wifi_socket_close();
+  }
+  if (xSemaphoreTake(wifiSocketMutex, portMAX_DELAY) != pdTRUE)
+  {
+    LOGGER_WARN("WiFi socket open: mutex take failed.");
+    return false;
+  }
+  const bool ok = wifi_socket_open_locked(localIP);
+  xSemaphoreGive(wifiSocketMutex);
+  if (!ok)
+  {
+    LOGGER_WARN("WiFi Socket open failed.");
+    return false;
+  }
   LOGGER_INFO("WiFi Socket is started, raw RX mailbox=%u.", RF_WIFI_RAW_RX_MBOX_SIZE);
   return true;
 }
 
 static void wifi_event_handle(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
+  // 关闭流程中的在途事件一律忽略,避免在WiFi释放期间更新设备状态
+  if (wifiIsClosing)
+  {
+    return;
+  }
   if (event_base == WIFI_EVENT)
   {
     if (event_id == WIFI_EVENT_AP_STACONNECTED)
@@ -312,38 +370,38 @@ static bool wifi_close()
 {
   if (wifiIsOpen)
   {
+    wifiIsClosing = true;
+    // socket释放持互斥锁执行,与rf任务的收发路径互斥
     wifi_socket_close();
     wifiIsOpen = false;
 
+    // 先注销事件回调再停止WiFi:注销后esp_wifi_stop派发的事件不再进入回调,
+    // 事件任务中在途的回调由wifiIsClosing标志拦截
     esp_err_t err;
+    err = esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifiHandlerInstance1);
+    if (err != ESP_OK)
+    {
+      LOGGER_WARN("WiFi esp_event_handler_instance_unregister failed! Reason=%s", esp_err_to_name(err));
+    }
+    err = esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, wifiHandlerInstance2);
+    if (err != ESP_OK)
+    {
+      LOGGER_WARN("WiFi esp_event_handler_instance_unregister failed! Reason=%s", esp_err_to_name(err));
+    }
+
+    // 逐步释放并容忍个别步骤出错,保证清理完整执行到底
     err = esp_wifi_stop();
-    if (err != ESP_OK)
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED)
     {
-      LOGGER_ERROR("WiFi esp_wifi_stop failed! Reason=%s", esp_err_to_name(err));
-      return false;
+      LOGGER_WARN("WiFi esp_wifi_stop failed! Reason=%s", esp_err_to_name(err));
     }
-
-    err = esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifiHandlerInstance1);
-    if (err != ESP_OK)
-    {
-      LOGGER_ERROR("WiFi esp_event_handler_instance_unregister failed! Reason=%s", esp_err_to_name(err));
-      return false;
-    }
-    err = esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, &wifiHandlerInstance2);
-    if (err != ESP_OK)
-    {
-      LOGGER_ERROR("WiFi esp_event_handler_instance_unregister failed! Reason=%s", esp_err_to_name(err));
-      return false;
-    }
-
     err = esp_wifi_deinit();
-    if (err != ESP_OK)
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT)
     {
-      LOGGER_ERROR("WiFi esp_wifi_deinit failed! Reason=%s", esp_err_to_name(err));
-      return false;
+      LOGGER_WARN("WiFi esp_wifi_deinit failed! Reason=%s", esp_err_to_name(err));
     }
-
     esp_netif_destroy(wifiNetIF);
+    wifiIsClosing = false;
   }
   LOGGER_INFO("WiFi is shutdown.");
   return true;
@@ -379,13 +437,16 @@ static bool wifi_open()
     eventLoopInitialized = true;
   }
   wifiNetIF = esp_netif_create_default_wifi_ap();
+  // 网络接口已创建,之后的失败路径统一走wifi_close()完整清理
+  wifiIsOpen = true;
 
   // 初始化 WiFi
   static wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT();
   err = esp_wifi_init(&wifi_init_config);
   if (err != ESP_OK)
   {
-    LOGGER_ERROR("WiFi esp_event_loop_create_default failed! Reason=%s", esp_err_to_name(err));
+    LOGGER_ERROR("WiFi esp_wifi_init failed! Reason=%s", esp_err_to_name(err));
+    wifi_close();
     return false;
   }
 
@@ -394,12 +455,14 @@ static bool wifi_open()
   if (err != ESP_OK)
   {
     LOGGER_ERROR("WiFi esp_event_handler_instance_register failed! Reason=%s", esp_err_to_name(err));
+    wifi_close();
     return false;
   }
   err = esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handle, NULL, &wifiHandlerInstance2);
   if (err != ESP_OK)
   {
     LOGGER_ERROR("WiFi esp_event_handler_instance_register failed! Reason=%s", esp_err_to_name(err));
+    wifi_close();
     return false;
   }
 
@@ -423,18 +486,21 @@ static bool wifi_open()
   if (err != ESP_OK)
   {
     LOGGER_ERROR("WiFi esp_wifi_set_mode failed! Reason=%s", esp_err_to_name(err));
+    wifi_close();
     return false;
   }
   err = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
   if (err != ESP_OK)
   {
     LOGGER_ERROR("WiFi esp_wifi_set_config failed! Reason=%s", esp_err_to_name(err));
+    wifi_close();
     return false;
   }
   err = esp_wifi_start();
   if (err != ESP_OK)
   {
     LOGGER_ERROR("WiFi esp_wifi_start failed! Reason=%s", esp_err_to_name(err));
+    wifi_close();
     return false;
   }
 
@@ -445,7 +511,6 @@ static bool wifi_open()
     wifiIP = ip.ip.addr;
   }
 
-  wifiIsOpen = true;
   LOGGER_INFO("WiFi is started.");
 
   if (!wifi_socket_open(wifiIP))
@@ -1712,7 +1777,7 @@ static bool rf_migrate_devices_to_wifi()
 }
 
 // 将WiFi连接的发射器迁回BLE:重开扫描,由重连监控自动回连并恢复音频
-static void rf_migrate_devices_to_ble()
+static bool rf_migrate_devices_to_ble()
 {
   Device *devices = deviceManager.getAllDevices();
 
@@ -1762,9 +1827,99 @@ static void rf_migrate_devices_to_ble()
   {
     // 协议栈未就绪时由ble_on_sync补启扫描
     ble_scan_on_sync = true;
-    ble_open();
+    if (!ble_open())
+    {
+      LOGGER_ERROR("BLE reopen failed after WiFi closed.");
+      return false;
+    }
   }
   ble_start_scanning();
+  return true;
+}
+
+/*****************************
+        协议切换任务
+*****************************/
+// BLE/WiFi迁移全程可达数十秒,绝不能在LVGL任务的事件回调里同步执行:
+// 1.界面会冻结; 2.LVGL任务持有LVGL锁期间等待NimBLE停止,而NimBLE主机任务的
+// 回调(ui_bt_update)又在等LVGL锁,形成死锁导致接收器卡死。
+// 因此迁移放在独立任务中执行,完成后持锁操作界面。
+static bool rfSwitchBusy = false;
+static bool rfSwitchEnterMain = false;
+
+static void rf_switch_task(void *arg)
+{
+  const RFMode target = static_cast<RFMode>(reinterpret_cast<uintptr_t>(arg));
+  const bool enterMain = rfSwitchEnterMain;
+  LOGGER_INFO("RF protocol switch task start, target=%u.", static_cast<unsigned int>(target));
+
+  bool ok = false;
+  if (target == RF_MODE_BLE)
+  {
+    // BLE带宽仅支持48000Hz/16bit/单声道,切到BLE前先收敛已保存的音频格式
+    if (config::config.audio.channel != AUDIO_CHANNEL_SINGLE ||
+        config::config.audio.rate != AUDIO_RATE_48000 ||
+        config::config.audio.bit != AUDIO_BIT_16)
+    {
+      LOGGER_INFO("BLE mode fixes audio format to 48000Hz/16bit/mono.");
+      config::config.audio.channel = AUDIO_CHANNEL_SINGLE;
+      config::config.audio.rate = AUDIO_RATE_48000;
+      config::config.audio.bit = AUDIO_BIT_16;
+    }
+    ok = rf_migrate_devices_to_ble();
+  }
+  else if (target == RF_MODE_WIFI)
+  {
+    ok = rf_migrate_devices_to_wifi();
+  }
+
+  if (ok)
+  {
+    config::config.rf.mode = target;
+    config::save();
+  }
+
+  LV_LOCK();
+  // 关闭"正在连接/切换"提示弹窗
+  ui_close_popup();
+  if (ok)
+  {
+    if (enterMain)
+    {
+      // 设备页完成流程:连接完成后立即进入主界面
+      ui_bt_finish_to_main();
+    }
+  }
+  else
+  {
+    // 切换失败:射频已回退到BLE并重新扫描,设备页流程留在设备页等待重新选择
+    ui_popwin_msgbox(enterMain ? "连接失败,请重试" : "切换失败,已恢复BLE", nullptr, nullptr);
+  }
+  LV_UNLOCK();
+
+  rfSwitchBusy = false;
+  LOGGER_INFO("RF protocol switch task done, success=%d.", ok ? 1 : 0);
+  vTaskDelete(nullptr);
+}
+
+// 请求在独立任务中切换协议;返回false表示已有切换在进行或任务创建失败
+static bool rf_request_protocol_switch(RFMode target, bool enter_main_on_success)
+{
+  if (rfSwitchBusy)
+  {
+    return false;
+  }
+  rfSwitchBusy = true;
+  rfSwitchEnterMain = enter_main_on_success;
+  if (xTaskCreatePinnedToCore(rf_switch_task, "rf_switch", TASK_RF_SWITCH_STACK,
+                              reinterpret_cast<void *>(static_cast<uintptr_t>(target)),
+                              TASK_RF_SWITCH_PRIORITY, nullptr, TASK_RF_SWITCH_CORE) != pdPASS)
+  {
+    rfSwitchBusy = false;
+    LOGGER_ERROR("RF switch task creation failed.");
+    return false;
+  }
+  return true;
 }
 
 static void rf_handle(void *arg)
@@ -1969,6 +2124,12 @@ static void rf_handle(void *arg)
 
 void rf::setup()
 {
+  wifiSocketMutex = xSemaphoreCreateMutex();
+  if (wifiSocketMutex == nullptr)
+  {
+    LOGGER_ERROR("WiFi socket mutex creation failed.");
+    return;
+  }
   bleReceiveQueue = xQueueCreate(16, sizeof(bleReceive));
   if (bleReceiveQueue == nullptr)
   {
@@ -2046,10 +2207,11 @@ void ui_bt_pause_search()
   case RF_MODE_WIFI:
   {
     LOGGER_INFO("RF start WiFi audio transmission");
-    if (!rf_migrate_devices_to_wifi())
+    // 迁移交由协议切换任务异步执行,完成后自动进入主界面
+    // (失败时回退BLE重新扫描,提示用户重试)
+    if (!rf_request_protocol_switch(RF_MODE_WIFI, true))
     {
-      // 迁移失败已回退到BLE扫描,发射器也会自动回到BLE广播,等待重新连接
-      LOGGER_WARN("WiFi migration failed, keep BLE connection flow.");
+      LOGGER_WARN("WiFi migration request rejected, another switch is running.");
     }
     break;
   }
@@ -2209,19 +2371,8 @@ void ui_setting_rf_page_scb(RFMode mode)
     return;
   }
 
-  // BLE带宽仅支持48000Hz/16bit/单声道,切到BLE前先收敛已保存的音频格式
-  if (mode == RF_MODE_BLE &&
-      (config::config.audio.channel != AUDIO_CHANNEL_SINGLE ||
-       config::config.audio.rate != AUDIO_RATE_48000 ||
-       config::config.audio.bit != AUDIO_BIT_16))
-  {
-    LOGGER_INFO("BLE mode fixes audio format to 48000Hz/16bit/mono.");
-    config::config.audio.channel = AUDIO_CHANNEL_SINGLE;
-    config::config.audio.rate = AUDIO_RATE_48000;
-    config::config.audio.bit = AUDIO_BIT_16;
-  }
-
-  // 已连接设备迁移到新协议;未连接设备只保存配置,待设备页配对后按新模式工作
+  // 已连接设备迁移到新协议;未连接设备只保存配置,
+  // 保留当前协议栈供设备页继续配对,完成时再按新模式迁移
   Device *devices = deviceManager.getAllDevices();
   bool anyBle = false;
   bool anyWifi = false;
@@ -2230,23 +2381,20 @@ void ui_setting_rf_page_scb(RFMode mode)
     anyBle = anyBle || devices[i].isBleConnected();
     anyWifi = anyWifi || devices[i].isWifiConnected();
   }
-  if (mode == RF_MODE_WIFI && anyBle)
+  if (!((mode == RF_MODE_WIFI && anyBle) || (mode == RF_MODE_BLE && anyWifi)))
   {
-    if (!rf_migrate_devices_to_wifi())
-    {
-      // 迁移失败已回退到BLE,保持原射频模式不切换
-      LOGGER_WARN("WiFi migration failed, keep BLE mode.");
-      config::save();
-      return;
-    }
-  }
-  else if (mode == RF_MODE_BLE && anyWifi)
-  {
-    // 迁回BLE后由重连监控自动回连,重连成功会把收敛后的音频格式下发给发射器
-    rf_migrate_devices_to_ble();
+    config::config.rf.mode = mode;
+    config::save();
+    return;
   }
 
-  config::config.rf.mode = mode;
-  config::save();
+  // 协议迁移耗时较长,交给独立任务执行,避免在LVGL事件回调里阻塞界面
+  // (成功后由切换任务保存新模式;失败保持原模式,重新进页面时下拉框会同步)
+  if (!rf_request_protocol_switch(mode, false))
+  {
+    LOGGER_WARN("Protocol switch busy, ignore rf page change.");
+    return;
+  }
+  ui_popwin_msgbox("正在切换传输协议...", nullptr, nullptr);
 }
 /****************************/

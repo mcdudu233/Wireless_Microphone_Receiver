@@ -2,6 +2,16 @@
 
 lv_obj_t *pop_win;
 
+// 关闭当前弹窗(调用方需持有LVGL锁;供协议切换任务等非LVGL上下文使用)
+void ui_close_popup()
+{
+    if (pop_win != nullptr && lv_obj_is_valid(pop_win))
+    {
+        // popup_delete_cb 会恢复编码器分组并清空pop_win
+        lv_obj_delete(pop_win);
+    }
+}
+
 typedef struct
 {
     lv_group_t *g;
