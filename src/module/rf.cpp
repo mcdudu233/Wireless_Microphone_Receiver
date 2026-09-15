@@ -469,21 +469,6 @@ static bool wifi_open()
 
 static bool bleIsOpen = false;
 static bool bleScanning = false;
-// 连接参数
-static ble_gap_upd_params bleConnectionParams = {
-    /** Minimum value for connection interval in 1.25ms units */
-    .itvl_min = BLE_ITVL_MIN,
-    /** Maximum value for connection interval in 1.25ms units */
-    .itvl_max = BLE_ITVL_MAX,
-    /** Connection latency */
-    .latency = BLE_LATENCY,
-    /** Supervision timeout in 10ms units */
-    .supervision_timeout = BLE_SUPERVISION_TIMEOUT,
-    /** Minimum length of connection event in 0.625ms units */
-    .min_ce_len = BLE_CE_LEN_MIN,
-    /** Maximum length of connection event in 0.625ms units */
-    .max_ce_len = BLE_CE_LEN_MAX,
-};
 // 储存池
 struct bleReceive
 {
@@ -692,11 +677,13 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
       {
         LOGGER_WARN("BLE set packet length failed; rc = %d", rc);
       }
-      // 更新连接参数提升性能
-      rc = ble_gap_update_params(event->connect.conn_handle, &bleConnectionParams);
+      // 协商2M PHY提升空口速率(音频带宽约为2M空口的一半,1M下余量不足)
+      rc = ble_gap_set_prefered_le_phy(event->connect.conn_handle,
+                                       BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK,
+                                       BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK, 0);
       if (rc != 0)
       {
-        LOGGER_WARN("BLE failed to update params; rc = %d", rc);
+        LOGGER_WARN("BLE failed to set prefered phy; rc = %d", rc);
       }
 
       ble_gap_conn_desc desc;
@@ -762,6 +749,15 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
     break;
   }
 
+  // PHY更新完成事件
+  case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+  {
+    LOGGER_INFO("BLE phy updated; status=%d handle=%d tx_phy=%d rx_phy=%d (1=1M 2=2M)",
+                event->phy_updated.status, event->phy_updated.conn_handle,
+                event->phy_updated.tx_phy, event->phy_updated.rx_phy);
+    break;
+  }
+
   default:
   {
     break;
@@ -781,6 +777,14 @@ static void ble_on_reset(int reason)
 // NimBLE 协议栈加载完成
 static void ble_on_sync(void)
 {
+  // 默认偏好2M PHY:对端发起PHY更新时优先协商到2M
+  int rc = ble_gap_set_prefered_default_le_phy(BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK,
+                                               BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK);
+  if (rc != 0)
+  {
+    LOGGER_WARN("BLE set default phy failed! rc=%d", rc);
+  }
+
   // 协议栈就绪后恢复扫描(WiFi模式断线超时后会重开BLE并请求扫描)
   if (ble_scan_on_sync)
   {
@@ -942,7 +946,19 @@ static bool ble_connect_to_device(const std::string &mac)
       {
         peer_addr.val[i] = device->getBleMAC()[5 - i];
       }
-      rc = ble_gap_connect(own_addr_type, &peer_addr, BLE_HS_FOREVER, NULL, ble_gap_handler, NULL);
+      // 直接以7.5ms连接间隔发起连接:CONNECT_IND由主机指定、从机不可拒绝,
+      // 无需依赖连接后再更新参数(默认30~50ms间隔的吞吐只有约50KB/s)
+      const struct ble_gap_conn_params conn_params = {
+          .scan_itvl = 16,
+          .scan_window = 16,
+          .itvl_min = BLE_ITVL_MIN,
+          .itvl_max = BLE_ITVL_MAX,
+          .latency = BLE_LATENCY,
+          .supervision_timeout = BLE_SUPERVISION_TIMEOUT,
+          .min_ce_len = BLE_CE_LEN_MIN,
+          .max_ce_len = BLE_CE_LEN_MAX,
+      };
+      rc = ble_gap_connect(own_addr_type, &peer_addr, BLE_HS_FOREVER, &conn_params, ble_gap_handler, NULL);
       if (rc != 0)
       {
         LOGGER_WARN("Error: Failed to connect to device, address is %s.", mac.c_str());
@@ -1052,15 +1068,42 @@ static VoiceMeterState *rf_get_voice_meter(Device *device)
   return nullptr;
 }
 
-// 每设备音频帧丢包统计:按帧序号跳变估算丢失帧,每秒汇总为百分比供主界面显示
+struct AudioFragmentValidation
+{
+  bool valid;
+  uint8_t expectedParts;
+};
+
+// 按音频缓冲区规则校验分片，并返回当前帧的分片数。
+static AudioFragmentValidation rf_validate_audio_fragment(uint16_t packetSize, uint8_t packetPart,
+                                                           uint16_t payloadCapacity)
+{
+  const uint32_t frameSize = audio::buffer::getFrameSize();
+  const uint8_t expectedParts = frameSize > 0
+                                    ? static_cast<uint8_t>((frameSize + payloadCapacity - 1) / payloadCapacity)
+                                    : 0;
+  if (frameSize == 0 || expectedParts == 0 || expectedParts > 32 || packetPart >= expectedParts)
+  {
+    return {false, 0};
+  }
+
+  const uint32_t offset = static_cast<uint32_t>(payloadCapacity) * packetPart;
+  const uint16_t expectedPartSize = static_cast<uint16_t>(
+      (frameSize - offset) > payloadCapacity ? payloadCapacity : (frameSize - offset));
+  return {packetSize == expectedPartSize && offset + packetSize <= AUDIO_BUFFER_MAX_DATA_SIZE, expectedParts};
+}
+
+// 每设备音频帧丢包统计:按帧序号和分片掩码统计,每秒汇总为百分比供主界面显示
 struct AudioLossState
 {
   Device *device = nullptr;
-  uint32_t lastNumber = 0;  // 最近一次音频帧序号
-  bool hasNumber = false;   // 是否已收到首帧(首帧不计丢包)
-  uint32_t windowLost = 0;  // 统计窗口内丢失帧数
-  uint32_t windowTotal = 0; // 统计窗口内应收帧数(收到+丢失)
-  uint8_t lossPercent = 0;  // 上一窗口丢包率(0-100)
+  uint32_t currentNumber = 0; // 当前音频帧序号
+  uint8_t expectedParts = 0;  // 当前帧应有分片数
+  uint32_t receivedParts = 0; // 当前帧已收到分片掩码
+  bool hasNumber = false;     // 是否已收到首帧
+  uint32_t windowLost = 0;    // 统计窗口内丢失分片数
+  uint32_t windowTotal = 0;   // 统计窗口内应收分片数
+  uint8_t lossPercent = 0;    // 上一窗口丢包率(0-100)
 };
 static AudioLossState audioLossStates[RF_MAX_CONNECTION];
 // 帧序号空隙超过该值视为码流重启(如断线重连),不计入丢包
@@ -1084,7 +1127,25 @@ static AudioLossState *rf_get_loss_state(Device *device)
   return nullptr;
 }
 
-static void rf_update_audio_loss(Device *device, uint32_t number)
+static void rf_reset_audio_loss(Device &device)
+{
+  for (AudioLossState &state : audioLossStates)
+  {
+    if (state.device == &device)
+    {
+      state.currentNumber = 0;
+      state.expectedParts = 0;
+      state.receivedParts = 0;
+      state.hasNumber = false;
+      state.windowLost = 0;
+      state.windowTotal = 0;
+      state.lossPercent = 0;
+      return;
+    }
+  }
+}
+
+static void rf_update_audio_loss(Device *device, uint32_t number, uint8_t part, uint8_t expectedParts)
 {
   if (device == nullptr)
   {
@@ -1095,24 +1156,77 @@ static void rf_update_audio_loss(Device *device, uint32_t number)
   {
     return;
   }
+  const uint32_t partMask = 1UL << part;
   if (!state->hasNumber)
   {
     state->hasNumber = true;
-    state->lastNumber = number;
+    state->currentNumber = number;
+    state->expectedParts = expectedParts;
+    state->receivedParts = partMask;
+    state->windowTotal++;
     return;
   }
-  const uint32_t delta = number - state->lastNumber; // 无符号减法对序号回绕安全
+  const uint32_t delta = number - state->currentNumber; // 无符号减法对序号回绕安全
   if (delta == 0)
   {
+    if (state->expectedParts != expectedParts)
+    {
+      const uint32_t expectedMask = state->expectedParts == 32
+                                        ? UINT32_MAX
+                                        : ((1UL << state->expectedParts) - 1UL);
+      const uint32_t receivedCount =
+          static_cast<uint32_t>(__builtin_popcount(state->receivedParts & expectedMask));
+      const uint32_t missingParts = state->expectedParts - receivedCount;
+      state->windowLost += missingParts;
+      state->windowTotal += missingParts;
+      state->expectedParts = expectedParts;
+      state->receivedParts = 0;
+    }
+    if ((state->receivedParts & partMask) == 0)
+    {
+      state->receivedParts |= partMask;
+      state->windowTotal++;
+    }
     return; // 同帧的其他分片或重复分片
   }
-  state->lastNumber = number;
   if (delta > RF_LOSS_RESTART_DELTA)
   {
+    if (delta > UINT32_MAX / 2U)
+    {
+      if (state->currentNumber > RF_LOSS_RESTART_DELTA &&
+          number <= RF_LOSS_RESTART_DELTA &&
+          state->currentNumber - number > RF_LOSS_RESTART_DELTA)
+      {
+        rf_reset_audio_loss(*device);
+        state->hasNumber = true;
+        state->currentNumber = number;
+        state->expectedParts = expectedParts;
+        state->receivedParts = partMask;
+        state->windowTotal++;
+      }
+      return; // 其他晚到帧不改变统计基线
+    }
+    state->currentNumber = number;
+    state->expectedParts = expectedParts;
+    state->receivedParts = partMask;
+    state->windowTotal++;
     return;
   }
-  state->windowTotal += delta;
-  state->windowLost += delta - 1;
+
+  const uint32_t expectedMask = state->expectedParts == 32
+                                    ? UINT32_MAX
+                                    : ((1UL << state->expectedParts) - 1UL);
+  const uint32_t receivedCount =
+      static_cast<uint32_t>(__builtin_popcount(state->receivedParts & expectedMask));
+  const uint32_t missingParts = state->expectedParts - receivedCount;
+  const uint32_t missingFrames = delta - 1;
+  const uint32_t missingFrameParts = missingFrames * state->expectedParts;
+  state->windowTotal += missingParts + missingFrameParts;
+  state->windowLost += missingParts + missingFrameParts;
+  state->currentNumber = number;
+  state->expectedParts = expectedParts;
+  state->receivedParts = partMask;
+  state->windowTotal++;
 }
 
 // 将峰值映射到约-60dBFS至0dBFS的0-100显示范围，仅每40ms计算一次。
@@ -1243,9 +1357,16 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
     {
       return false;
     }
+    const AudioFragmentValidation validation = rf_validate_audio_fragment(
+        packet->packet.audioDataWiFi.size, packet->packet.audioDataWiFi.part, PACKET_WIFI_AUDIO_DATA_MAX_SIZE);
+    if (!validation.valid)
+    {
+      return false;
+    }
     audio::buffer::writeWiFiPacket(&packet->packet.audioDataWiFi);
     // 统计音频帧丢包率
-    rf_update_audio_loss(device, packet->packet.audioDataWiFi.number);
+    rf_update_audio_loss(device, packet->packet.audioDataWiFi.number, packet->packet.audioDataWiFi.part,
+                         validation.expectedParts);
     // 更新设备实时音频电平
     if (device && packet->packet.audioDataWiFi.part == 0)
     {
@@ -1263,9 +1384,16 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
     {
       return false;
     }
+    const AudioFragmentValidation validation = rf_validate_audio_fragment(
+        packet->packet.audioDataBLE.size, packet->packet.audioDataBLE.part, PACKET_BLE_AUDIO_DATA_MAX_SIZE);
+    if (!validation.valid)
+    {
+      return false;
+    }
     audio::buffer::writeBLEPacket(&packet->packet.audioDataBLE);
     // 统计音频帧丢包率
-    rf_update_audio_loss(device, packet->packet.audioDataBLE.number);
+    rf_update_audio_loss(device, packet->packet.audioDataBLE.number, packet->packet.audioDataBLE.part,
+                         validation.expectedParts);
     // 更新设备实时音频电平
     if (device && packet->packet.audioDataBLE.part == 0)
     {
@@ -1338,6 +1466,7 @@ static ReconnectState *reconnect_state_find(const std::string &mac)
 // 重连成功后重新下发音频启动命令(幂等),确保发射端恢复推流
 static void rf_resume_audio(Device &device)
 {
+  rf_reset_audio_loss(device);
   if (device.isBleConnected())
   {
     Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_AUDIO_SIZE);
@@ -1714,13 +1843,17 @@ static void rf_handle(void *arg)
         {
           continue;
         }
-        state.lossPercent = state.windowTotal > 0
-                                ? (uint8_t)((state.windowLost * 100U + state.windowTotal / 2U) / state.windowTotal)
-                                : 0;
-        if (state.lossPercent > 100)
+        uint32_t lossPercent = state.windowTotal > 0
+                                   ? (state.windowLost * 100U + state.windowTotal - 1U) / state.windowTotal
+                                   : (state.hasNumber &&
+                                              (state.device->isBleConnected() || state.device->isWifiConnected())
+                                          ? 100U
+                                          : 0U);
+        if (lossPercent > 100)
         {
-          state.lossPercent = 100;
+          lossPercent = 100;
         }
+        state.lossPercent = static_cast<uint8_t>(lossPercent);
         state.windowLost = 0;
         state.windowTotal = 0;
       }
