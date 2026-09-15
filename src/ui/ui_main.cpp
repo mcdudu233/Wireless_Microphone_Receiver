@@ -292,15 +292,15 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac
     lv_obj_set_style_bg_opa(battery_cap, LV_OPA_COVER, 0);
     lv_obj_remove_flag(battery_cap, LV_OBJ_FLAG_SCROLLABLE);
 
-    // 丢包率:0%绿色,非0%红色
+    // 丢包率:0%绿色,非0%红色(先定字体/尺寸/长文本模式,最后对齐,避免按空标签尺寸定位)
     data->loss_label = lv_label_create(card);
-    lv_obj_align(data->loss_label, LV_ALIGN_BOTTOM_RIGHT, 0, -1);
+    lv_obj_set_style_text_font(data->loss_label, UI_FONT_BODY, 0);
     lv_obj_set_size(data->loss_label, 30, lv_font_get_line_height(UI_FONT_BODY));
     lv_label_set_long_mode(data->loss_label, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(data->loss_label, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_style_text_font(data->loss_label, UI_FONT_BODY, 0);
     lv_label_set_text(data->loss_label, "0%");
     lv_obj_set_style_text_color(data->loss_label, lv_color_hex(0x059669), 0);
+    lv_obj_align(data->loss_label, LV_ALIGN_BOTTOM_RIGHT, 0, -1);
 
     // 信号强度:4根递增格,点亮数量与渐变色表示强弱
     lv_obj_t *signal = lv_obj_create(card);
@@ -481,10 +481,11 @@ static void reconnect_chip_refresh()
         lv_obj_t *label = lv_label_create(reconnect_chip);
         lv_obj_set_style_text_font(label, UI_FONT_BODY, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(0x1F2937), 0); // text-primary
-        lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
         lv_obj_set_width(label, 88);
         lv_obj_set_height(label, lv_font_get_line_height(UI_FONT_BODY));
         lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        lv_label_set_text(label, "重连中..."); // 先有文本再对齐(随后由刷新覆写为带序号形式)
+        lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
     }
 
     lv_obj_t *label = lv_obj_get_child(reconnect_chip, 0);
