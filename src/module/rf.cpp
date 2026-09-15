@@ -542,7 +542,7 @@ struct bleReceive
 {
   Device *device;
   uint16_t size;
-  uint8_t data[BLE_L2CAP_MTU];
+  uint8_t data[BLE_RECEIVE_DATA_MAX];
 };
 static QueueHandle_t bleReceiveQueue;
 
@@ -604,7 +604,7 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
   {
     // 接受连接
     os_mbuf *sdu_rx;
-    sdu_rx = os_msys_get_pkthdr(BLE_L2CAP_MTU, 0);
+    sdu_rx = os_msys_get_pkthdr(BLE_RECEIVE_DATA_MAX, 0);
     if (sdu_rx == NULL)
     {
       LOGGER_WARN("BLE L2CAP accept no memory!");
@@ -644,7 +644,7 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
 
     // 响应数据 准备接收下一个数据包
     os_mbuf *sdu_rx;
-    sdu_rx = os_msys_get_pkthdr(BLE_L2CAP_MTU, 0);
+    sdu_rx = os_msys_get_pkthdr(BLE_RECEIVE_DATA_MAX, 0);
     if (sdu_rx == NULL)
     {
       LOGGER_WARN("BLE L2CAP accept no memory!");
@@ -771,7 +771,7 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
 
         // 连接到 L2CAP
         os_mbuf *sdu_rx;
-        sdu_rx = os_msys_get_pkthdr(BLE_L2CAP_MTU, 0);
+        sdu_rx = os_msys_get_pkthdr(BLE_RECEIVE_DATA_MAX, 0);
         if (sdu_rx == NULL)
         {
           LOGGER_WARN("BLE failed to os_msys_get_pkthdr");
@@ -2140,6 +2140,19 @@ static void rf_handle(void *arg)
 
 void rf::setup()
 {
+  // BLE带宽仅支持48000Hz/16bit/单声道:历史版本可能保存了更高格式(如在WIFI模式设置192kHz后切到BLE),
+  // 若不收敛,本机解码帧长与发射端实际格式不匹配会导致整流丢弃,且旧配置会被原样下发给发射端
+  if (config::config.rf.mode == RF_MODE_BLE &&
+      (config::config.audio.channel != AUDIO_CHANNEL_SINGLE ||
+       config::config.audio.rate != AUDIO_RATE_48000 ||
+       config::config.audio.bit != AUDIO_BIT_16))
+  {
+    LOGGER_INFO("BLE mode fixes stored audio format to 48000Hz/16bit/mono.");
+    config::config.audio.channel = AUDIO_CHANNEL_SINGLE;
+    config::config.audio.rate = AUDIO_RATE_48000;
+    config::config.audio.bit = AUDIO_BIT_16;
+    config::save();
+  }
   wifiSocketMutex = xSemaphoreCreateMutex();
   if (wifiSocketMutex == nullptr)
   {
