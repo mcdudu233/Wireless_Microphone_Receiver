@@ -1561,6 +1561,18 @@ static ReconnectState *reconnect_state_find(const std::string &mac)
   return nullptr;
 }
 
+// BLE带宽收敛(发送侧双保险):BLE链路仅支持48000Hz/16bit/单声道,
+// 即使配置残留高格式(如WIFI模式设置的192kHz),也不允许经BLE原样下发
+static void rf_clamp_audio_for_ble(AudioChannel &channel, AudioRate &rate, AudioBit &bit)
+{
+  if (channel != AUDIO_CHANNEL_SINGLE || rate != AUDIO_RATE_48000 || bit != AUDIO_BIT_16)
+  {
+    channel = AUDIO_CHANNEL_SINGLE;
+    rate = AUDIO_RATE_48000;
+    bit = AUDIO_BIT_16;
+  }
+}
+
 // 重连成功后重新下发音频启动命令(幂等),确保发射端恢复推流
 static void rf_resume_audio(Device &device)
 {
@@ -1570,11 +1582,15 @@ static void rf_resume_audio(Device &device)
     Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_AUDIO_SIZE);
     if (packet != nullptr)
     {
+      AudioChannel channel = config::config.audio.channel;
+      AudioRate rate = config::config.audio.rate;
+      AudioBit bit = config::config.audio.bit;
+      rf_clamp_audio_for_ble(channel, rate, bit);
       packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
       packet->packet.serverControlAudio.start = true;
-      packet->packet.serverControlAudio.channel = config::config.audio.channel;
-      packet->packet.serverControlAudio.rate = config::config.audio.rate;
-      packet->packet.serverControlAudio.bit = config::config.audio.bit;
+      packet->packet.serverControlAudio.channel = channel;
+      packet->packet.serverControlAudio.rate = rate;
+      packet->packet.serverControlAudio.bit = bit;
       packet->packet.serverControlAudio.mode = config::config.audio.mode;
       packet->packet.serverControlAudio.gain = config::config.audio.gain;
       ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_AUDIO_SIZE);
@@ -2255,15 +2271,22 @@ void ui_bt_pause_search()
       {
         // 开启设备的音频传输
         Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_AUDIO_SIZE);
-        packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
-        packet->packet.serverControlAudio.start = true;
-        packet->packet.serverControlAudio.channel = config::config.audio.channel;
-        packet->packet.serverControlAudio.rate = config::config.audio.rate;
-        packet->packet.serverControlAudio.bit = config::config.audio.bit;
-        packet->packet.serverControlAudio.mode = config::config.audio.mode;
-        packet->packet.serverControlAudio.gain = config::config.audio.gain;
-        ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_AUDIO_SIZE);
-        free(packet);
+        if (packet != nullptr)
+        {
+          AudioChannel channel = config::config.audio.channel;
+          AudioRate rate = config::config.audio.rate;
+          AudioBit bit = config::config.audio.bit;
+          rf_clamp_audio_for_ble(channel, rate, bit);
+          packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
+          packet->packet.serverControlAudio.start = true;
+          packet->packet.serverControlAudio.channel = channel;
+          packet->packet.serverControlAudio.rate = rate;
+          packet->packet.serverControlAudio.bit = bit;
+          packet->packet.serverControlAudio.mode = config::config.audio.mode;
+          packet->packet.serverControlAudio.gain = config::config.audio.gain;
+          ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_AUDIO_SIZE);
+          free(packet);
+        }
       }
     }
     break;
@@ -2415,11 +2438,17 @@ void ui_setting_audio_input_page_scb(AudioBit bit, AudioChannel channel, AudioRa
       Packet *packet = (Packet *)malloc(PACKET_SERVER_CONTROL_AUDIO_SIZE);
       if (packet)
       {
+        // BLE链路带宽收敛(双保险):即使处于协议切换窗口(配置模式尚未更新为BLE)
+        // 也绝不经BLE下发高格式
+        AudioChannel bleChannel = channel;
+        AudioRate bleRate = rate;
+        AudioBit bleBit = bit;
+        rf_clamp_audio_for_ble(bleChannel, bleRate, bleBit);
         packet->type = PACKET_TYPE_SERVER_CONTROL_AUDIO;
         packet->packet.serverControlAudio.start = true;
-        packet->packet.serverControlAudio.channel = channel;
-        packet->packet.serverControlAudio.rate = rate;
-        packet->packet.serverControlAudio.bit = bit;
+        packet->packet.serverControlAudio.channel = bleChannel;
+        packet->packet.serverControlAudio.rate = bleRate;
+        packet->packet.serverControlAudio.bit = bleBit;
         packet->packet.serverControlAudio.mode = mode;
         packet->packet.serverControlAudio.gain = gain;
         ble_send(device, (uint8_t *)packet, PACKET_SERVER_CONTROL_AUDIO_SIZE);
@@ -2474,6 +2503,18 @@ void ui_setting_rf_page_scb(RFMode mode)
   }
   if (!((mode == RF_MODE_WIFI && anyBle) || (mode == RF_MODE_BLE && anyWifi)))
   {
+    // 切到BLE时同步收敛音频格式:BLE带宽仅支持48000Hz/16bit/单声道,
+    // 否则残留的高格式(如WIFI模式设置的192kHz)会在设备回连后被原样下发
+    if (mode == RF_MODE_BLE &&
+        (config::config.audio.channel != AUDIO_CHANNEL_SINGLE ||
+         config::config.audio.rate != AUDIO_RATE_48000 ||
+         config::config.audio.bit != AUDIO_BIT_16))
+    {
+      LOGGER_INFO("BLE mode fixes audio format to 48000Hz/16bit/mono.");
+      config::config.audio.channel = AUDIO_CHANNEL_SINGLE;
+      config::config.audio.rate = AUDIO_RATE_48000;
+      config::config.audio.bit = AUDIO_BIT_16;
+    }
     config::config.rf.mode = mode;
     config::save();
     return;
