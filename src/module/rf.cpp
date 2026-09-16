@@ -789,10 +789,11 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
       {
         LOGGER_WARN("BLE set packet length failed; rc = %d", rc);
       }
-      // 协商2M PHY提升空口速率(音频带宽约为2M空口的一半,1M下余量不足)
+      // 48kHz/16bit/mono原始PCM需要约96KB/s；1M PHY下一个392B SDU几乎占满
+      // 7.5ms连接事件，实际只能约133包/s。这里只允许2M，避免控制器保留1M。
       rc = ble_gap_set_prefered_le_phy(event->connect.conn_handle,
-                                       BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK,
-                                       BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK, 0);
+                                       BLE_GAP_LE_PHY_2M_MASK,
+                                       BLE_GAP_LE_PHY_2M_MASK, 0);
       if (rc != 0)
       {
         LOGGER_WARN("BLE failed to set prefered phy; rc = %d", rc);
@@ -869,6 +870,20 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
     LOGGER_INFO("BLE phy updated; status=%d handle=%d tx_phy=%d rx_phy=%d (1=1M 2=2M)",
                 event->phy_updated.status, event->phy_updated.conn_handle,
                 event->phy_updated.tx_phy, event->phy_updated.rx_phy);
+    if (event->phy_updated.status != 0 || event->phy_updated.tx_phy != 2 ||
+        event->phy_updated.rx_phy != 2)
+    {
+      LOGGER_WARN("BLE 2M PHY is not active; lossless PCM bandwidth is insufficient on 1M.");
+    }
+    break;
+  }
+
+  case BLE_GAP_EVENT_DATA_LEN_CHG:
+  {
+    LOGGER_INFO("BLE data length updated; handle=%d tx_octets=%d tx_time=%dus rx_octets=%d rx_time=%dus",
+                event->data_len_chg.conn_handle, event->data_len_chg.max_tx_octets,
+                event->data_len_chg.max_tx_time, event->data_len_chg.max_rx_octets,
+                event->data_len_chg.max_rx_time);
     break;
   }
 
@@ -895,9 +910,9 @@ static void ble_on_sync(void)
   // 主机已与控制器同步完成,此后才允许调用地址推断/扫描/连接等主机接口
   bleSynced = true;
 
-  // 默认偏好2M PHY:对端发起PHY更新时优先协商到2M
-  int rc = ble_gap_set_prefered_default_le_phy(BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK,
-                                               BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK);
+  // 默认仅偏好2M PHY，防止控制器在两种PHY均允许时继续保留1M。
+  int rc = ble_gap_set_prefered_default_le_phy(BLE_GAP_LE_PHY_2M_MASK,
+                                               BLE_GAP_LE_PHY_2M_MASK);
   if (rc != 0)
   {
     LOGGER_WARN("BLE set default phy failed! rc=%d", rc);
