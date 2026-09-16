@@ -176,10 +176,11 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   page is re-entered. A single encoder confirm on a device row opens the device
   info dialog — confirm never toggles the link directly. After boot, the
   loading card switches to `正在连接设备...` while the receiver scans and
-  auto-connects: if any transmitter links within 5 s the main screen is entered
+  auto-connects: if any transmitter links within 1 s the main screen is entered
   directly (a WiFi configuration runs the finish migration first, briefly
-  showing this page with a connecting dialog); only a 5 s timeout with no link
-  falls back to this page for manual pairing.
+  showing this page with a connecting dialog); only a 1 s timeout with no link
+  falls back to this page for manual pairing, and scanning with auto-connect
+  continues on the page.
 - **Layout**: same scrolling, snapping, and focus-driven reveal rules as the
   dense list; the scrollbar appears only when rows exceed the viewport.
 
@@ -253,10 +254,13 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   and no overall transmission-rate readout on the card or the main screen.
 
 ### Reconnect status chip
-- **Structure**: non-modal 94x18 rounded (4 px) strip centered over the device
-  card viewport, `status-warning-bg` surface with `text-primary` 12 px text.
-- **Text**: one line, width 88 px with end ellipsis; single device shows
-  `设备N重连中...`, multiple devices show `重连中... xN`.
+- **Structure**: non-modal 94x48 rounded (4 px) panel covering the whole device
+  card area (`status-warning-bg` surface with `text-primary` 12 px text), so the
+  card's L/R meters and status row stay hidden behind it while reconnecting.
+  It is centered on the card area (10 px below the viewport center, matching
+  the tab bar plus card geometry) over the device card viewport.
+- **Text**: one line, width 88 px, centered, with end ellipsis; single device
+  shows `设备N重连中...`, multiple devices show `重连中... xN`.
 - **Behavior**: appears while a linked device is offline and inside the
   reconnect grace window; never joins an encoder group and never blocks
   navigation or the settings entry. It disappears as soon as every waiting
@@ -306,11 +310,15 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   rows. After boot the receiver auto-connects while the loading card shows
   `正在连接设备...`; it enters the main screen directly once any transmitter
   links (WiFi configuration runs the BLE→WiFi finish migration first) and only
-  falls back to the device selection page after a 5 s timeout with no link.
+  falls back to the device selection page after a 1 s timeout with no link,
+  continuing to scan and auto-connect there.
 - Settings dropdowns and sliders save and apply their selected value as soon as
   it changes. Returning from a settings subpage never asks whether to apply it.
 - When auto-off has blanked the display, the first physical-button action wakes
-  it and is consumed; navigation resumes with the next action.
+  it and is consumed; navigation resumes with the next action. Auto-off fades
+  the backlight out over about 0.5 s, waking fades it back in over about 0.5 s,
+  and a button press during the fade-out cancels it (the press acts as normal
+  input) and restores the working brightness.
 - A short Previous/Next press changes a focused slider by one step. Holding the
   button starts rapid one-step repeats after a brief delay; repeat is enabled
   only when the press began on a slider, so holding a menu navigation action

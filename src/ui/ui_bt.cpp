@@ -373,13 +373,13 @@ void ui_bt_init()
     lv_group_focus_obj(bt_finish_row);
 
     // 空列表占位提示(标签不可点击,不影响列表交互;首个设备出现时移除)
-    // 完成行经顶部留白贴住卡片底部,提示居中于卡片空白区
+    // 完成行经顶部留白贴住卡片底部,提示居中于其上方空白区(0设备时空白区36px)
     bt_list_apply_pad();
     bt_empty_hint = lv_label_create(bt_widget);
     lv_label_set_text(bt_empty_hint, "暂无设备");
     lv_obj_set_style_text_font(bt_empty_hint, UI_FONT_BODY, 0);
     lv_obj_set_style_text_color(bt_empty_hint, lv_color_hex(0x9CA3AF), 0);
-    lv_obj_align_to(bt_empty_hint, bt_list, LV_ALIGN_CENTER, 0, -4);
+    lv_obj_align_to(bt_empty_hint, bt_list, LV_ALIGN_TOP_MID, 0, 12);
 
     ui_bind_group_to_all_encoders(g1);
 

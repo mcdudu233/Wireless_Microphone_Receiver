@@ -23,6 +23,9 @@ static bool right = false;
 static bool ok = false;
 static volatile uint32_t last_activity_ms = 0;
 static volatile bool backlight_off = false;
+static volatile bool backlight_wake_fade = false; // 按键唤醒后请求渐亮(由背光任务执行)
+static volatile float backlight_current = 0;      // 当前亮度(0-100)
+static volatile uint32_t backlight_gen = 0;       // 直接设置亮度时递增,打断进行中的渐变
 static bool suppress_wake_input = false;
 static bool slider_repeat_enabled = false;
 static int8_t slider_repeat_direction = 0;
@@ -123,13 +126,44 @@ static void button_cb(lv_indev_t *indev, lv_indev_data_t *data)
 //   LOGGER_INFO("%s", buf);
 // }
 
-void screen::backlight(float percent)
+// 仅写背光占空比并记录当前亮度(渐变内部使用,不打断渐变代数)
+static void backlight_write(float percent)
 {
   if (percent < 0)
     percent = 0;
   else if (percent > 100)
     percent = 100;
   ledcWrite(TFT_BLK, (int)(percent / 100 * (pow(2.0, TFT_BLK_BIT) - 1)));
+  backlight_current = percent;
+}
+
+void screen::backlight(float percent)
+{
+  backlight_write(percent);
+  // 外部直接设置亮度(如设置页滑条):进行中的渐变立即作废
+  // (volatile的++在C++20被弃用,这里显式读改写)
+  backlight_gen = backlight_gen + 1U;
+}
+
+// 亮度渐变(渐亮/渐暗共用,每步1%/10ms):
+// 被直接设置亮度打断,或(渐暗时)被按键活动打断则提前返回false
+static bool backlight_fade(float target, bool abort_on_activity)
+{
+  const uint32_t gen = backlight_gen;
+  const uint32_t act = last_activity_ms;
+  float cur = backlight_current;
+  const float step = cur < target ? 1.0f : -1.0f;
+  while (cur != target)
+  {
+    if (backlight_gen != gen)
+      return false;
+    if (abort_on_activity && last_activity_ms != act)
+      return false;
+    cur += step;
+    backlight_write(cur);
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  return true;
 }
 
 void screen::apply_settings()
@@ -146,7 +180,8 @@ bool screen::note_activity()
     return false;
 
   backlight_off = false;
-  backlight(config::config.screen.brightness);
+  // 渐亮由背光任务执行,避免在输入回调里阻塞LVGL
+  backlight_wake_fade = true;
   return true;
 }
 
@@ -309,27 +344,36 @@ static void setup_lvgl()
   LOGGER_INFO("LVGL is started.");
 }
 
-// 屏幕渐亮线程
+// 屏幕背光线程:上电渐亮;超时渐暗熄屏;按键唤醒渐亮
 static void screen_backlight_on_handle(void *arg)
 {
   // 先等待屏幕控件加载再渐亮
   vTaskDelay(pdMS_TO_TICKS(200));
   // 屏幕渐亮
-  const uint8_t target_brightness = config::config.screen.brightness;
-  for (int i = 0; i <= target_brightness; i++)
-  {
-    screen::backlight(i);
-    vTaskDelay(pdMS_TO_TICKS(10));
-  }
+  backlight_fade(config::config.screen.brightness, false);
   last_activity_ms = millis();
 
   while (true)
   {
+    // 按键唤醒(note_activity置位):渐亮回工作亮度
+    if (backlight_wake_fade)
+    {
+      backlight_wake_fade = false;
+      backlight_fade(config::config.screen.brightness, false);
+    }
     const uint32_t timeout_ms = static_cast<uint32_t>(config::config.screen.timeout) * 1000U;
     if (timeout_ms > 0 && !backlight_off && millis() - last_activity_ms >= timeout_ms)
     {
-      screen::backlight(0);
-      backlight_off = true;
+      // 超时渐暗熄屏;渐暗期间若有按键活动则中止并渐亮回工作亮度
+      // (此时熄屏标志尚未置位,该次按键作为正常输入生效,不会被当作唤醒消费)
+      if (backlight_fade(0, true))
+      {
+        backlight_off = true;
+      }
+      else
+      {
+        backlight_fade(config::config.screen.brightness, false);
+      }
     }
     vTaskDelay(pdMS_TO_TICKS(100));
   }

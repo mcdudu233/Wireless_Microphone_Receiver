@@ -5,8 +5,9 @@
 #include "ui/ui_loading.h"
 
 // 开机自动连接等待:模块加载完成后先扫描并自动连接,
-// 等待期内任一设备连上则直接进主界面,超时未连上才进设备连接页
-#define LOADING_CONNECT_TIMEOUT_MS 5000
+// 等待期内任一设备连上则直接进主界面,超时(1s)未连上才进设备连接页
+// (进入设备页后扫描与自动连接持续进行)
+#define LOADING_CONNECT_TIMEOUT_MS 1000
 #define LOADING_CONNECT_TIMER_PERIOD 200
 
 static lv_obj_t *loading_widget;

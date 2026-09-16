@@ -542,9 +542,11 @@ static void reconnect_chip_refresh()
 
     if (reconnect_chip == nullptr || !lv_obj_is_valid(reconnect_chip))
     {
+        // 完整覆盖设备卡片区域(94x48):卡片上的电平/状态字符不再从状态条上下露出
         reconnect_chip = lv_obj_create(info_widget);
-        lv_obj_set_size(reconnect_chip, 94, 18);
-        lv_obj_align(reconnect_chip, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_size(reconnect_chip, 94, 48);
+        // 卡片中心在页签栏(20px)+内容区(50px)内,故相对info_widget中心下移10px
+        lv_obj_align(reconnect_chip, LV_ALIGN_CENTER, 0, 10);
         lv_obj_set_style_pad_all(reconnect_chip, 0, 0);
         lv_obj_set_style_border_width(reconnect_chip, 0, 0);
         lv_obj_set_style_radius(reconnect_chip, 4, 0);
@@ -556,6 +558,7 @@ static void reconnect_chip_refresh()
         lv_obj_set_style_text_color(label, lv_color_hex(0x1F2937), 0); // text-primary
         lv_obj_set_width(label, 88);
         lv_obj_set_height(label, lv_font_get_line_height(UI_FONT_BODY));
+        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
         lv_label_set_text(label, "重连中..."); // 先有文本再对齐(随后由刷新覆写为带序号形式)
         lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
