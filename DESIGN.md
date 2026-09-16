@@ -29,11 +29,19 @@ but each screen must have one obvious focus target and no decorative clutter.
 | Success | `status-success` | `#059669` | Connected and completed states |
 | Warning surface | `status-warning-bg` | `#FFFBEB` | Warning selection state |
 | Success surface | `status-success-bg` | `#ECFDF5` | Connected selection state |
+| Quality low | `quality-low` | `#0891B2` | 48 kHz sample-rate status icon |
+| Quality mid | `quality-mid` | `#2D6BDB` | 96 kHz sample-rate status icon (same value as `accent-primary`) |
+| Quality high | `quality-high` | `#7C3AED` | 192 kHz sample-rate status icon |
+| Status amber | `status-amber` | `#D97706` | USB SD-card mode status icon |
 
 - Accent is functional, never decorative. One screen uses at most one accent
   family apart from semantic success/warning/error feedback.
 - Add a color here before using it in UI source. LVGL palette colors are allowed
   only for semantic meter gradients, warnings, and errors.
+- The main-screen status-bar icons reuse `text-tertiary` (`#9CA3AF`) for the
+  USB-off state; every other status-icon color is one of the semantic tokens
+  above (`quality-low`/`quality-mid`/`quality-high`, `accent-primary`,
+  `status-amber`, `status-success`).
 
 ## 3. Typography
 
@@ -69,13 +77,21 @@ files must not be hand-edited.
   64x64 with the `#1F2937` (`text-primary`) stroke in RGB565A8, displayed at
   16 px via `lv_img_set_zoom(img, 64)` inside a 16x16 box.
 - Tabler raster icons are for standalone 16x16 icon slots (menu rows, dialog
-  icons). Inline status glyphs inside text rows (main-screen status row) use
+  icons, main-screen status bar). Inline status glyphs inside text rows use
   `LV_SYMBOL_*` text symbols via the Montserrat fallback so every glyph in one
   row shares the same visual style; device-card battery and signal indications
   are custom drawn widgets, not font glyphs.
 - The boot microphone icon is 128x128 displayed at 32 px.
 - Icon color stays neutral; focus and selection are expressed by row
   background/outline styles only (accent is functional, never decorative).
+  Exception: the main-screen status bar uses colored Tabler icons whose colors
+  semantically encode state — slot 1 sample rate (`volume-2` cyan
+  `quality-low` for 48 kHz, `volume-3` blue `quality-mid` for 96 kHz,
+  `volume-4` violet `quality-high` for 192 kHz), slot 2 USB mode (`usb` gray
+  `text-tertiary` when off, `headphones` blue `accent-primary` for audio,
+  `device-sd-card` amber `status-amber` for SD, `cpu` violet `quality-high`
+  for JTAG), slot 3 transport (`bluetooth` blue `accent-primary` for BLE,
+  `wifi` green `status-success` for WiFi).
 - Mapping from icon files to Tabler names and the regeneration pipeline live
   in `docs/tools/README.md`.
 
@@ -186,14 +202,16 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 - **Structure**: 20 px tab bar, two labeled 10 px meter rows, one compact status row.
 - **Layout**: every pixel dimension is explicit; status values use short symbol
   plus number forms so left and right values cannot collide.
-- **Status row**: bottom-left battery icon (24x10: 21x10 outlined body with 2x4
-  cap, 17x6 fill bar whose width maps the charge level and whose color sweeps
-  red→yellow→green with level); bottom-right 26..30 px packet-loss label
-  (`0%`-style, `status-success` at 0%, LVGL palette red above 0%) with a 14x10
-  four-bar signal widget (2 px bars, heights 4/6/8/10, 2 px gaps) to its left —
-  lit bar count maps RSSI (about -90..-35 dBm → 0..100%) and the lit color uses
-  the same red→yellow→green sweep. No numeric battery/percentage text and no
-  overall transmission-rate readout on the card or the main screen.
+- **Status row**: a right-aligned cluster reading left→right: 14x10 four-bar
+  signal widget (2 px bars, heights 4/6/8/10, 2 px gaps), 26..30 px
+  packet-loss label (`0%`-style, `status-success` at 0%, LVGL palette red
+  above 0%), then the 24x10 battery icon (21x10 outlined body with 2x4 cap,
+  17x6 fill bar whose width maps the charge level and whose color sweeps
+  red→yellow→green with level) flush against the card's right edge; 4 px gaps
+  separate the three members and the bottom-left of the row stays empty.
+  Lit bar count maps RSSI (about -90..-35 dBm → 0..100%) and the lit color
+  uses the same red→yellow→green sweep. No numeric battery/percentage text
+  and no overall transmission-rate readout on the card or the main screen.
 
 ### Reconnect status chip
 - **Structure**: non-modal 94x18 rounded (4 px) strip centered over the device

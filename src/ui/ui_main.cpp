@@ -1,5 +1,6 @@
 #include "ui/ui_main.h"
 #include "module/screen.h"
+#include "config.h"
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -37,6 +38,53 @@ static uint16_t timer_update_elapsed;
 static lv_group_t *main_group;
 static bool style_indic_h_initialized;
 
+// 状态栏图标(采样率/USB模式/传输模式)与配置缓存:
+// 设置页可修改这三项配置且主界面不重建,定时器对比缓存按需换图
+static lv_obj_t *status_img_rate;
+static lv_obj_t *status_img_usb;
+static lv_obj_t *status_img_rf;
+static AudioRate cached_rate;
+static USBMode cached_usb_mode;
+static RFMode cached_rf_mode;
+
+// 采样率→音质图标(48k青/96k蓝/192k紫)
+static const lv_image_dsc_t *ui_rate_icon(AudioRate rate)
+{
+    switch (rate)
+    {
+    case AUDIO_RATE_96000:
+        return &ui_img_rate96;
+    case AUDIO_RATE_192000:
+        return &ui_img_rate192;
+    case AUDIO_RATE_48000:
+    default:
+        return &ui_img_rate48;
+    }
+}
+
+// USB模式→图标(关闭灰/音频蓝/SD卡琥珀/JTAG紫)
+static const lv_image_dsc_t *ui_usb_icon(USBMode mode)
+{
+    switch (mode)
+    {
+    case USB_MODE_AUDIO:
+        return &ui_img_usb_audio;
+    case USB_MODE_SD:
+        return &ui_img_usb_sd;
+    case USB_MODE_JTAG:
+        return &ui_img_usb_jtag;
+    case USB_MODE_NONE:
+    default:
+        return &ui_img_usb_none;
+    }
+}
+
+// 传输模式→图标(BLE蓝牙蓝/WiFi绿)
+static const lv_image_dsc_t *ui_rf_icon(RFMode mode)
+{
+    return mode == RF_MODE_BLE ? &ui_img_rf_ble : &ui_img_rf_wifi;
+}
+
 // 断线重连提示状态
 static lv_obj_t *reconnect_chip;               // "重连中"状态条(挂在info_widget上,非模态)
 static std::vector<std::string> reconnect_macs; // 处于重连等待的设备MAC
@@ -62,7 +110,6 @@ void ui_main_init()
 
     lv_obj_t *btn;
     lv_obj_t *label;
-    lv_obj_t *last;
 
     main_widget = ui_add_win();
     info_widget = lv_obj_create(main_widget);
@@ -129,25 +176,29 @@ void ui_main_init()
     lv_obj_align_to(btn, info_widget, LV_ALIGN_OUT_RIGHT_MID, 3, 20);
     lv_obj_add_event_cb(btn, setting_widget_cb, LV_EVENT_CLICKED, main_widget); // 切换窗体并隐藏
 
-    lv_obj_t *img;
-    img = lv_label_create(main_widget);
-    lv_label_set_text(img, LV_SYMBOL_USB);
-    lv_obj_set_style_text_font(img, &lv_font_harmonyos_12, 0);
-    lv_obj_set_style_text_color(img, lv_color_hex(0x6B7280), 0);
-    lv_obj_align(img, LV_ALIGN_TOP_LEFT, 106, 2);
-    last = img;
-    img = lv_label_create(main_widget);
-    lv_label_set_text(img, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_font(img, &lv_font_harmonyos_12, 0);
-    lv_obj_set_style_text_color(img, lv_color_hex(0x6B7280), 0);
-    lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 3, 0);
-    last = img;
-    // 蓝牙图标与USB/WIFI一致使用字体符号（Montserrat回退），保持状态栏风格统一
-    img = lv_label_create(main_widget);
-    lv_label_set_text(img, LV_SYMBOL_BLUETOOTH);
-    lv_obj_set_style_text_font(img, &lv_font_harmonyos_12, 0);
-    lv_obj_set_style_text_color(img, lv_color_hex(0x6B7280), 0);
-    lv_obj_align_to(img, last, LV_ALIGN_OUT_RIGHT_MID, 3, 0);
+    // 状态栏:三个16x16彩色Tabler图标(左→右:采样率/USB模式/传输模式),
+    // 颜色语义化编码当前状态,替代原灰色字体符号
+    status_img_rf = lv_img_create(main_widget);
+    lv_img_set_src(status_img_rf, ui_rf_icon(config::config.rf.mode));
+    lv_obj_set_size(status_img_rf, 16, 16);
+    lv_img_set_zoom(status_img_rf, 64);
+    lv_obj_align(status_img_rf, LV_ALIGN_TOP_RIGHT, -UI_SCREEN_EDGE, 2);
+
+    status_img_usb = lv_img_create(main_widget);
+    lv_img_set_src(status_img_usb, ui_usb_icon(config::config.usb.mode));
+    lv_obj_set_size(status_img_usb, 16, 16);
+    lv_img_set_zoom(status_img_usb, 64);
+    lv_obj_align_to(status_img_usb, status_img_rf, LV_ALIGN_OUT_LEFT_MID, -3, 0);
+
+    status_img_rate = lv_img_create(main_widget);
+    lv_img_set_src(status_img_rate, ui_rate_icon(config::config.audio.rate));
+    lv_obj_set_size(status_img_rate, 16, 16);
+    lv_img_set_zoom(status_img_rate, 64);
+    lv_obj_align_to(status_img_rate, status_img_usb, LV_ALIGN_OUT_LEFT_MID, -3, 0);
+
+    cached_rate = config::config.audio.rate;
+    cached_usb_mode = config::config.usb.mode;
+    cached_rf_mode = config::config.rf.mode;
 
     ui_bind_group_to_all_encoders(lv_group_get_default());
 
@@ -187,6 +238,23 @@ void ui_main_init()
                                          if (timer_update_elapsed >= UPDATE_INFO_PERIOD)
                                          {
                                              timer_update_elapsed = 0;
+                                             // 状态栏图标:设置页可能修改采样率/USB/传输模式,
+                                             // 主界面不重建,仅在配置变化时换图
+                                             if (config::config.audio.rate != cached_rate)
+                                             {
+                                                 cached_rate = config::config.audio.rate;
+                                                 lv_img_set_src(status_img_rate, ui_rate_icon(cached_rate));
+                                             }
+                                             if (config::config.usb.mode != cached_usb_mode)
+                                             {
+                                                 cached_usb_mode = config::config.usb.mode;
+                                                 lv_img_set_src(status_img_usb, ui_usb_icon(cached_usb_mode));
+                                             }
+                                             if (config::config.rf.mode != cached_rf_mode)
+                                             {
+                                                 cached_rf_mode = config::config.rf.mode;
+                                                 lv_img_set_src(status_img_rf, ui_rf_icon(cached_rf_mode));
+                                             }
                                              // 电池:电量条填充宽度+渐变色(满绿→半黄→低红)
                                              const uint8_t battery = (uint8_t)std::clamp((int)ui_info_get_power(card_data->device_mac), 0, 100);
                                              lv_bar_set_value(card_data->battery_fill, battery, LV_ANIM_OFF);
@@ -254,9 +322,10 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac
     lv_bar_set_range(data->right_voice_bar, 0, 100);
 
     // 电池图标:边框+右侧极耳+内部电量填充条(填充宽度与颜色表示电量,满绿→黄→低红)
+    // 底部状态行(左→右):信号格 → 丢包率 → 电池,整体右对齐成组,电池贴卡片右缘
     lv_obj_t *battery = lv_obj_create(card);
     lv_obj_set_size(battery, 24, 10);
-    lv_obj_align(battery, LV_ALIGN_BOTTOM_LEFT, 0, -1);
+    lv_obj_align(battery, LV_ALIGN_BOTTOM_RIGHT, 0, -1);
     lv_obj_set_style_pad_all(battery, 0, 0);
     lv_obj_set_style_border_width(battery, 0, 0);
     lv_obj_set_style_bg_opa(battery, LV_OPA_TRANSP, 0);
@@ -300,12 +369,15 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac
     lv_obj_set_style_text_align(data->loss_label, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_text(data->loss_label, "0%");
     lv_obj_set_style_text_color(data->loss_label, lv_color_hex(0x059669), 0);
-    lv_obj_align(data->loss_label, LV_ALIGN_BOTTOM_RIGHT, 0, -1);
+    // 标签盒高15px(行高)而其余状态件高10px:较底对齐下移1px光学校正,使文字中心对齐10px状态带中心
+    // (数字与%无下降部,盒底溢出卡片1px处不会绘制字形)
+    lv_obj_align(data->loss_label, LV_ALIGN_BOTTOM_RIGHT, -28, 1);
 
     // 信号强度:4根递增格,点亮数量与渐变色表示强弱
     lv_obj_t *signal = lv_obj_create(card);
     lv_obj_set_size(signal, 14, 10);
-    lv_obj_align(signal, LV_ALIGN_BOTTOM_RIGHT, -33, -1);
+    // 右缘距卡片右缘62px:右邻丢包率标签(盒36..66)留4px间距,盒18..32
+    lv_obj_align(signal, LV_ALIGN_BOTTOM_RIGHT, -62, -1);
     lv_obj_set_style_pad_all(signal, 0, 0);
     lv_obj_set_style_border_width(signal, 0, 0);
     lv_obj_set_style_bg_opa(signal, LV_OPA_TRANSP, 0);
