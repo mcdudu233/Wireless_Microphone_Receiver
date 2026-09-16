@@ -2,16 +2,6 @@
 
 lv_obj_t *pop_win;
 
-// 关闭当前弹窗(调用方需持有LVGL锁;供协议切换任务等非LVGL上下文使用)
-void ui_close_popup()
-{
-    if (pop_win != nullptr && lv_obj_is_valid(pop_win))
-    {
-        // popup_delete_cb 会恢复编码器分组并清空pop_win
-        lv_obj_delete(pop_win);
-    }
-}
-
 typedef struct
 {
     lv_group_t *g;
@@ -35,6 +25,33 @@ static void popup_delete_cb(lv_event_t *e)
     }
     if (pop_win == target)
         pop_win = nullptr;
+}
+
+// 关闭当前弹窗(调用方需持有LVGL锁;供协议切换任务等非LVGL上下文使用)
+void ui_close_popup()
+{
+    if (pop_win != nullptr && lv_obj_is_valid(pop_win))
+    {
+        // 必须复现弹窗"点击关闭"路径的分组恢复:先把编码器绑回创建弹窗时
+        // 保存的分组并恢复焦点,再删除弹窗。若直接删除,弹窗自有分组被
+        // lv_group_delete释放时会顺带把仍绑定它的输入设备置为无分组,
+        // 编码器输入将彻底失效(界面无响应)。
+        back_val *value = (back_val *)lv_obj_get_user_data(pop_win);
+        if (value != nullptr)
+        {
+            if (value->g != nullptr)
+            {
+                lv_group_set_default(value->g);
+                ui_bind_group_to_all_encoders(value->g);
+            }
+            if (value->obj != nullptr && lv_obj_is_valid(value->obj))
+            {
+                lv_group_focus_obj(value->obj);
+            }
+        }
+        // popup_delete_cb 会清理弹窗自有分组并清空pop_win
+        lv_obj_delete(pop_win);
+    }
 }
 // 创建一个基础控件容器
 lv_obj_t *ui_add_win()
