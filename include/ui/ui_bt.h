@@ -31,5 +31,9 @@ void ui_bt_pause_search();
 bool ui_bt_wifi_ready();
 // 完成设备连接并切换到主界面(调用方需持有LVGL锁;供完成按钮与协议切换任务共用)
 void ui_bt_finish_to_main();
+// 完成流程:进入主界面(BLE直发;WiFi经协议迁移),供完成行与开机自动进入共用
+void ui_bt_try_finish();
+// 当前已连接(BLE或WiFi)设备数:开机自动进入主界面的判定依据
+uint8_t ui_bt_linked_count();
 // 设备连接页打开时调用:清除"用户手动断开"抑制,恢复发现即自动连接
 void ui_bt_reset_autoconnect();

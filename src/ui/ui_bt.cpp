@@ -5,14 +5,20 @@
 #include <utility>
 #include <vector>
 
-// 全屏设备列表行高:4行×20px正好填满80px视口(DESIGN.md 设备连接页)
-#define BT_ROW_HEIGHT 20
-#define BT_VISIBLE_ROWS 4
+// 页面几何:顶部标题 + 圆角全屏卡片(见DESIGN.md 设备连接页)
+// 卡片56px(2px边框+54px视口)=3整行×18px,行高与密集列表一致
+#define BT_ROW_HEIGHT 18
+#define BT_VISIBLE_ROWS 3
+#define BT_TITLE_OFFSET_Y 2  // 标题距屏顶
+#define BT_CARD_X 3
+#define BT_CARD_Y 21
+#define BT_CARD_W 154
+#define BT_CARD_H 56
 
-static lv_obj_t *bt_list;        // 全屏设备列表(首行为"完成"模拟按钮)
+static lv_obj_t *bt_list;        // 圆角卡片列表(末行为"完成"模拟按钮)
 static lv_obj_t *bt_widget;
 static lv_obj_t *bt_empty_hint;  // 无设备时的占位提示(首个设备出现时移除)
-static lv_obj_t *bt_finish_row;  // 列表首行"完成"(模拟按钮,点击进入主界面)
+static lv_obj_t *bt_finish_row;  // 列表末行"完成"(模拟按钮,点击进入主界面)
 static lv_group_t *g1;           // 页面唯一分组:完成行+设备行
 static std::vector<std::pair<lv_obj_t *, std::string>> bt_rows; // 设备行(不含完成行)
 
@@ -140,6 +146,15 @@ static void apply_row_state(lv_obj_t *row, BtLinkState state)
     lv_obj_set_style_bg_color(row,
                               state == BT_LINK_STATE_LINKED ? COLOR_LINKED : lv_color_hex(0xFFFFFF),
                               0);
+}
+
+// 行数不足视口时给列表顶部留白,保证"完成"行始终贴卡片底部
+// (列表内容从顶堆叠,无留白时唯一的完成行会顶到卡片上沿)
+static void bt_list_apply_pad()
+{
+    const int32_t viewport = BT_CARD_H - 2; // 减去上下1px边框
+    const int32_t content = (int32_t)(bt_rows.size() + 1) * BT_ROW_HEIGHT; // 设备行+完成行
+    lv_obj_set_style_pad_top(bt_list, content < viewport ? viewport - content : 0, 0);
 }
 
 /*****************************
@@ -310,21 +325,30 @@ void ui_bt_init()
                         },
                         (lv_event_code_t)(LV_EVENT_LAST + 1), g1);
 
-    // 全屏设备列表:4行×20px正好填满视口,行首对齐滚动吸附
+    // 顶部标题
+    lv_obj_t *title = lv_label_create(bt_widget);
+    lv_label_set_text(title, "麦克风设备连接");
+    lv_obj_set_style_text_font(title, UI_FONT_HEADING, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0x1F2937), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, BT_TITLE_OFFSET_Y);
+
+    // 圆角卡片列表:底色上的一层近全屏控件,视口3整行×18px,行首对齐滚动吸附
     bt_list = lv_list_create(bt_widget);
     lv_obj_set_style_pad_all(bt_list, 0, 0);
-    lv_obj_set_style_border_width(bt_list, 0, 0);
+    lv_obj_set_style_border_width(bt_list, 1, 0);
+    lv_obj_set_style_border_color(bt_list, lv_color_hex(0xE5E7EB), 0);
     lv_obj_set_style_bg_color(bt_list, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_radius(bt_list, 0, 0);
+    lv_obj_set_style_radius(bt_list, 6, 0);
+    lv_obj_set_style_clip_corner(bt_list, true, 0); // 行背景裁剪进圆角
     lv_obj_set_style_width(bt_list, 2, LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_color(bt_list, lv_color_hex(0x2D6BDB), LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(bt_list, LV_OPA_COVER, LV_PART_SCROLLBAR);
     lv_obj_set_scrollbar_mode(bt_list, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_scroll_snap_y(bt_list, LV_SCROLL_SNAP_START);
-    lv_obj_set_size(bt_list, WIDGET_H, WIDGET_V);
-    lv_obj_align(bt_list, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_size(bt_list, BT_CARD_W, BT_CARD_H);
+    lv_obj_align(bt_list, LV_ALIGN_TOP_LEFT, BT_CARD_X, BT_CARD_Y);
 
-    // 首行"完成":绿色动作行,替代原独立完成按钮
+    // 末行"完成":绿色动作行,替代原独立完成按钮(设备行出现时移动到列表末尾)
     bt_finish_row = lv_list_add_button(bt_list, NULL, "完成");
     lv_obj_set_style_pad_all(bt_finish_row, 0, 0);
     lv_obj_set_height(bt_finish_row, BT_ROW_HEIGHT);
@@ -349,11 +373,13 @@ void ui_bt_init()
     lv_group_focus_obj(bt_finish_row);
 
     // 空列表占位提示(标签不可点击,不影响列表交互;首个设备出现时移除)
+    // 完成行经顶部留白贴住卡片底部,提示居中于卡片空白区
+    bt_list_apply_pad();
     bt_empty_hint = lv_label_create(bt_widget);
     lv_label_set_text(bt_empty_hint, "暂无设备");
     lv_obj_set_style_text_font(bt_empty_hint, UI_FONT_BODY, 0);
     lv_obj_set_style_text_color(bt_empty_hint, lv_color_hex(0x9CA3AF), 0);
-    lv_obj_align(bt_empty_hint, LV_ALIGN_TOP_MID, 0, 40);
+    lv_obj_align_to(bt_empty_hint, bt_list, LV_ALIGN_CENTER, 0, -4);
 
     ui_bind_group_to_all_encoders(g1);
 
@@ -364,8 +390,8 @@ void ui_bt_init()
     ui_bt_search();
 }
 
-// 完成按钮点击回调 进入主窗口
-static void button_finish_cb(lv_event_t *e)
+// 完成流程:进入主界面(BLE直发;WiFi经协议迁移),供完成行与开机自动进入共用
+void ui_bt_try_finish()
 {
     uint8_t n = ui_list_get_link_num();
     if (n < 1)
@@ -392,6 +418,12 @@ static void button_finish_cb(lv_event_t *e)
         ui_bt_pause_search();
         ui_bt_finish_to_main();
     }
+}
+
+// 完成按钮点击回调 进入主窗口
+static void button_finish_cb(lv_event_t *e)
+{
+    ui_bt_try_finish();
 }
 
 // 完成设备连接并切换到主界面(调用方需持有LVGL锁;供完成按钮与协议切换任务共用)
@@ -454,6 +486,8 @@ void ui_bt_update(const std::string &mac, BtLinkState state)
         row = create_device_row(mac);
         bt_rows.emplace_back(row, mac);
         lv_group_add_obj(g1, row);
+        // 设备行按发现顺序填充上方,"完成"始终保持在列表末尾
+        lv_obj_move_to_index(bt_finish_row, (int32_t)lv_obj_get_child_count(bt_list) - 1);
         if (bt_empty_hint != nullptr && lv_obj_is_valid(bt_empty_hint))
         {
             lv_obj_delete(bt_empty_hint);
@@ -461,6 +495,7 @@ void ui_bt_update(const std::string &mac, BtLinkState state)
         }
     }
     apply_row_state(row, state);
+    bt_list_apply_pad(); // 行数变化后重算顶部留白,保持"完成"贴底
     lv_obj_set_scrollbar_mode(bt_list,
                               bt_rows.size() > BT_VISIBLE_ROWS ? LV_SCROLLBAR_MODE_ON : LV_SCROLLBAR_MODE_OFF);
     LV_UNLOCK();

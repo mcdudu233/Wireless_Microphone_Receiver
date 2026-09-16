@@ -109,8 +109,7 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 | `space-4` | 8 px | Maximum ordinary inset |
 | `screen-edge` | 5 px | Main content edge where a full-bleed menu is not used |
 | `row-height` | 22-24 px | Settings and action rows |
-| `list-row-height` | 18 px | Dense file lists |
-| `device-row-height` | 20 px | Fullscreen device-page rows (4 rows exactly fill the 80 px viewport) |
+| `list-row-height` | 18 px | Dense file lists and device-page rows |
 | `action-height` | 24-25 px | Primary screen actions |
 
 - Budget geometry from the parent content box, including border and padding.
@@ -154,13 +153,17 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   to whole rows, so a row is never shown half-clipped.
 
 ### Device selection page
-- **Structure**: one full-bleed 160x80 list with 20 px rows (4 rows exactly fill
-  the viewport); no title bar, no side buttons. The first row is the `完成`
-  action row (success-green surface, white centered 14 px label, blue focus
-  outline); it scrolls with the content as an ordinary row — the page shows at
-  most five rows (4 paired transmitters plus `完成`), so a pinned header is not
-  warranted. An empty list shows a centered quiet `暂无设备` hint below the
-  `完成` row.
+- **Structure**: screen-background page with a centered 14 px heading
+  `麦克风设备连接` (2 px from the top edge) above one near-fullscreen rounded
+  154x56 card (3 px margins, `border-subtle` outline, `surface-control` white,
+  6 px radius, corner-clipped rows). The card viewport is 54 px = exactly three
+  18 px rows; there are no side buttons. The LAST row is the `完成` action row
+  (success-green surface, white centered 14 px label, blue focus outline),
+  pinned to the card bottom — the list pads its top whenever fewer than three
+  rows exist. Device rows are appended above it as they are discovered (at
+  most five rows total, scrolling beyond three); focus starts on `完成` and
+  the group order wraps bottom→top. An empty list shows a quiet `暂无设备`
+  hint centered on the card.
 - **Device rows**: left `设备N` label in `text-primary`, right-aligned status
   text in parentheses; the device number N is the persistent per-MAC numbering
   stored in NVS (same MAC keeps the same number across reboots). Status text
@@ -171,7 +174,12 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   through `连接中` to `已连接` without user input); a transmitter the user
   explicitly disconnects from its info dialog is not auto-reconnected until the
   page is re-entered. A single encoder confirm on a device row opens the device
-  info dialog — confirm never toggles the link directly.
+  info dialog — confirm never toggles the link directly. After boot, the
+  loading card switches to `正在连接设备...` while the receiver scans and
+  auto-connects: if any transmitter links within 5 s the main screen is entered
+  directly (a WiFi configuration runs the finish migration first, briefly
+  showing this page with a connecting dialog); only a 5 s timeout with no link
+  falls back to this page for manual pairing.
 - **Layout**: same scrolling, snapping, and focus-driven reveal rules as the
   dense list; the scrollbar appears only when rows exceed the viewport.
 
@@ -295,7 +303,10 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   user input, and a single confirm on a device row opens its info dialog
   instead of toggling the link. The main-screen tabs, reconnect chip, and
   link-lost dialogs use the same persistent `设备N` numbering as the device
-  rows.
+  rows. After boot the receiver auto-connects while the loading card shows
+  `正在连接设备...`; it enters the main screen directly once any transmitter
+  links (WiFi configuration runs the BLE→WiFi finish migration first) and only
+  falls back to the device selection page after a 5 s timeout with no link.
 - Settings dropdowns and sliders save and apply their selected value as soon as
   it changes. Returning from a settings subpage never asks whether to apply it.
 - When auto-off has blanked the display, the first physical-button action wakes

@@ -2594,6 +2594,19 @@ uint8_t ui_info_get_number(const std::string &mac)
 {
   return deviceManager.getDeviceNumber(mac);
 }
+
+// 当前已连接(BLE或WiFi)设备数:开机自动进入主界面的判定依据
+uint8_t ui_bt_linked_count()
+{
+  Device *devices = deviceManager.getAllDevices();
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    if (devices[i].isBleConnected() || devices[i].isWifiConnected())
+      n++;
+  }
+  return n;
+}
 void ui_bt_pause_search()
 {
   // 完成流程:停止扫描并挂起自动连接,后续交由BLE直发或WiFi迁移

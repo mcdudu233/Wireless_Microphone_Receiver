@@ -1,13 +1,20 @@
 #include "config.h"
 #include "module/screen.h"
 #include "ui/ui.h"
+#include "ui/ui_bt.h"
 #include "ui/ui_loading.h"
+
+// 开机自动连接等待:模块加载完成后先扫描并自动连接,
+// 等待期内任一设备连上则直接进主界面,超时未连上才进设备连接页
+#define LOADING_CONNECT_TIMEOUT_MS 5000
+#define LOADING_CONNECT_TIMER_PERIOD 200
 
 static lv_obj_t *loading_widget;
 static lv_obj_t *bar;
 static lv_obj_t *pct;       // 标签
 static uint8_t percent = 0; // 加载百分比
 static std::string loading_part = "";
+static uint32_t connectStartTick = 0; // 连接等待起始时刻
 
 void ui_loading_set_percent(uint8_t p)
 {
@@ -24,6 +31,40 @@ void ui_loading_set_part(const std::string &part)
     LV_UNLOCK();
 }
 
+// 开机连接等待定时器:任一设备连上直接进主界面,超时进设备连接页
+static void loading_connect_timer_cb(lv_timer_t *timer)
+{
+    const bool connected = ui_bt_linked_count() >= 1;
+    if (!connected && lv_tick_elaps(connectStartTick) < LOADING_CONNECT_TIMEOUT_MS)
+    {
+        return;
+    }
+    lv_timer_delete(timer);
+    lv_obj_delete(loading_widget);
+    loading_widget = nullptr;
+    if (connected)
+    {
+        if (config::config.rf.mode == RF_MODE_WIFI)
+        {
+            // WiFi模式:经设备页走既有"完成"流程(BLE->WiFi迁移后自动进主界面,
+            // 迁移失败时留在设备页,可手动重试)
+            ui_bt_init();
+            ui_bt_try_finish();
+        }
+        else
+        {
+            // BLE模式:下发音频启动命令后直接进主界面
+            ui_bt_pause_search();
+            ui_main_init();
+        }
+    }
+    else
+    {
+        // 未发现/未连上任何设备:进设备连接页手动配对(发现后仍会自动连接)
+        ui_bt_init();
+    }
+}
+
 // 加载timer的周期回调函数
 static void loding_timer_cb(lv_timer_t *timer)
 {
@@ -37,11 +78,15 @@ static void loding_timer_cb(lv_timer_t *timer)
     }
     if (val >= lv_bar_get_max_value(bar))
     {
-
-        lv_obj_delete(loading_widget);
-        ui_bt_init();
-        LV_LOG_INFO("加载完成");
+        // 模块加载完成:转入"正在连接设备"阶段,
+        // 由连接定时器决定去主界面(连上)还是设备连接页(超时)
+        lv_label_set_text(pct, "正在连接设备...");
+        lv_obj_set_style_text_color(pct, lv_color_hex(0x6B7280), 0);
+        ui_bt_search(); // 开始扫描+发现即自动连接(设备页未打开,行更新为空操作)
+        connectStartTick = lv_tick_get();
         lv_timer_delete(timer);
+        lv_timer_create(loading_connect_timer_cb, LOADING_CONNECT_TIMER_PERIOD, NULL);
+        LV_LOG_INFO("加载完成,等待设备连接");
     }
 }
 
