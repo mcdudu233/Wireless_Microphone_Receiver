@@ -1,6 +1,10 @@
 #include "logger.h"
 #include "tool/device.h"
 
+#include "Preferences.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 // 地址转换为字符串
 static std::string macToStr(const uint8_t mac[6])
 {
@@ -39,7 +43,7 @@ Device::Device()
     : id(0), battery(100), rssi(0), gain(-1), voiceLevelL(0), voiceLevelR(0),
       bleConnected(false), bleMAC{0},
       bleHandle(0), bleChannel(nullptr),
-      wifiConnected(false), wifiMAC{0}, wifiIP(0) {}
+      wifiConnected(false), wifiMAC{0}, wifiIP(0), userUnlinked(false) {}
 
 Device::Device(uint8_t battery, int8_t rssi,
                bool bleConnected, bool bleDoConnect, uint8_t *bleMAC, uint16_t bleHandle, ble_l2cap_chan *bleChannel,
@@ -47,7 +51,7 @@ Device::Device(uint8_t battery, int8_t rssi,
     : id(0), battery(battery), rssi(rssi), gain(-1), voiceLevelL(0), voiceLevelR(0),
       bleConnected(bleConnected), bleMAC{0},
       bleHandle(bleHandle), bleChannel(bleChannel),
-      wifiConnected(wifiConnected), wifiMAC{0}, wifiIP(wifiIP)
+      wifiConnected(wifiConnected), wifiMAC{0}, wifiIP(wifiIP), userUnlinked(false)
 {
   memcpy(this->bleMAC, bleMAC, 6);
   memcpy(this->wifiMAC, wifiMAC, 6);
@@ -58,7 +62,7 @@ Device::Device(const Device &other)
       voiceLevelL(other.voiceLevelL), voiceLevelR(other.voiceLevelR),
       bleConnected(other.bleConnected), bleHandle(other.bleHandle),
       bleChannel(other.bleChannel),
-      wifiConnected(other.wifiConnected), wifiIP(other.wifiIP)
+      wifiConnected(other.wifiConnected), wifiIP(other.wifiIP), userUnlinked(other.userUnlinked)
 {
   memcpy(this->bleMAC, other.bleMAC, 6);
   memcpy(this->wifiMAC, other.wifiMAC, 6);
@@ -69,7 +73,7 @@ Device::Device(Device &&other) noexcept
       voiceLevelL(other.voiceLevelL), voiceLevelR(other.voiceLevelR),
       bleConnected(other.bleConnected), bleHandle(other.bleHandle),
       bleChannel(other.bleChannel),
-      wifiConnected(other.wifiConnected), wifiIP(other.wifiIP)
+      wifiConnected(other.wifiConnected), wifiIP(other.wifiIP), userUnlinked(other.userUnlinked)
 {
   memcpy(this->bleMAC, other.bleMAC, 6);
   memcpy(this->wifiMAC, other.wifiMAC, 6);
@@ -92,6 +96,7 @@ Device &Device::operator=(const Device &other)
     wifiConnected = other.wifiConnected;
     memcpy(this->wifiMAC, other.wifiMAC, 6);
     wifiIP = other.wifiIP;
+    userUnlinked = other.userUnlinked;
   }
   return *this;
 }
@@ -113,6 +118,7 @@ Device &Device::operator=(Device &&other) noexcept
     wifiConnected = other.wifiConnected;
     memcpy(this->wifiMAC, other.wifiMAC, 6);
     wifiIP = other.wifiIP;
+    userUnlinked = other.userUnlinked;
   }
   return *this;
 }
@@ -218,6 +224,14 @@ void Device::setWifiIP(uint32_t ip)
 {
   wifiIP = ip;
 }
+bool Device::isUserUnlinked() const
+{
+  return userUnlinked;
+}
+void Device::setUserUnlinked(bool unlinked)
+{
+  userUnlinked = unlinked;
+}
 std::string Device::getBleMACString()
 {
   return macToStr(bleMAC);
@@ -244,6 +258,100 @@ void Device::print()
               id, battery, rssi,
               bleConnected ? "Yes" : "No", getBleMACString().c_str(), bleHandle,
               wifiConnected ? "Yes" : "No", getWifiMACString().c_str(), getWifiIPString().c_str());
+}
+
+/*****************************
+     设备持久编号表
+*****************************/
+// 设备连接页以"设备N"称呼发射器,N必须跨重启稳定(同一MAC永远同号):
+// 槽位序号+1即设备编号,按分配顺序占槽,新MAC写入首个空槽并落盘NVS
+#define DEVICE_NUMBER_MAX 16 // 记住的设备数上限,超出淘汰最早条目
+#define DEVICE_NUMBER_NAMESPACE "devid"
+#define DEVICE_NUMBER_KEY "map"
+
+// 编号表(6字节MAC/槽,全零为空槽);setupNumbering前仅内存使用
+static uint8_t numberMap[DEVICE_NUMBER_MAX][6];
+static bool numberMapLoaded = false;
+static SemaphoreHandle_t numberMutex = nullptr;
+
+void DeviceManager::setupNumbering()
+{
+  if (numberMutex == nullptr)
+  {
+    numberMutex = xSemaphoreCreateMutex();
+  }
+  // 长度不符(首次上电/表损坏)时按空表处理
+  memset(numberMap, 0, sizeof(numberMap));
+  Preferences prefs;
+  prefs.begin(DEVICE_NUMBER_NAMESPACE, true);
+  if (prefs.getBytesLength(DEVICE_NUMBER_KEY) == sizeof(numberMap))
+  {
+    prefs.getBytes(DEVICE_NUMBER_KEY, numberMap, sizeof(numberMap));
+  }
+  prefs.end();
+  numberMapLoaded = true;
+  LOGGER_INFO("Device numbering table loaded (%u entries).", DEVICE_NUMBER_MAX);
+}
+
+// 查询/分配设备持久编号:持有互斥锁保证NimBLE/界面线程并发安全
+uint8_t DeviceManager::getDeviceNumber(const uint8_t bleMAC[6])
+{
+  uint8_t result = 0;
+  const bool locked = numberMutex != nullptr &&
+                      xSemaphoreTake(numberMutex, portMAX_DELAY) == pdTRUE;
+  for (uint8_t i = 0; i < DEVICE_NUMBER_MAX; i++)
+  {
+    if (memcmp(numberMap[i], bleMAC, 6) == 0)
+    {
+      result = i + 1;
+      break;
+    }
+  }
+  if (result == 0)
+  {
+    // 未登记:取首个空槽;表满则整体前移淘汰最早条目(其设备下次获得新编号)
+    uint8_t slot = DEVICE_NUMBER_MAX - 1;
+    const uint8_t empty[6] = {0};
+    for (uint8_t i = 0; i < DEVICE_NUMBER_MAX; i++)
+    {
+      if (memcmp(numberMap[i], empty, 6) == 0)
+      {
+        slot = i;
+        break;
+      }
+    }
+    if (slot == DEVICE_NUMBER_MAX - 1 && memcmp(numberMap[slot], empty, 6) != 0)
+    {
+      memmove(numberMap[0], numberMap[1], (DEVICE_NUMBER_MAX - 1) * 6);
+      LOGGER_WARN("Device number map is full, evict the oldest entry.");
+    }
+    memcpy(numberMap[slot], bleMAC, 6);
+    result = slot + 1;
+    // 已加载NV表才落盘(setupNumbering前仅内存分配)
+    if (numberMapLoaded)
+    {
+      Preferences prefs;
+      prefs.begin(DEVICE_NUMBER_NAMESPACE, false);
+      prefs.putBytes(DEVICE_NUMBER_KEY, numberMap, sizeof(numberMap));
+    }
+    LOGGER_INFO("Device %02x:%02x:%02x:%02x:%02x:%02x assigned number %u.",
+                bleMAC[0], bleMAC[1], bleMAC[2], bleMAC[3], bleMAC[4], bleMAC[5], result);
+  }
+  if (locked)
+  {
+    xSemaphoreGive(numberMutex);
+  }
+  return result;
+}
+
+uint8_t DeviceManager::getDeviceNumber(const std::string bleMAC)
+{
+  uint64_t mac = strToMac(bleMAC);
+  if (mac == 0)
+  {
+    return 0; // 非法MAC不参与编号
+  }
+  return getDeviceNumber((uint8_t *)&mac);
 }
 
 Device *DeviceManager::addDevice(uint8_t bleMAC[6])

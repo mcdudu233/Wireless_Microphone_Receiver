@@ -33,6 +33,7 @@ but each screen must have one obvious focus target and no decorative clutter.
 | Quality mid | `quality-mid` | `#2D6BDB` | 96 kHz sample-rate status icon (same value as `accent-primary`) |
 | Quality high | `quality-high` | `#7C3AED` | 192 kHz sample-rate status icon |
 | Status amber | `status-amber` | `#D97706` | USB SD-card mode status icon |
+| Status error | `status-error` | LVGL palette red | Device-list disconnected state text (semantic error state, same rule as meter red) |
 
 - Accent is functional, never decorative. One screen uses at most one accent
   family apart from semantic success/warning/error feedback.
@@ -108,7 +109,8 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 | `space-4` | 8 px | Maximum ordinary inset |
 | `screen-edge` | 5 px | Main content edge where a full-bleed menu is not used |
 | `row-height` | 22-24 px | Settings and action rows |
-| `list-row-height` | 18 px | Dense Bluetooth/file lists |
+| `list-row-height` | 18 px | Dense file lists |
+| `device-row-height` | 20 px | Fullscreen device-page rows (4 rows exactly fill the 80 px viewport) |
 | `action-height` | 24-25 px | Primary screen actions |
 
 - Budget geometry from the parent content box, including border and padding.
@@ -144,12 +146,34 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 ### Dense list
 - **Structure**: stationary header plus 18 px rows in the list viewport.
 - **States**: default, focused, selected/connected, disabled, empty, error.
-- **Text**: 12 px, one line, width bounded to the row. Overflowing dynamic device
-  names scroll continuously (marquee); static overflow uses end ellipsis.
+- **Text**: 12 px, one line, width bounded to the row. Overflowing dynamic
+  filenames scroll continuously (marquee); static overflow uses end ellipsis.
 - **Layout**: list owns vertical scrolling and focus-driven reveal. Selecting a
   row keeps the list scrollable and scrolls the selected row fully into view.
   The list viewport is an exact multiple of the row height and scrolling snaps
   to whole rows, so a row is never shown half-clipped.
+
+### Device selection page
+- **Structure**: one full-bleed 160x80 list with 20 px rows (4 rows exactly fill
+  the viewport); no title bar, no side buttons. The first row is the `完成`
+  action row (success-green surface, white centered 14 px label, blue focus
+  outline); it scrolls with the content as an ordinary row — the page shows at
+  most five rows (4 paired transmitters plus `完成`), so a pinned header is not
+  warranted. An empty list shows a centered quiet `暂无设备` hint below the
+  `完成` row.
+- **Device rows**: left `设备N` label in `text-primary`, right-aligned status
+  text in parentheses; the device number N is the persistent per-MAC numbering
+  stored in NVS (same MAC keeps the same number across reboots). Status text
+  color encodes state: `(已连接)` in `status-success`, `(连接中)` in
+  `accent-primary`, `(未连接)` in `status-error`. Connected rows additionally
+  use the `status-success-bg` surface; all other rows are white.
+- **Behavior**: discovery auto-connects unlinked transmitters (the row runs
+  through `连接中` to `已连接` without user input); a transmitter the user
+  explicitly disconnects from its info dialog is not auto-reconnected until the
+  page is re-entered. A single encoder confirm on a device row opens the device
+  info dialog — confirm never toggles the link directly.
+- **Layout**: same scrolling, snapping, and focus-driven reveal rules as the
+  dense list; the scrollbar appears only when rows exceed the viewport.
 
 ### File browser
 - **Structure**: full-bleed 18 px rows directly under the menu header; no
@@ -252,10 +276,26 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 - **States**: first action focused on entry; both physical navigation buttons
   can reach each action before confirmation.
 
+### Device info dialog
+- **Structure**: 144x75 dialog opened by a single confirm on a device row:
+  icon + `设备信息` title, divider, device name with right-aligned colored
+  status (same states and colors as the device row), and one `MAC:<address>`
+  line in `text-secondary` (bounded width, end ellipsis).
+- **Actions**: bottom row with one primary action — `断开连接` (56x18) when
+  connected, otherwise `连接` (34x18) — plus a secondary white `关闭` button
+  (34x18, `border-default` outline) on the right; the primary action is focused
+  on entry. Actions close the dialog before running; link state changes are
+  then reflected on the device row (`连接中` → `已连接`/`(未连接)`).
+
 ## 6. Motion & Interaction
 
 - Physical previous and next buttons move focus backward and forward. Pressing
   both together confirms the focused item. Do not add a competing input model.
+- On the device selection page, discovered transmitters auto-connect without
+  user input, and a single confirm on a device row opens its info dialog
+  instead of toggling the link. The main-screen tabs, reconnect chip, and
+  link-lost dialogs use the same persistent `设备N` numbering as the device
+  rows.
 - Settings dropdowns and sliders save and apply their selected value as soon as
   it changes. Returning from a settings subpage never asks whether to apply it.
 - When auto-off has blanked the display, the first physical-button action wakes

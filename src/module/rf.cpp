@@ -11,10 +11,16 @@
 #include "ui/ui_setting.h"
 
 #include "string"
+#include "algorithm"
 #include "freertos/idf_additions.h"
 
 // 缓存的设备
 static DeviceManager deviceManager;
+
+// 协议切换任务忙标志(设备页"完成"/设置页协议切换期间为真):
+// 阻止发现即自动连接在迁移过程中发起新的BLE连接
+static bool rfSwitchBusy = false;
+static bool rfSwitchEnterMain = false;
 
 // 计算音频传输速度
 static uint32_t transmitSpeed = 0;
@@ -555,6 +561,27 @@ static bool ble_scan_on_sync = false;
 // 同步完成前调用ble_hs_id_infer_auto等主机接口会解引用未初始化状态直接崩溃
 static volatile bool bleSynced = false;
 
+/*****************************
+    设备连接页:发现即自动连接
+*****************************/
+// 设计要点(线程模型):
+// - NimBLE回调(DISC)只向邮箱投递请求,不在GAP事件回调里停止自身扫描;
+// - rf任务串行执行状态机(发起连接/超时取消/恢复扫描),连接期间扫描停止,
+//   连接完成后自动恢复扫描以继续发现其余设备;
+// - 界面线程的手动连接/断开/完成通过互斥锁中止挂起的连接请求。
+struct AutoConnectReq
+{
+  char mac[18];
+};
+static QueueHandle_t autoConnectQueue = nullptr;  // 请求邮箱(NimBLE回调投递)
+static SemaphoreHandle_t autoConnectMutex = nullptr;
+static std::string autoConnectMac;       // 当前自动连接目标(空=空闲)
+static bool autoConnectInFlight = false; // ble_gap_connect已发起等待结果
+static uint32_t autoConnectStartMs = 0;  // 发起时刻(超时取消用)
+static volatile bool autoConnectGapFailed = false; // GAP连接失败(回调仅置标志)
+static volatile bool autoScanResume = false;       // 任意连接建立后恢复扫描
+static void rf_auto_connect_suspend();             // 前置声明(ble_close先于实现)
+
 // L2CAP 事件
 static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
 {
@@ -571,7 +598,9 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
       // 更新界面和连接信息
       device->setBleChannel(event->connect.chan);
       device->setBleConnected(true);
-      ui_bt_update(device->getBleMACString(), true);
+      ui_bt_update(device->getBleMACString(), BT_LINK_STATE_LINKED);
+      // 连接期间扫描被停止,链路建立后自动恢复以继续发现其余设备
+      autoScanResume = true;
 
       ble_l2cap_chan_info chan_info;
       rc = ble_l2cap_get_chan_info(event->connect.chan, &chan_info);
@@ -598,6 +627,8 @@ static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
   {
     device->setBleConnected(false);
     device->setBleChannel(nullptr);
+    // 同步设备连接页行状态(链路断开时行回退到"未连接")
+    ui_bt_update(device->getBleMACString(), BT_LINK_STATE_UNLINKED);
     LOGGER_INFO("BLE LE CoC disconnected, conn: %d", event->disconnect.conn_handle);
     break;
   }
@@ -730,7 +761,17 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
           // 已知设备:刷新信号强度,并确保设备连接页列表中有它的行
           // (断线超时返回设备页后,设备仍在管理器中但列表行需要重建)
           device->setRssi(event->disc.rssi);
-          ui_bt_update(device->getBleMACString(), device->isBleConnected());
+          ui_bt_update(device->getBleMACString(),
+                       device->isBleConnected() ? BT_LINK_STATE_LINKED : BT_LINK_STATE_UNLINKED);
+        }
+        // 发现即自动连接:未连接且未被用户手动断开的发射器投递连接请求,
+        // 由rf任务在GAP回调之外发起(邮箱满则丢弃,设备再次被发现后会重新入队)
+        if (device != nullptr && !device->isBleConnected() && !device->isWifiConnected() &&
+            !device->isUserUnlinked() && !rfSwitchBusy && autoConnectQueue != nullptr)
+        {
+          AutoConnectReq req;
+          snprintf(req.mac, sizeof(req.mac), "%s", device->getBleMACString().c_str());
+          xQueueSend(autoConnectQueue, &req, 0);
         }
       }
     }
@@ -799,6 +840,8 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
     }
     else
     {
+      // 连接请求被拒/失败:通知自动连接状态机取消等待并恢复扫描
+      autoConnectGapFailed = true;
       LOGGER_WARN("BLE Connection failed; status=%d", event->connect.status);
     }
     break;
@@ -881,7 +924,8 @@ static bool ble_close()
   if (bleIsOpen)
   {
     int rc;
-    // 停止扫描
+    // 挂起自动连接(取消挂起的连接请求),再停止扫描
+    rf_auto_connect_suspend();
     ble_stop_scanning();
 
     // 停止NimBLE主机任务
@@ -1097,6 +1141,228 @@ static bool ble_disconnect_to_device(const std::string &mac)
   }
   LOGGER_WARN("BLE disconnect failed, because BLE not open.");
   return false;
+}
+
+/*****************************
+    发现即自动连接状态机
+*****************************/
+// 互斥锁辅助:锁创建失败时降级为无锁(仅初始化异常时出现)
+static bool rf_auto_connect_lock()
+{
+  return autoConnectMutex == nullptr ||
+         xSemaphoreTake(autoConnectMutex, portMAX_DELAY) == pdTRUE;
+}
+static void rf_auto_connect_unlock()
+{
+  if (autoConnectMutex != nullptr)
+  {
+    xSemaphoreGive(autoConnectMutex);
+  }
+}
+
+// 挂起自动连接:清空请求邮箱并取消进行中的连接请求(不恢复扫描)
+static void rf_auto_connect_suspend()
+{
+  if (autoConnectQueue != nullptr)
+  {
+    xQueueReset(autoConnectQueue);
+  }
+  if (!rf_auto_connect_lock())
+  {
+    return;
+  }
+  const bool wasInFlight = autoConnectInFlight;
+  const std::string target = autoConnectMac;
+  if (autoConnectInFlight)
+  {
+    ble_gap_conn_cancel();
+  }
+  autoConnectMac.clear();
+  autoConnectInFlight = false;
+  autoScanResume = false;
+  rf_auto_connect_unlock();
+  // 被中止的"连接中"行回退(连接流程已取消,不会再有事件回调)
+  if (wasInFlight && !target.empty())
+  {
+    Device *device = deviceManager.getDeviceByBleMAC(target);
+    if (device != nullptr && !device->isBleConnected())
+    {
+      ui_bt_update(target, BT_LINK_STATE_UNLINKED);
+    }
+  }
+}
+
+// 取消进行中的自动连接(保留邮箱中其余设备的请求,结束后恢复扫描)
+static void rf_auto_connect_cancel_flight()
+{
+  if (!rf_auto_connect_lock())
+  {
+    return;
+  }
+  const bool wasInFlight = autoConnectInFlight;
+  const std::string target = autoConnectMac;
+  if (autoConnectInFlight)
+  {
+    ble_gap_conn_cancel();
+  }
+  autoConnectMac.clear();
+  autoConnectInFlight = false;
+  autoScanResume = true;
+  rf_auto_connect_unlock();
+  // 被取消的"连接中"行回退(连接流程已终止,不会再有事件回调)
+  if (wasInFlight && !target.empty())
+  {
+    Device *device = deviceManager.getDeviceByBleMAC(target);
+    if (device != nullptr && !device->isBleConnected())
+    {
+      ui_bt_update(target, BT_LINK_STATE_UNLINKED);
+    }
+  }
+}
+
+// 目标设备是否正处于自动连接流程
+static bool rf_auto_connect_is_target(const std::string &mac)
+{
+  bool is = false;
+  if (rf_auto_connect_lock())
+  {
+    is = autoConnectInFlight && autoConnectMac == mac;
+    rf_auto_connect_unlock();
+  }
+  return is;
+}
+
+// 取消指定目标的自动连接(用户对其明确断开时)
+static void rf_auto_connect_abort_target(const std::string &mac)
+{
+  if (!rf_auto_connect_lock())
+  {
+    return;
+  }
+  const bool wasTarget = autoConnectMac == mac;
+  const bool wasInFlight = wasTarget && autoConnectInFlight;
+  if (wasTarget)
+  {
+    if (autoConnectInFlight)
+    {
+      ble_gap_conn_cancel();
+    }
+    autoConnectMac.clear();
+    autoConnectInFlight = false;
+    autoScanResume = true;
+  }
+  rf_auto_connect_unlock();
+  // 被取消的"连接中"行回退(连接流程已终止,不会再有事件回调)
+  if (wasInFlight)
+  {
+    Device *device = deviceManager.getDeviceByBleMAC(mac);
+    if (device != nullptr && !device->isBleConnected())
+    {
+      ui_bt_update(mac, BT_LINK_STATE_UNLINKED);
+    }
+  }
+}
+
+// 状态机主体:rf任务每周期调用一次,串行处理发起/失败/超时/恢复扫描
+static void rf_auto_connect_pump()
+{
+  std::string linkingMac; // 需刷新为"连接中"的设备(锁外调用UI,避免与LVGL锁序反转)
+  std::string unlinkMac;  // 连接流程终止:行回退"未连接"
+  if (!rf_auto_connect_lock())
+  {
+    return;
+  }
+
+  // 空闲时取下一条请求(目标需仍存在且未被用户手动断开)
+  if (autoConnectMac.empty() && autoConnectQueue != nullptr)
+  {
+    AutoConnectReq req;
+    if (xQueueReceive(autoConnectQueue, &req, 0) == pdPASS)
+    {
+      Device *target = deviceManager.getDeviceByBleMAC(req.mac);
+      if (target != nullptr && !target->isBleConnected() && !target->isWifiConnected() &&
+          !target->isUserUnlinked())
+      {
+        autoConnectMac = req.mac;
+        autoConnectInFlight = false;
+      }
+    }
+  }
+
+  // 推进当前目标
+  if (!autoConnectMac.empty())
+  {
+    Device *target = deviceManager.getDeviceByBleMAC(autoConnectMac);
+    if (target == nullptr || target->isBleConnected() || target->isUserUnlinked())
+    {
+      // 已连上/被移除/用户改意:结束本轮,恢复扫描继续发现其余设备
+      // (已连上的行状态由连接回调更新;用户改意时行回退"未连接")
+      if (target != nullptr && !target->isBleConnected())
+      {
+        unlinkMac = autoConnectMac;
+      }
+      autoConnectMac.clear();
+      autoConnectInFlight = false;
+      autoScanResume = true;
+    }
+    else if (autoConnectInFlight)
+    {
+      if (autoConnectGapFailed)
+      {
+        // 连接请求失败:回退并恢复扫描,设备再次被发现后会重试
+        autoConnectGapFailed = false;
+        unlinkMac = autoConnectMac;
+        autoConnectMac.clear();
+        autoConnectInFlight = false;
+        autoScanResume = true;
+      }
+      else if (millis() - autoConnectStartMs > RF_AUTO_CONNECT_TIMEOUT_MS)
+      {
+        // ble_gap_connect以FOREVER发起不会自行超时:超时取消避免永久占住流程
+        ble_gap_conn_cancel();
+        unlinkMac = autoConnectMac;
+        autoConnectMac.clear();
+        autoConnectInFlight = false;
+        autoScanResume = true;
+      }
+    }
+    else
+    {
+      // 发起连接(ble_connect_to_device内部会先停止扫描)
+      // 先清失败标志再发起:避免GAP失败事件早于标志复位被吞掉
+      autoConnectGapFailed = false;
+      if (ble_connect_to_device(autoConnectMac))
+      {
+        autoConnectInFlight = true;
+        autoConnectStartMs = millis();
+        linkingMac = autoConnectMac;
+      }
+      else
+      {
+        // 发起失败(协议栈未就绪等):放弃本轮,等待下次发现重新入队
+        unlinkMac = autoConnectMac;
+        autoConnectMac.clear();
+        autoScanResume = true;
+      }
+    }
+  }
+
+  // 一轮连接结束后恢复扫描,继续发现其余设备
+  if (autoScanResume && autoConnectMac.empty() && bleIsOpen)
+  {
+    autoScanResume = false;
+    ble_start_scanning();
+  }
+  rf_auto_connect_unlock();
+
+  if (!linkingMac.empty())
+  {
+    ui_bt_update(linkingMac, BT_LINK_STATE_LINKING);
+  }
+  if (!unlinkMac.empty())
+  {
+    ui_bt_update(unlinkMac, BT_LINK_STATE_UNLINKED);
+  }
 }
 
 // 发送数据
@@ -1913,9 +2179,6 @@ static bool rf_migrate_devices_to_ble()
 // 1.界面会冻结; 2.LVGL任务持有LVGL锁期间等待NimBLE停止,而NimBLE主机任务的
 // 回调(ui_bt_update)又在等LVGL锁,形成死锁导致接收器卡死。
 // 因此迁移放在独立任务中执行,完成后持锁操作界面。
-static bool rfSwitchBusy = false;
-static bool rfSwitchEnterMain = false;
-
 static void rf_switch_task(void *arg)
 {
   const RFMode target = static_cast<RFMode>(reinterpret_cast<uintptr_t>(arg));
@@ -2013,6 +2276,12 @@ static void rf_handle(void *arg)
   while (true)
   {
     xTaskDelayUntil(&xLastWakeTime, xFrequency);
+
+    /* 设备连接页:发现即自动连接状态机(协议迁移期间暂停) */
+    if (bleIsOpen && !rfSwitchBusy)
+    {
+      rf_auto_connect_pump();
+    }
 
     /* 处理 BLE 模块 */
     if (bleIsOpen)
@@ -2218,6 +2487,21 @@ void rf::setup()
     LOGGER_ERROR("BLE receive queue creation failed.");
     return;
   }
+  // 设备持久编号表(NVS):同一MAC跨重启获得相同"设备N"称谓
+  deviceManager.setupNumbering();
+  // 发现即自动连接:请求邮箱 + 状态机互斥锁
+  autoConnectQueue = xQueueCreate(4, sizeof(AutoConnectReq));
+  if (autoConnectQueue == nullptr)
+  {
+    LOGGER_ERROR("Auto connect queue creation failed.");
+    return;
+  }
+  autoConnectMutex = xSemaphoreCreateMutex();
+  if (autoConnectMutex == nullptr)
+  {
+    LOGGER_ERROR("Auto connect mutex creation failed.");
+    return;
+  }
   ble_open();
   // 启动发送接收线程
   xTaskCreatePinnedToCore(rf_handle, "rf_handle", TASK_RF_STACK, NULL, TASK_RF_PRIORITY, NULL, TASK_RF_CORE);
@@ -2233,22 +2517,57 @@ void rf::setup()
 /*****************************
             界面
 *****************************/
-// 连接蓝牙设备
+// 连接蓝牙设备(手动,来自设备信息弹窗):经自动连接状态机发起,
+// 与自动连接共享超时取消保护;目标已在流程中则幂等成功
 bool ui_bt_link(const std::string &mac)
 {
-  if (ble_connect_to_device(mac))
+  Device *device = deviceManager.getDeviceByBleMAC(mac);
+  if (device == nullptr)
   {
-    return true; // 返回连接状态
+    LOGGER_WARN("UI link unknown device %s.", mac.c_str());
+    return false;
   }
-  return false;
+  if (device->isBleConnected() || device->isWifiConnected())
+  {
+    return true; // 已连接,幂等
+  }
+  // 手动连接解除"用户断开"抑制
+  device->setUserUnlinked(false);
+  if (rf_auto_connect_is_target(mac))
+  {
+    return true; // 自动连接已在进行,等待结果即可
+  }
+  if (autoConnectQueue == nullptr)
+  {
+    return false;
+  }
+  // 其他设备的挂起连接让位给手动目标
+  rf_auto_connect_cancel_flight();
+  AutoConnectReq req;
+  snprintf(req.mac, sizeof(req.mac), "%s", mac.c_str());
+  if (xQueueSend(autoConnectQueue, &req, 0) != pdPASS)
+  {
+    return false; // 邮箱满:极罕见,用户重试即可
+  }
+  ui_bt_update(mac, BT_LINK_STATE_LINKING);
+  return true;
 }
 
-// 断开蓝牙设备
+// 断开蓝牙设备(手动,来自设备信息弹窗):抑制发现即自动连接直到重进设备页
 bool ui_bt_unlink(const std::string &mac)
 {
+  Device *device = deviceManager.getDeviceByBleMAC(mac);
+  if (device == nullptr)
+  {
+    LOGGER_WARN("UI unlink unknown device %s.", mac.c_str());
+    return false;
+  }
+  device->setUserUnlinked(true);
+  // 若目标仍处于自动连接流程(链路未建立)则取消之;行状态由状态机回退
+  rf_auto_connect_abort_target(mac);
   if (ble_disconnect_to_device(mac))
   {
-    return true; // 返回连接状态
+    return true;
   }
   return false;
 }
@@ -2258,8 +2577,28 @@ void ui_bt_search()
 {
   ble_start_scanning();
 }
+
+// 设备连接页打开时调用:清除"用户手动断开"抑制,恢复发现即自动连接
+void ui_bt_reset_autoconnect()
+{
+  Device *devices = deviceManager.getAllDevices();
+  const uint8_t size = deviceManager.size();
+  for (uint8_t i = 0; i < size; i++)
+  {
+    devices[i].setUserUnlinked(false);
+  }
+}
+
+// 设备持久编号(同一MAC跨重启稳定;0=未知/非法MAC)
+uint8_t ui_info_get_number(const std::string &mac)
+{
+  return deviceManager.getDeviceNumber(mac);
+}
 void ui_bt_pause_search()
 {
+  // 完成流程:停止扫描并挂起自动连接,后续交由BLE直发或WiFi迁移
+  rf_auto_connect_suspend();
+  ble_stop_scanning();
   Device *devices = deviceManager.getAllDevices();
   switch (config::config.rf.mode)
   {
@@ -2315,13 +2654,19 @@ std::vector<std::string> ui_bt_get_linked()
   {
     Device *devices = deviceManager.getAllDevices();
     for (uint8_t i = 0; i < size; i++)
+    {
+      if (devices[i].isBleConnected() || devices[i].isWifiConnected())
       {
-        if (devices[i].isBleConnected() || devices[i].isWifiConnected())
-        {
-          strs.push_back(devices[i].getBleMACString());
-        }
+        strs.push_back(devices[i].getBleMACString());
+      }
     }
   }
+  // 按持久编号升序返回:主界面页签序号与设备连接页"设备N"称谓保持一致
+  std::sort(strs.begin(), strs.end(),
+            [](const std::string &a, const std::string &b)
+            {
+              return deviceManager.getDeviceNumber(a) < deviceManager.getDeviceNumber(b);
+            });
   return strs;
 }
 
@@ -2331,7 +2676,10 @@ void ui_bt_seed_devices()
   const uint8_t size = deviceManager.size();
   for (uint8_t i = 0; i < size; i++)
   {
-    ui_bt_update(devices[i].getBleMACString(), devices[i].isBleConnected() || devices[i].isWifiConnected());
+    ui_bt_update(devices[i].getBleMACString(),
+                 (devices[i].isBleConnected() || devices[i].isWifiConnected())
+                     ? BT_LINK_STATE_LINKED
+                     : BT_LINK_STATE_UNLINKED);
   }
 }
 

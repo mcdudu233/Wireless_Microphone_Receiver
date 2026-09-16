@@ -137,7 +137,8 @@ void ui_main_init()
     for (std::string dev : linked_devices)
     {
         // logger::infoln(dev.c_str());
-        lv_obj_t *tab = lv_tabview_add_tab(tabview, std::to_string(i + 1).c_str());
+        // 页签名使用设备持久编号,与设备连接页"设备N"称谓一致(列表已按编号排序)
+        lv_obj_t *tab = lv_tabview_add_tab(tabview, std::to_string(ui_info_get_number(dev)).c_str());
         lv_obj_t *card = ui_create_device_card(tab, dev, false);
         lv_obj_set_style_pad_all(tab, 0, 0);
         lv_obj_align(card, LV_ALIGN_CENTER, 0, 0);
@@ -565,15 +566,8 @@ static void reconnect_chip_refresh()
         return;
     if (reconnect_macs.size() == 1)
     {
-        // 单设备标注设备序号(与页签一致)
-        int idx = 1;
-        for (device_card_data *card : cards)
-        {
-            if (card->device_mac == reconnect_macs[0])
-                break;
-            idx++;
-        }
-        lv_label_set_text_fmt(label, "设备%d重连中...", idx);
+        // 单设备标注设备序号(持久编号,与页签/设备连接页称谓一致)
+        lv_label_set_text_fmt(label, "设备%d重连中...", ui_info_get_number(reconnect_macs[0]));
     }
     else
     {
@@ -653,18 +647,8 @@ bool ui_main_notify_link_lost(const std::string &mac)
                ui_info_get_obj(mac) != nullptr;
     bool hidden = has && lv_obj_has_flag(main_widget, LV_OBJ_FLAG_HIDDEN);
     bool last = has && (cards.size() == 1);
-    int idx = 0;
-    if (has)
-    {
-        for (size_t i = 0; i < cards.size(); i++)
-        {
-            if (cards[i]->device_mac == mac)
-            {
-                idx = (int)i + 1;
-                break;
-            }
-        }
-    }
+    // 设备称谓用持久编号(与页签/设备连接页一致)
+    const uint8_t number = ui_info_get_number(mac);
     for (auto it = reconnect_macs.begin(); it != reconnect_macs.end(); ++it)
     {
         if (*it == mac)
@@ -684,7 +668,7 @@ bool ui_main_notify_link_lost(const std::string &mac)
     if (!hidden)
     {
         char line1[32];
-        snprintf(line1, sizeof(line1), "设备%d连接失败", idx);
+        snprintf(line1, sizeof(line1), "设备%d连接失败", number);
         ui_main_show_link_lost_msgbox(line1, last ? "已返回选择设备" : nullptr);
     }
     // 设置页在前台时静默处理:挂起的返回请求由刷新定时器执行,返回后再补提示

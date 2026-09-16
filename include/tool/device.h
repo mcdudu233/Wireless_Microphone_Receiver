@@ -28,6 +28,9 @@ private:
   bool wifiConnected;
   uint8_t wifiMAC[6]; // 6字节MAC地址
   uint32_t wifiIP;    // IPv4地址
+  // 用户在设备连接页手动断开后置位:抑制"发现即自动连接",
+  // 重新进入设备页(ui_bt_init)时统一清除
+  bool userUnlinked;
 
 public:
   // 构造函数
@@ -73,6 +76,9 @@ public:
   std::string getBleMACString();
   std::string getWifiMACString();
   std::string getWifiIPString() const;
+  // 用户是否在设备页手动断开(抑制发现即自动连接)
+  bool isUserUnlinked() const;
+  void setUserUnlinked(bool unlinked);
 
   // 打印设备信息
   void print();
@@ -88,6 +94,14 @@ private:
   std::unordered_map<uint32_t, Device *> wifiIPToDevice;
 
 public:
+  // 加载持久化设备编号表(NVS);在NVS初始化后(config::setup之后)调用一次
+  void setupNumbering();
+
+  // 查询/分配设备持久编号(1起):同一MAC跨重启返回相同编号,
+  // 新分配的编号立即落盘;表满时淘汰最早条目(其设备下次获得新编号)
+  uint8_t getDeviceNumber(const uint8_t bleMAC[6]);
+  uint8_t getDeviceNumber(const std::string bleMAC);
+
   // 添加设备
   Device *addDevice(uint8_t bleMAC[6]);
 

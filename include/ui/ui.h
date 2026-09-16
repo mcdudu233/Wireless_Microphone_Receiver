@@ -50,5 +50,8 @@ lv_obj_t *ui_popwin_msgbox(const char *text, lv_group_t *g = nullptr, lv_obj_t *
 // 关闭当前弹窗(调用方需持有LVGL锁;供协议切换任务等非LVGL上下文使用)
 void ui_close_popup();
 
+// 设备持久编号(同一MAC跨重启稳定):设备页"设备N"称谓与主界面页签共用
+uint8_t ui_info_get_number(const std::string &mac);
+
 void ui_free_main_widget();
 void ui_set_bar_val(void *bar, int32_t val);
