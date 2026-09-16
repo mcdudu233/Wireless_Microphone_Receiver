@@ -21,5 +21,7 @@ bool ui_bt_unlink(const std::string &mac);
 bool ui_bt_link(const std::string &mac);
 void ui_bt_search();
 void ui_bt_pause_search();
+// WiFi模式且无BLE待迁移链路时为真:设备页点"完成"可直接进主界面,跳过协议切换
+bool ui_bt_wifi_ready();
 // 完成设备连接并切换到主界面(调用方需持有LVGL锁;供完成按钮与协议切换任务共用)
 void ui_bt_finish_to_main();

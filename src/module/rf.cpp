@@ -1701,6 +1701,19 @@ static bool rf_migrate_devices_to_wifi()
 {
   Device *devices = deviceManager.getAllDevices();
 
+  // 已处于WiFi模式且没有BLE待迁移设备(从主界面重新进入设备页后直接点完成):
+  // 无需迁移,直接返回成功;否则wifi_open会先关闭重建AP,导致已连接设备断开重连
+  bool anyBle = false;
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    anyBle = anyBle || devices[i].isBleConnected();
+  }
+  if (wifiIsOpen && !anyBle)
+  {
+    LOGGER_INFO("RF already in WiFi mode with no BLE device to migrate, skip.");
+    return true;
+  }
+
   // 第一阶段(纯BLE):向所有已连接发射器下发WiFi接入命令
   bool commanded[RF_MAX_CONNECTION] = {};
   for (uint8_t i = 0; i < deviceManager.size(); i++)
@@ -2295,6 +2308,23 @@ void ui_bt_seed_devices()
   {
     ui_bt_update(devices[i].getBleMACString(), devices[i].isBleConnected() || devices[i].isWifiConnected());
   }
+}
+
+// WiFi模式下是否已无需协议迁移即可完成:
+// WiFi协议栈在运行且没有任何BLE待迁移链路(设备均已WiFi连接)时为真,
+// 设备页点"完成"可直接进入主界面,避免wifi_open重建AP导致已连接设备断开重连
+bool ui_bt_wifi_ready()
+{
+  Device *devices = deviceManager.getAllDevices();
+  const uint8_t size = deviceManager.size();
+  for (uint8_t i = 0; i < size; i++)
+  {
+    if (devices[i].isBleConnected())
+    {
+      return false;
+    }
+  }
+  return wifiIsOpen;
 }
 
 int8_t ui_info_get_left_voice(const std::string &mac)

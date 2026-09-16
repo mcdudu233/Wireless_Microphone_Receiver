@@ -180,6 +180,13 @@ static void button_finish_cb(lv_event_t *e)
     }
     if (config::config.rf.mode == RF_MODE_WIFI)
     {
+        if (ui_bt_wifi_ready())
+        {
+            // 从主界面重新进入本页且设备仍经WiFi连接:无需BLE->WiFi迁移,直接回主界面
+            // (若仍走协议切换,wifi_open会先关闭重建AP,已连接设备被迫断开重连)
+            ui_bt_finish_to_main();
+            return;
+        }
         // WiFi模式:先显示连接提示,BLE->WiFi迁移由协议切换任务完成后自动进入主界面
         ui_popwin_msgbox("正在连接...", g1, bt_list);
         ui_bt_pause_search();

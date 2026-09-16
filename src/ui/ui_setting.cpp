@@ -695,7 +695,9 @@ static lv_obj_t *ui_create_dropdown(lv_obj_t *parent, const void *icon, const ch
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
 
     lv_obj_t *dd = lv_dropdown_create(obj);
-    lv_obj_add_style(dd, &scroll_style, LV_PART_SCROLLBAR);
+    // 关闭态下拉框固定20px高,自身高度(字体行高)超出后AUTO模式会在右侧画出
+    // 2px蓝色竖线(箭头右侧),显式关闭滚动条;弹出的选项列表仍保留滚动条样式
+    lv_obj_set_scrollbar_mode(dd, LV_SCROLLBAR_MODE_OFF);
     lv_dropdown_set_options(dd, options);
     lv_obj_set_size(dd, 85, 20);
     lv_obj_set_style_text_font(dd, UI_FONT_BODY, 0);
