@@ -551,6 +551,9 @@ static void ble_stop_scanning();
 static bool ble_connect_to_device(const std::string &mac);
 // 协议栈就绪后需要自动恢复扫描(WiFi模式断线超时后重开BLE时置位)
 static bool ble_scan_on_sync = false;
+// NimBLE主机与控制器同步完成(ble_on_sync回调置位):
+// 同步完成前调用ble_hs_id_infer_auto等主机接口会解引用未初始化状态直接崩溃
+static volatile bool bleSynced = false;
 
 // L2CAP 事件
 static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
@@ -840,11 +843,15 @@ static void ble_on_reset(int reason)
   LOGGER_WARN("BLE reset, reason: %d", reason);
   ble_stop_scanning();
   bleIsOpen = false;
+  bleSynced = false;
 }
 
 // NimBLE 协议栈加载完成
 static void ble_on_sync(void)
 {
+  // 主机已与控制器同步完成,此后才允许调用地址推断/扫描/连接等主机接口
+  bleSynced = true;
+
   // 默认偏好2M PHY:对端发起PHY更新时优先协商到2M
   int rc = ble_gap_set_prefered_default_le_phy(BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK,
                                                BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK);
@@ -893,6 +900,7 @@ static bool ble_close()
     }
 
     bleIsOpen = false;
+    bleSynced = false;
   }
   LOGGER_INFO("BLE is close.");
   return true;
@@ -955,6 +963,14 @@ static void ble_start_scanning()
     // NimBLE未初始化(WiFi模式)时不可调用协议栈接口
     return;
   }
+  if (!bleSynced)
+  {
+    // 主机尚未与控制器完成同步(ble_open后约需数十毫秒):
+    // 此时调用ble_hs_id_infer_auto会解引用未初始化的主机状态直接崩溃,
+    // 挂起请求,由ble_on_sync在同步完成后补启扫描
+    ble_scan_on_sync = true;
+    return;
+  }
   if (!bleScanning)
   {
     int rc;
@@ -993,6 +1009,12 @@ static bool ble_connect_to_device(const std::string &mac)
 {
   if (bleIsOpen)
   {
+    if (!bleSynced)
+    {
+      // 主机尚未同步完成,直接调用会解引用未初始化状态;
+      // 返回失败由重连监控稍后自动重试
+      return false;
+    }
     Device *device = deviceManager.getDeviceByBleMAC(mac);
     if (device != nullptr)
     {
