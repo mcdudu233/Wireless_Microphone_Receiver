@@ -1,11 +1,15 @@
 #include "ui/ui.h"
 #include "ui/ui_setting.h"
 #include "module/tf.h"
+#include "module/rf.h"
 
 #include "esp_attr.h"
 
 #include <cstdio>
 #include <cstring>
+
+// 增益条跟踪发射端实际增益的刷新周期(ms):仅需指示趋势,1s足够
+#define AUDIO_GAIN_TRACK_PERIOD 1000
 
 static lv_obj_t *last_widget;
 
@@ -19,6 +23,8 @@ static lv_group_t *setting_group;
 static lv_group_t *last_group;
 static lv_obj_t *main_back_btn;
 static lv_obj_t *menu_title_label; // 菜单页头标题标签，文件管理页复用为当前目录
+static lv_timer_t *audio_gain_timer; // 增益条跟踪timer,音频输入页激活
+static bool gain_slider_updating = false; // 程序化刷新增益条期间抑制VALUE_CHANGED回调,避免跟踪值回环下发给发射端
 
 static lv_obj_t *file_list;
 static lv_obj_t *file_page_ref; // 文件管理子页引用，用于动态刷新页标题
@@ -64,6 +70,9 @@ static void save_config(uint8_t page);
 static void setting_value_changed_cb(lv_event_t *e);
 static void back_cb(lv_event_t *e);                        // 设置页面back按钮回调
 static void ui_set_audio_format_locked(bool locked); // BLE模式锁定采样格式下拉框
+static void ui_apply_gain_slider_lock();            // 自动增益模式禁用增益滑条
+static void refresh_gain_slider_from_device();      // 增益条刷新为发射端上报的实际增益
+static void audio_gain_timer_cb(lv_timer_t *);      // 增益条跟踪timer
 static void relink_bt_cb(lv_event_t *e);     // 重新链接蓝牙回调
 static void enter_subpage_cb(lv_event_t *e); // 记录进入子页的来源条目
 static void focus_async_cb(void *obj_p);     // 异步将焦点移回来源条目
@@ -442,6 +451,8 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_timer_pause(sys_info_timer);
     file_timer = lv_timer_create(file_timer_cb, 50, NULL);
     lv_timer_pause(file_timer);
+    audio_gain_timer = lv_timer_create(audio_gain_timer_cb, AUDIO_GAIN_TRACK_PERIOD, NULL);
+    lv_timer_pause(audio_gain_timer);
     set_settings_focus(0);
 }
 
@@ -536,6 +547,8 @@ static void back_cb(lv_event_t *e)
         sys_info_timer = nullptr;
         lv_timer_delete(file_timer);
         file_timer = nullptr;
+        lv_timer_delete(audio_gain_timer);
+        audio_gain_timer = nullptr;
         lv_obj_del(setting_widget);
         delete_settings_group();
     }
@@ -556,6 +569,10 @@ static void back_cb(lv_event_t *e)
             {
                 lv_timer_pause(file_timer);
             }
+            else if (p == e_page::audio_input_page)
+            {
+                lv_timer_pause(audio_gain_timer);
+            }
 
             lv_async_call(focus_async_cb, last_enter_btn);
         }
@@ -568,6 +585,8 @@ static void relink_bt_cb(lv_event_t *e)
     sys_info_timer = nullptr;
     lv_timer_delete(file_timer);
     file_timer = nullptr;
+    lv_timer_delete(audio_gain_timer);
+    audio_gain_timer = nullptr;
     lv_obj_del(setting_widget);
     delete_settings_group();
     ui_free_main_widget();
@@ -836,6 +855,14 @@ static void enter_subpage_cb(lv_event_t *e)
             lv_dropdown_set_selected(dd_audio_channel, 0);
         }
         ui_set_audio_format_locked(bleFixed);
+        // 自动增益模式增益由发射端算法决定,禁用滑条(仅展示实际值)
+        ui_apply_gain_slider_lock();
+        // 非手动模式下,已连接设备有上报时按发射端实际增益初始化增益条
+        if (l_audio_mode != AUDIO_MODE_MANUAL)
+        {
+            refresh_gain_slider_from_device();
+        }
+        lv_timer_resume(audio_gain_timer);
         break;
     }
     case e_page::audio_output_page:
@@ -1097,6 +1124,9 @@ static void usb_mode_changed_cb(lv_event_t *)
 
 static void setting_value_changed_cb(lv_event_t *e)
 {
+    // 增益条被程序化跟踪刷新(非用户编辑),不触发保存与下发
+    if (gain_slider_updating)
+        return;
     save_config((uint8_t)(intptr_t)lv_event_get_user_data(e));
 }
 
@@ -1122,6 +1152,60 @@ static void ui_set_audio_format_locked(bool locked)
         else
             lv_obj_add_flag(label_audio_ble_hint, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+// 自动增益模式下增益由发射端AGC决定,禁用增益滑条并置灰(样式与锁定下拉框一致);
+// 峰值减少/手动模式恢复可编辑,峰值减少模式的滑条值即下发给发射端的初始增益
+static void ui_apply_gain_slider_lock()
+{
+    if (slider_audio_gain == nullptr)
+        return;
+    const bool locked = dd_audio_audio_mode != nullptr &&
+                        lv_dropdown_get_selected(dd_audio_audio_mode) == 0; // 0=自动增益
+    if (locked)
+        lv_obj_add_state(slider_audio_gain, LV_STATE_DISABLED);
+    else
+        lv_obj_remove_state(slider_audio_gain, LV_STATE_DISABLED);
+    lv_obj_set_style_opa(slider_audio_gain, locked ? LV_OPA_60 : LV_OPA_COVER, 0);
+    if (label_audio_gain != nullptr)
+    {
+        lv_obj_set_style_text_opa(label_audio_gain, locked ? LV_OPA_60 : LV_OPA_COVER, 0);
+    }
+}
+
+// 将增益条刷新为发射端上报的当前实际增益(用户正拖动滑条时跳过)
+static void refresh_gain_slider_from_device()
+{
+    if (slider_audio_gain == nullptr || label_audio_gain == nullptr)
+        return;
+    if (lv_obj_has_state(slider_audio_gain, LV_STATE_PRESSED))
+        return;
+    const AudioGain gain = rf::getConnectedDeviceGain();
+    if (gain < 0)
+        return; // 无已连接设备或尚未上报
+    if (lv_slider_get_value(slider_audio_gain) != gain)
+    {
+        // 抑制VALUE_CHANGED回调:该值来自发射端,不能再作为命令回发
+        gain_slider_updating = true;
+        lv_slider_set_value(slider_audio_gain, gain, LV_ANIM_OFF);
+        gain_slider_updating = false;
+    }
+    lv_label_set_text_fmt(label_audio_gain, "%ddB", static_cast<int>(gain));
+}
+
+// 增益条跟踪:自动增益(只读展示)与峰值减少(跟随下调)模式按发射端实际增益刷新;
+// 手动模式增益即配置值,无需跟踪
+static void audio_gain_timer_cb(lv_timer_t *)
+{
+    if (dd_audio_audio_mode == nullptr)
+        return;
+    const AudioMode mode = static_cast<AudioMode>(
+        lv_dropdown_get_selected(dd_audio_audio_mode) == 0   ? AUDIO_MODE_AUTO
+        : lv_dropdown_get_selected(dd_audio_audio_mode) == 1 ? AUDIO_MODE_PEEK
+                                                             : AUDIO_MODE_MANUAL);
+    if (mode == AUDIO_MODE_MANUAL)
+        return;
+    refresh_gain_slider_from_device();
 }
 
 static void save_config(uint8_t page)
@@ -1206,6 +1290,8 @@ static void save_config(uint8_t page)
             v_channel = AUDIO_CHANNEL_SINGLE;
             v_rate = AUDIO_RATE_48000;
         }
+        // 模式切换时同步增益滑条可用状态(切到自动增益立即禁用)
+        ui_apply_gain_slider_lock();
         ui_setting_audio_input_page_scb(v_bit, v_channel, v_rate, v_gain, v_audio_mode);
         break;
     case e_page::audio_output_page:

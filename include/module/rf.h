@@ -58,6 +58,7 @@ struct __attribute__((packed)) ClientStatusPacket
 {
   PacketClientStatus status;
   uint8_t battery;
+  AudioGain gain; // 发射端当前实际增益(dB):自动增益/峰值减少模式下动态变化,供接收端跟踪
 };
 
 // 服务端控制设备
@@ -132,4 +133,6 @@ struct __attribute__((packed)) Packet
 namespace rf
 {
   void setup();
+  // 获取首个已连接发射器上报的当前实际增益(dB),无已连接/未上报时返回-1
+  AudioGain getConnectedDeviceGain();
 }

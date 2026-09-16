@@ -1515,6 +1515,8 @@ static bool rf_receive_packet(Device *device, const uint8_t *data, size_t len)
       return false;
     }
     device->setBattery(packet->packet.clientStatus.battery);
+    // 记录发射端当前实际增益,供设置页增益条跟踪与回写配置
+    device->setGain(packet->packet.clientStatus.gain);
     // device->print();
     return true;
   }
@@ -2331,6 +2333,21 @@ void ui_bt_seed_devices()
   {
     ui_bt_update(devices[i].getBleMACString(), devices[i].isBleConnected() || devices[i].isWifiConnected());
   }
+}
+
+// 获取首个已连接发射器上报的当前实际增益(dB),无已连接/未上报时返回-1
+AudioGain rf::getConnectedDeviceGain()
+{
+  Device *devices = deviceManager.getAllDevices();
+  const uint8_t size = deviceManager.size();
+  for (uint8_t i = 0; i < size; i++)
+  {
+    if ((devices[i].isBleConnected() || devices[i].isWifiConnected()) && devices[i].getGain() >= 0)
+    {
+      return devices[i].getGain();
+    }
+  }
+  return (AudioGain)-1;
 }
 
 // WiFi模式下是否已无需协议迁移即可完成:

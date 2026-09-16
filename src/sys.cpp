@@ -2,6 +2,7 @@
 #include "config.h"
 #include "sys.h"
 #include "ui/ui.h"
+#include "module/rf.h"
 
 SystemInfo systemInfo;
 
@@ -59,6 +60,20 @@ static void system_handle(void *arg)
     heap_caps_get_info(&heapInfo, MALLOC_CAP_SPIRAM);
     systemInfo.psramUsedSize = heapInfo.total_allocated_bytes;
     systemInfo.psramTotalSize = heapInfo.total_allocated_bytes + heapInfo.total_free_bytes;
+
+    // 峰值减少模式下发射端增益只降不升:
+    // 把下降后的实际增益回写配置,下次下发的初始增益即为当前实际值
+    // (仅在数值变化时保存,避免每秒写Flash)
+    if (config::config.audio.mode == AUDIO_MODE_PEEK)
+    {
+      const AudioGain gain = rf::getConnectedDeviceGain();
+      if (gain >= 0 && gain < config::config.audio.gain)
+      {
+        config::config.audio.gain = gain;
+        config::save();
+        LOGGER_INFO("PEEK gain reduced to %ddB, saved.", (int)gain);
+      }
+    }
 
 #ifdef SYSTEM_PRINT_INFORMATION
     logger::debugln("Memory Info:");

@@ -36,7 +36,7 @@ static uint64_t macToUint64(const uint8_t mac[6])
 }
 
 Device::Device()
-    : id(0), battery(100), rssi(0), voiceLevelL(0), voiceLevelR(0),
+    : id(0), battery(100), rssi(0), gain(-1), voiceLevelL(0), voiceLevelR(0),
       bleConnected(false), bleMAC{0},
       bleHandle(0), bleChannel(nullptr),
       wifiConnected(false), wifiMAC{0}, wifiIP(0) {}
@@ -44,7 +44,7 @@ Device::Device()
 Device::Device(uint8_t battery, int8_t rssi,
                bool bleConnected, bool bleDoConnect, uint8_t *bleMAC, uint16_t bleHandle, ble_l2cap_chan *bleChannel,
                bool wifiConnected, uint8_t *wifiMAC, uint32_t wifiIP)
-    : id(0), battery(battery), rssi(rssi), voiceLevelL(0), voiceLevelR(0),
+    : id(0), battery(battery), rssi(rssi), gain(-1), voiceLevelL(0), voiceLevelR(0),
       bleConnected(bleConnected), bleMAC{0},
       bleHandle(bleHandle), bleChannel(bleChannel),
       wifiConnected(wifiConnected), wifiMAC{0}, wifiIP(wifiIP)
@@ -54,7 +54,7 @@ Device::Device(uint8_t battery, int8_t rssi,
 }
 
 Device::Device(const Device &other)
-    : id(other.id), battery(other.battery), rssi(other.rssi),
+    : id(other.id), battery(other.battery), rssi(other.rssi), gain(other.gain),
       voiceLevelL(other.voiceLevelL), voiceLevelR(other.voiceLevelR),
       bleConnected(other.bleConnected), bleHandle(other.bleHandle),
       bleChannel(other.bleChannel),
@@ -65,7 +65,7 @@ Device::Device(const Device &other)
 }
 
 Device::Device(Device &&other) noexcept
-    : id(other.id), battery(other.battery), rssi(other.rssi),
+    : id(other.id), battery(other.battery), rssi(other.rssi), gain(other.gain),
       voiceLevelL(other.voiceLevelL), voiceLevelR(other.voiceLevelR),
       bleConnected(other.bleConnected), bleHandle(other.bleHandle),
       bleChannel(other.bleChannel),
@@ -82,6 +82,7 @@ Device &Device::operator=(const Device &other)
     id = other.id;
     battery = other.battery;
     rssi = other.rssi;
+    gain = other.gain;
     voiceLevelL = other.voiceLevelL;
     voiceLevelR = other.voiceLevelR;
     bleConnected = other.bleConnected;
@@ -102,6 +103,7 @@ Device &Device::operator=(Device &&other) noexcept
     id = other.id;
     battery = other.battery;
     rssi = other.rssi;
+    gain = other.gain;
     voiceLevelL = other.voiceLevelL;
     voiceLevelR = other.voiceLevelR;
     bleConnected = other.bleConnected;
@@ -135,6 +137,14 @@ int8_t Device::getRssi() const
 void Device::setRssi(int8_t rssi)
 {
   this->rssi = rssi;
+}
+AudioGain Device::getGain() const
+{
+  return gain;
+}
+void Device::setGain(AudioGain gain)
+{
+  this->gain = gain;
 }
 uint8_t Device::getVoiceLevelL() const
 {

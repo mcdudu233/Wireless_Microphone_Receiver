@@ -14,6 +14,8 @@ private:
   // 设备信息
   uint8_t battery;
   int8_t rssi;
+  // 发射端上报的当前实际增益(dB),-1表示尚未上报
+  AudioGain gain;
   // 实时音频电平 (0-100)
   uint8_t voiceLevelL;
   uint8_t voiceLevelR;
@@ -47,6 +49,9 @@ public:
   void setBattery(uint8_t battery);
   int8_t getRssi() const;
   void setRssi(int8_t rssi);
+  // 发射端当前实际增益(dB)
+  AudioGain getGain() const;
+  void setGain(AudioGain gain);
   uint8_t getVoiceLevelL() const;
   uint8_t getVoiceLevelR() const;
   void setVoiceLevelL(uint8_t level);

@@ -183,6 +183,13 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   output page can either follow the 3.5 mm jack-detect signal or keep the DAC
   enabled continuously; playback format always follows the microphone sample
   rate, bit depth, and channels.
+- Gain mode drives the gain slider state: in auto-gain mode the slider is
+  disabled with the same muted treatment as the BLE-locked dropdowns and
+  read-only displays the transmitter's live AGC gain; in peak-reduction mode
+  the slider value is the initial gain commanded to the transmitter and then
+  follows the transmitter's gain reductions (never increases) at about 1 Hz;
+  manual mode edits a fixed gain. Peak-reduction reductions are written back
+  to the stored gain so the next commanded initial gain matches reality.
 - While the transport protocol is BLE, the microphone format is fixed at
   48 kHz / 16 bit / mono: the sample-rate, bit-depth, and channel dropdowns are
   shown in a muted disabled state (60% text opacity, `border-subtle` outline)
