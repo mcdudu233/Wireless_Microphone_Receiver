@@ -1,0 +1,13 @@
+#pragma once
+#define LV_CONF_H
+#define LV_COLOR_DEPTH 32
+#define LV_USE_OS 0
+#define LV_MEM_SIZE (2 * 1024 * 1024)
+#define LV_FONT_MONTSERRAT_12 1
+#define LV_FONT_MONTSERRAT_14 1
+#define LV_FONT_MONTSERRAT_16 1
+#define LV_USE_SNAPSHOT 1
+#define LV_USE_LOG 0
+#define LV_USE_THORVG_INTERNAL 0
+#define LV_BUILD_EXAMPLES 0
+#define LV_BUILD_DEMOS 0

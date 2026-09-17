@@ -10,6 +10,7 @@ typedef struct
     lv_obj_t *left_voice_bar;
     lv_obj_t *right_voice_bar;
     lv_obj_t *battery_fill;   // 电池图标内的电量填充条(0-100)
+    lv_obj_t *battery_label;  // 精确电量百分比
     lv_obj_t *signal_bars[4]; // 信号强度格(从左到右递增,点亮数=信号强弱)
     lv_obj_t *loss_label;     // 丢包率标签(0%为绿色,非0%为红色)
     lv_obj_t *tab;

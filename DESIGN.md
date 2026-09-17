@@ -29,9 +29,9 @@ but each screen must have one obvious focus target and no decorative clutter.
 | Success | `status-success` | `#059669` | Connected and completed states |
 | Warning surface | `status-warning-bg` | `#FFFBEB` | Warning selection state |
 | Success surface | `status-success-bg` | `#ECFDF5` | Connected selection state |
-| Quality low | `quality-low` | `#0891B2` | 48 kHz sample-rate status icon |
-| Quality mid | `quality-mid` | `#2D6BDB` | 96 kHz sample-rate status icon (same value as `accent-primary`) |
-| Quality high | `quality-high` | `#7C3AED` | 192 kHz sample-rate status icon |
+| Quality low | `quality-low` | `#0891B2` | Legacy 48 kHz icon (unused on dashboard) |
+| Quality mid | `quality-mid` | `#2D6BDB` | Legacy 96 kHz icon (same value as `accent-primary`) |
+| Quality high | `quality-high` | `#7C3AED` | USB JTAG / legacy 192 kHz icon |
 | Status amber | `status-amber` | `#D97706` | USB SD-card mode status icon |
 | Status error | `status-error` | LVGL palette red | Device-list disconnected state text (semantic error state, same rule as meter red) |
 
@@ -56,8 +56,8 @@ but each screen must have one obvious focus target and no decorative clutter.
 
 All three sizes are generated from the approved HarmonyOS Sans SC sources in
 `docs/resources/fonts/` (titles use Medium, body uses Regular) via the pipeline
-in `docs/tools/README.md`. They share one 188-glyph Chinese symbol set extracted
-from every string literal in the Receiver sources, and every size falls back to
+in `docs/tools/README.md`. They share one 194-glyph Chinese symbol set maintained
+in Receiver/src/res/font/symbols.txt, and every size falls back to
 the matching built-in Montserrat font for `LV_SYMBOL_*` glyphs. Generated font
 files must not be hand-edited.
 
@@ -85,14 +85,9 @@ files must not be hand-edited.
 - The boot microphone icon is 128x128 displayed at 32 px.
 - Icon color stays neutral; focus and selection are expressed by row
   background/outline styles only (accent is functional, never decorative).
-  Exception: the main-screen status bar uses colored Tabler icons whose colors
-  semantically encode state — slot 1 sample rate (`volume-2` cyan
-  `quality-low` for 48 kHz, `volume-3` blue `quality-mid` for 96 kHz,
-  `volume-4` violet `quality-high` for 192 kHz), slot 2 USB mode (`usb` gray
-  `text-tertiary` when off, `headphones` blue `accent-primary` for audio,
-  `device-sd-card` amber `status-amber` for SD, `cpu` violet `quality-high`
-  for JTAG), slot 3 transport (`bluetooth` blue `accent-primary` for BLE,
-  `wifi` green `status-success` for WiFi).
+  Exception: main-screen USB/transport icons use semantic colors (see Main
+  dashboard below). Sampling rate uses a numeric blue badge, replacing the
+  historical colored volume icons (those resources remain for compatibility).
 - Mapping from icon files to Tabler names and the regeneration pipeline live
   in `docs/tools/README.md`.
 
@@ -238,33 +233,36 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   track, blue filled portion, white knob, and blue focus outline use existing
   design tokens.
 
-### Device meter card
-- **Structure**: 20 px tab bar, two labeled 10 px meter rows, one compact status row.
-- **Layout**: every pixel dimension is explicit; status values use short symbol
-  plus number forms so left and right values cannot collide.
-- **Status row**: a right-aligned cluster reading left→right: 14x10 four-bar
-  signal widget (2 px bars, heights 4/6/8/10, 2 px gaps), 26..30 px
-  packet-loss label (`0%`-style, `status-success` at 0%, LVGL palette red
-  above 0%), then the 24x10 battery icon (21x10 outlined body with 2x4 cap,
-  17x6 fill bar whose width maps the charge level and whose color sweeps
-  red→yellow→green with level) flush against the card's right edge; 4 px gaps
-  separate the three members and the bottom-left of the row stays empty.
-  Lit bar count maps RSSI (about -90..-35 dBm → 0..100%) and the lit color
-  uses the same red→yellow→green sweep. No numeric battery/percentage text
-  and no overall transmission-rate readout on the card or the main screen.
+### Main dashboard (2026-09 refresh)
+- Fixed header at y=2..20: a 40x18 settings button at x=4, then a numeric
+  sample-rate badge at x=84 (32x18), USB at x=120 and transport at x=140
+  (both 16x16). Rate badges read `48k`, `96k`, `192k`: sampling rate in kHz,
+  not loudness. All use accent-primary on accent-surface, differentiated by
+  the number rather than color alone; they replace the old volume icons.
+- White 152x54 information surface at (4,24), without shadow. A 20 px tab
+  strip uses fixed 32 px tabs with persistent device numbers; focused tabs have an inset blue
+  outline and the selected tab has a pale blue surface. Tab labels inherit
+  state color from their button. Focus order is devices, then settings.
+- The 152x34 card has two side-by-side L/R meters (52x6), followed by one
+  15 px status line: battery outline and percentage, four signal bars,
+  and explicit `丢包N%` text. Text remains within the card even at 100%.
+  Healthy indicators use success-green; low levels use amber/red thresholds,
+  avoiding the former rainbow gradient. Meter tracks are muted gray.
+- USB uses gray USB / blue headphones / amber SD card / violet CPU for
+  off / audio / storage / JTAG. WiFi is green, Bluetooth blue. Image slots
+  use LVGL CONTAIN alignment to scale source pixels into the actual box.
+- Reconnect overlay covers the entire 152x34 content area at (0,20), leaves
+  tabs/settings reachable, and uses a bounded 144 px one-line message.
+- Empty state occupies only the content area. Header states refresh even
+  with no device cards. No new page or global font role is introduced.
 
 ### Reconnect status chip
-- **Structure**: non-modal 94x48 rounded (4 px) panel covering the whole device
-  card area (`status-warning-bg` surface with `text-primary` 12 px text), so the
-  card's L/R meters and status row stay hidden behind it while reconnecting.
-  It is centered on the card area (10 px below the viewport center, matching
-  the tab bar plus card geometry) over the device card viewport.
-- **Text**: one line, width 88 px, centered, with end ellipsis; single device
-  shows `设备N重连中...`, multiple devices show `重连中... xN`.
-- **Behavior**: appears while a linked device is offline and inside the
-  reconnect grace window; never joins an encoder group and never blocks
-  navigation or the settings entry. It disappears as soon as every waiting
-  device reconnects or is dropped.
+- Non-modal warning-surface panel covering the dashboard content (152x34),
+  below the tab strip. It never joins an encoder group or blocks settings.
+- One device shows `设备N重连中...`; multiple devices show `重连中... xN`.
+  The bounded 144 px label uses the body font and end ellipsis.
+- It disappears when all waiting devices reconnect or are removed. Removing
+  a card also removes its tab button and keeps the active index in range.
 
 ### Connection-loss dialog and auto-return
 - **Trigger**: when a device stays offline past the reconnect grace window
