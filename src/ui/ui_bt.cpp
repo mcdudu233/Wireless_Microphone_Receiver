@@ -379,7 +379,12 @@ void ui_bt_init()
     lv_label_set_text(bt_empty_hint, "暂无设备");
     lv_obj_set_style_text_font(bt_empty_hint, UI_FONT_BODY, 0);
     lv_obj_set_style_text_color(bt_empty_hint, lv_color_hex(0x9CA3AF), 0);
-    lv_obj_align_to(bt_empty_hint, bt_list, LV_ALIGN_TOP_MID, 0, 12);
+    // 注意:lv_obj_align_to的TOP_MID以列表内容区为基准(含36px顶部留白+1px边框),
+    // 之前+12px的偏移会把提示压到贴底的"完成"行上;改为相对窗口的显式几何,
+    // 垂直居中于完成行上方的卡片留白区(提示只在0设备时存在,此时留白恒为36px)
+    const int32_t hint_blank_h = (BT_CARD_H - 2) - BT_ROW_HEIGHT;          // 完成行上方留白(0设备时)
+    const int32_t hint_line_h = lv_font_get_line_height(UI_FONT_BODY);     // 提示行高
+    lv_obj_align(bt_empty_hint, LV_ALIGN_TOP_MID, 0, BT_CARD_Y + 1 + (hint_blank_h - hint_line_h) / 2);
 
     ui_bind_group_to_all_encoders(g1);
 
