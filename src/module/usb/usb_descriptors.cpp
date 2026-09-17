@@ -1,3 +1,4 @@
+#include "config.h"
 #include "module/usb/usb_descriptors.h"
 #include "module/usb/usb.h"
 
@@ -20,7 +21,7 @@ tusb_desc_device_t const desc_device_audio = {
 
     .idVendor = 0x303A,  // ID
     .idProduct = 0x8000, // ID
-    .bcdDevice = 0x0100,
+    .bcdDevice = CONFIG_VERSION_BCD,
 
     .iManufacturer = 0x01,
     .iProduct = 0x02,
@@ -38,7 +39,7 @@ tusb_desc_device_t const desc_device_msc = {
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor = 0x303A,
     .idProduct = 0x8001,
-    .bcdDevice = 0x0100,
+    .bcdDevice = CONFIG_VERSION_BCD,
     .iManufacturer = 0x01,
     .iProduct = 0x02,
     .iSerialNumber = 0x03,
