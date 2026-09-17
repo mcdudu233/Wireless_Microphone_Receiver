@@ -1,8 +1,38 @@
 # 无线领夹式麦克风-接收器 (Wireless Microphone Receiver)
 
-本文件夹是开源无线领夹式麦克风的接收器的代码，完整开源项目见[根目录](https://github.com/mcdudu233/Wireless_Microphone.git)。
+**本文件夹是开源无线领夹式麦克风的接收器的代码，喜欢可以给个 Star 哦~**
 
-接收器主要用于接收、输出和录制音频，因此代码主要实现了用 ESP32-S3 自带的 WIFI 或 BLE 接受无损的音频数据，还支持用 I2S 协议或者 USB 音频协议播放音频数据，和通过 TF 卡录制音频等等功能。。受制于硬件限制，接收器耳机孔最高支持 384kHZ(32bit) 的音频输出，作为 USB 音频设备最高支持 192kHz(16bit) 输出。
+**完整开源项目见[根目录](https://github.com/mcdudu233/Wireless_Microphone.git)，硬件开源见[立创平台](https://oshwhub.com/dudu233/wireless-microphone)。**
+
+接收器主要用于接收、输出和录制音频，因此代码主要实现了用 ESP32-S3 自带的 WIFI 或 BLE 接受无损的音频数据，还支持用 I2S 协议或者 USB 音频协议播放音频数据，和通过 TF 卡录制音频等等功能。目前接收器耳机孔最高支持 384kHZ(32bit) 的音频输出，但受制于硬件限制， USB 音频设备最高只支持 192kHz(16bit) 输出。
+
+---
+
+## 操作说明
+
+### 按键说明
+
+接收器有两个按键，以屏幕朝向人为例，分别说明作用：
+
+| 按键    | 作用                 | 备注           |
+| ----- | ------------------ | ------------ |
+| 左按键   | 单击向左或者向上移动光标       |              |
+| 右按键   | 单击向右或者向下移动光标       |              |
+| 左、右按键 | 同时按下为确认，用于点击按钮或者其他 | 该项指左、右按键同时按下 |
+
+### 设备连接
+
+首次开机以后，进入设备连接界面。这时候，通过左、右按键选择不同的发射器设备进行连接，最后点击完成即可完成连接设备并进入主界面。
+
+### 主界面说明
+
+主界面左边部分为设备展示，用于显示不同发射器设备的信息。其中上半部分的“L”、“R”分别为左、右声道的声音强度大小；下半部分有四个图标，分别为“连接方式”（WiFi或者蓝牙）、“电量”（电池电量从0~100%）、“信号强度”（WiFi或者蓝牙的信号强度）和“信号稳定度”（丢包率，丢包率为0%即满格）。
+
+主界面右上部分为功能展示，总共三个图标，分别为“录制频率”（48kHz、96kHz和192kHz）、“录制比特”（16bit、24bit和32bit）和“USB传输模式”（四种模式）。
+
+主界面右下部分为两个按钮，分别为“录制”和“设置”，作用为别为录制音频和进入设置界面。
+
+---
 
 ## 目录结构
 
@@ -22,6 +52,8 @@
 - [LICENSE](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/LICENSE) --> 使用协议
 - [README.md](https://github.com/mcdudu233/Wireless_Microphone/blob/main/Receiver/README.md) --> 介绍
 
+---
+
 ## 下载&编译
 
 项目基于 PlatformIO 开发，使用 Arduino 和 ESP-IDF 双框架。
@@ -35,21 +67,28 @@
 ### 手动编译
 
 1. 用 Visual Studio Code 打开 **发射器(Transmitter)** 或者 **接收器(Receiver)** 的项目
-
+   
    本项目需要使用 **Visual Studio Code** 打开，如没有请先下载安装。
-
+   
    安装好 Visual Studio Code 后，请在左边界面安装 **PlatformIO** 插件。
-
+   
    根据提示重新打开这个项目， PlatformIO 会自动下载依赖等等数据，这时候请不要编译或者上传固件。
 
 2. 修改代码 *(如有需要)*
-
+   
    根据 **README.md** 提供的 **目录结构** ，可以快速理解代码的原理，根据自己需要修改代码。
 
 3. 点击界面左下角或者左边的 Build 进行编译即可
-
+   
    找到 PlatformIO 自带的 **Build** 按钮编译即可，这时候会自动下载依赖编译程序，如有问题欢迎提交 **Issues** 。
 
+---
+
+## 使用协议
+
+使用前请查看 [LICENSE](https://github.com/mcdudu233/Wireless_Microphone_Receiver/blob/master/LICENSE)。
+
+---
 
 ## 相关链接
 
