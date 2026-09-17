@@ -11,15 +11,18 @@ Run from `code/` with Python, CMake and MinGW on PATH (or supply its bin path):
 python Receiver/test/main_dashboard/run.py --compiler-bin '<MinGW bin>' --output "$env:TEMP/receiver-dashboard-qa"
 ```
 
-Build products and PPM screenshots stay in the chosen scratch directory, outside
+Build products and PPM screenshots (`captures/`) stay in the chosen scratch directory, outside
 firmware sources. The generated scratch CMake project does not modify the
 PlatformIO-managed ESP-IDF bridge.
 
 Assertions and screenshots cover:
 
-- Three sample rates, four USB modes, both transports (24 combinations).
+- Three sample rates, three bit depths, four USB modes, both transports (72 combinations).
 - 0/1/4 devices, first/middle/last tab focus, settings entry and repeat entry.
-- Exact telemetry labels, full/empty battery, weak/unknown RSSI, 100% loss.
+- Exact mode labels, icon-only full/empty battery, weak/unknown RSSI, packet-integrity bar thresholds.
+- Single-row right badges, left device surface contrast, transport/S/P/battery order.
+- Compact 10 px S/P annotations and signal-matched colors at weak/medium/strong/unknown RSSI.
+- Loss boundaries 0/1/2/3/9/10/99/100/255 and pixel checks for green/red meter endpoints.
 - Geometry bounds and text widths at maximum values and device number 255.
 - One/multiple reconnect overlays, longest link-loss dialog and group restoration.
 - Removal of middle/active devices: tab buttons, group count, selected device.
@@ -34,4 +37,7 @@ Hardware validation remains unperformed: physical 160x80 LCD contrast/rendering,
 Previous/Next/both-button timing, live RF telemetry, and screen-task stack
 high-water mark. Desktop snapshots are not evidence of those hardware properties.
 
-PlatformIO debug and release builds passed; release merged firmware generated.
+See the detailed Chinese walkthrough and PNG/contact-sheet tool in
+`../../../docs/tools/lvgl_preview.md` (shared local docs outside this Git repository).
+
+The ASCII-only compact status font is generated with `docs/tools/gen_status_font.ps1`.

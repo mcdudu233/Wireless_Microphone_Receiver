@@ -9,6 +9,8 @@ p.add_argument('--output', required=True)
 a=p.parse_args()
 here=pathlib.Path(__file__).resolve().parent
 repo=here.parents[1]
+if not (repo/'managed_components/lvgl__lvgl/CMakeLists.txt').is_file():
+    p.error('Managed LVGL sources are unavailable. Finish the PlatformIO build first; do not run both builds concurrently.')
 out=pathlib.Path(a.output).resolve();out.mkdir(parents=True,exist_ok=True)
 env=dict(os.environ);env['PATH']=str(pathlib.Path(a.compiler_bin).resolve())+os.pathsep+env['PATH']
 cmake=f'''cmake_minimum_required(VERSION 3.16)
@@ -28,4 +30,7 @@ target_link_libraries(dashboard PRIVATE lvgl)
 (out/'CMakeLists.txt').write_text(cmake)
 subprocess.run(['cmake','-S',str(out),'-B',str(out/'build'),'-G','MinGW Makefiles'],env=env,check=True)
 subprocess.run(['cmake','--build',str(out/'build'),'-j','8'],env=env,check=True)
-subprocess.run([str(out/'build/dashboard.exe')],cwd=out,env=env,check=True)
+captures=out/'captures'
+captures.mkdir(exist_ok=True)
+subprocess.run([str(out/'build/dashboard.exe')],cwd=captures,env=env,check=True)
+print(f'Screenshots: {captures}')

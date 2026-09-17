@@ -40,3 +40,6 @@ extern const lv_image_dsc_t ui_img_rf_wifi;
 extern const lv_font_t lv_font_harmonyos_12;
 extern const lv_font_t lv_font_harmonyos_14;
 extern const lv_font_t lv_font_harmonyos_16;
+
+// Compact ASCII annotations on the main dashboard only.
+extern const lv_font_t lv_font_harmonyos_status_10;

@@ -6,6 +6,7 @@ namespace config { ConfigValue config; }
 static unsigned device_count = 4;
 static int8_t power_value = 100, signal_value = -35;
 static uint8_t loss_value = 0;
+static int8_t left_level = 72, right_level = 46;
 static bool settings_opened;
 static unsigned number_offset;
 std::vector<std::string> ui_bt_get_linked() {
@@ -17,8 +18,8 @@ uint8_t ui_info_get_number(const std::string &mac) { return std::stoi(mac)+numbe
 int8_t ui_info_get_power(const std::string &) { return power_value; }
 int8_t ui_info_get_signal(const std::string &) { return signal_value; }
 uint8_t ui_info_get_loss(const std::string &) { return loss_value; }
-int8_t ui_info_get_left_voice(const std::string &) { return 72; }
-int8_t ui_info_get_right_voice(const std::string &) { return 46; }
+int8_t ui_info_get_left_voice(const std::string &) { return left_level; }
+int8_t ui_info_get_right_voice(const std::string &) { return right_level; }
 void ui_setting_init(lv_obj_t *) { settings_opened = true; }
 void ui_bt_init() {}
 static void settle() {
@@ -31,7 +32,7 @@ static void inside(lv_obj_t *obj, lv_obj_t *parent) {
 }
 static void label_fits(lv_obj_t *label) {
     lv_point_t size;
-    lv_text_get_size(&size,lv_label_get_text(label),UI_FONT_BODY,0,0,1000,LV_TEXT_FLAG_NONE);
+    lv_text_get_size(&size,lv_label_get_text(label),lv_obj_get_style_text_font(label,LV_PART_MAIN),0,0,1000,LV_TEXT_FLAG_NONE);
     assert(size.x<=lv_obj_get_width(label));
     assert(size.y<=lv_obj_get_height(label));
 }
@@ -65,31 +66,95 @@ int main() {
         auto card=lv_obj_get_child(cards[i]->tab,0);
         inside(card,info_widget);
         inside(cards[i]->left_voice_bar,card);inside(cards[i]->right_voice_bar,card);
-        inside(cards[i]->battery_label,card);inside(cards[i]->loss_label,card);
+        inside(cards[i]->battery_fill,card);inside(cards[i]->transport_icon,card);
+        inside(cards[i]->packet_label,card);
+        for(int k=0;k<4;k++) { inside(cards[i]->signal_bars[k],card);inside(cards[i]->packet_bars[k],card); }
+        assert(lv_obj_get_y(cards[i]->left_voice_bar)<lv_obj_get_y(cards[i]->right_voice_bar));
         inside(button,info_widget);
-        label_fits(cards[i]->battery_label);label_fits(cards[i]->loss_label);
+
         capture(("focus_"+std::to_string(i)).c_str());
     }
+    auto rate_tile=lv_obj_get_parent(status_rate_badge);
+    auto bit_tile=lv_obj_get_parent(status_bit_badge);
+    auto usb_tile=lv_obj_get_parent(status_img_usb);
+    assert(lv_obj_get_y(rate_tile)==4 && lv_obj_get_y(bit_tile)==4 && lv_obj_get_y(usb_tile)==4);
+    assert(lv_obj_get_x(rate_tile)+lv_obj_get_width(rate_tile)<lv_obj_get_x(bit_tile));
+    assert(lv_obj_get_x(bit_tile)+lv_obj_get_width(bit_tile)<lv_obj_get_x(usb_tile));
+    for(auto tile:{rate_tile,bit_tile,usb_tile}) { inside(tile,main_widget);assert(lv_obj_get_height(tile)==16); }
+    auto active=cards[3];
+    auto battery=lv_obj_get_parent(lv_obj_get_parent(active->battery_fill));
+    assert(lv_obj_get_x(active->transport_icon)<lv_obj_get_x(active->signal_label));
+    assert(lv_obj_get_x(active->signal_bars[3])<lv_obj_get_x(active->packet_label));
+    assert(lv_obj_get_x(active->packet_bars[3])<lv_obj_get_x(battery));
+    assert(lv_obj_get_y(active->signal_label)==lv_obj_get_y(active->packet_label));
+    assert(lv_obj_get_style_text_font(active->signal_label,LV_PART_MAIN)==&lv_font_harmonyos_status_10);
+    assert(lv_obj_get_style_text_font(active->packet_label,LV_PART_MAIN)==&lv_font_harmonyos_status_10);
+    assert(!lv_color_eq(lv_obj_get_style_bg_color(info_widget,LV_PART_MAIN),lv_obj_get_style_bg_color(main_widget,LV_PART_MAIN)));
     capture("four_devices");
     const AudioRate rates[]={AUDIO_RATE_48000,AUDIO_RATE_96000,AUDIO_RATE_192000};
     const char *texts[]={"48k","96k","192k"};
     const lv_image_dsc_t *usb_icons[]={&ui_img_usb_none,&ui_img_usb_jtag,&ui_img_usb_audio,&ui_img_usb_sd};
     const lv_image_dsc_t *rf_icons[]={&ui_img_rf_ble,&ui_img_rf_wifi};
-    for(int r=0;r<3;r++) for(int u=0;u<4;u++) for(int f=1;f<=2;f++) {
-        config::config.audio.rate=rates[r];config::config.usb.mode=(USBMode)u;config::config.rf.mode=(RFMode)f;
+    const AudioBit bits[]={AUDIO_BIT_16,AUDIO_BIT_24,AUDIO_BIT_32};
+    const char *bit_texts[]={"16b","24b","32b"};
+    for(int r=0;r<3;r++) for(int b=0;b<3;b++) for(int u=0;u<4;u++) for(int f=1;f<=2;f++) {
+        config::config.audio.rate=rates[r];config::config.audio.bit=bits[b];
+        config::config.usb.mode=(USBMode)u;config::config.rf.mode=(RFMode)f;
         settle();
         assert(std::strcmp(lv_label_get_text(status_rate_badge),texts[r])==0);
+        assert(std::strcmp(lv_label_get_text(status_bit_badge),bit_texts[b])==0);
         assert(lv_image_get_src(status_img_usb)==usb_icons[u]);
-        assert(lv_image_get_src(status_img_rf)==rf_icons[f-1]);
-        inside(status_rate_badge,main_widget);inside(status_img_usb,main_widget);inside(status_img_rf,main_widget);
-        label_fits(status_rate_badge);
-        capture(("mode_"+std::to_string(r)+std::to_string(u)+std::to_string(f)).c_str());
+        for(auto card:cards) assert(lv_image_get_src(card->transport_icon)==rf_icons[f-1]);
+        inside(status_rate_badge,lv_obj_get_parent(status_rate_badge));
+        inside(status_bit_badge,lv_obj_get_parent(status_bit_badge));
+        inside(status_img_usb,lv_obj_get_parent(status_img_usb));
+        label_fits(status_rate_badge);label_fits(status_bit_badge);
+        capture(("mode_"+std::to_string(r)+std::to_string(b)+std::to_string(u)+std::to_string(f)).c_str());
     }
-    power_value=0;signal_value=-95;loss_value=100;settle();
     auto data=cards[3];
-    assert(std::strcmp(lv_label_get_text(data->loss_label),"丢包100%")==0);
-    label_fits(data->loss_label);capture("weak_signal_max_loss");
+    const int8_t signals[]={-95,-70,-55,-35,0};
+    const unsigned signal_counts[]={1,2,3,4,0};
+    const lv_color_t signal_colors[]={lv_palette_main(LV_PALETTE_RED),lv_color_hex(0xD97706),
+                                     lv_color_hex(0x059669),lv_color_hex(0x059669),lv_palette_main(LV_PALETTE_RED)};
+    for(unsigned k=0;k<sizeof(signals);k++) {
+        signal_value=signals[k];settle();
+        assert(lv_color_eq(lv_obj_get_style_text_color(data->signal_label,LV_PART_MAIN),signal_colors[k]));
+        for(unsigned i=0;i<4;i++) {
+            auto expected=i<signal_counts[k] ? signal_colors[k] : lv_color_hex(0xE5E7EB);
+            assert(lv_color_eq(lv_obj_get_style_bg_color(data->signal_bars[i],LV_PART_MAIN),expected));
+        }
+        capture(("signal_"+std::to_string(signals[k])).c_str());
+    }
+    const uint8_t losses[]={0,1,2,3,9,10,99,100,255};
+    const unsigned expected_counts[]={4,3,3,2,2,1,1,0,0};
+    for(unsigned k=0;k<sizeof(losses);k++) {
+        loss_value=losses[k];settle();
+        for(unsigned i=0;i<4;i++) {
+            const auto color=lv_obj_get_style_bg_color(data->packet_bars[i],LV_PART_MAIN);
+            assert(lv_color_eq(color,lv_color_hex(0xE5E7EB))==(i>=expected_counts[k]));
+        }
+        const auto expected_color=losses[k]==0 ? lv_color_hex(0x059669) :
+                                  losses[k]<=9 ? lv_color_hex(0xD97706) : lv_palette_main(LV_PALETTE_RED);
+        assert(lv_color_eq(lv_obj_get_style_text_color(data->packet_label,LV_PART_MAIN),expected_color));
+        capture(("loss_"+std::to_string(losses[k])).c_str());
+    }
+    power_value=0;signal_value=-95;loss_value=100;settle();capture("weak_signal_max_loss");
+    assert(lv_bar_get_value(data->battery_fill)==0);
     signal_value=0;power_value=100;settle();capture("unknown_signal");
+    assert(lv_bar_get_value(data->battery_fill)==100);
+    for(auto bar_obj:data->signal_bars) assert(lv_color_eq(lv_obj_get_style_bg_color(bar_obj,LV_PART_MAIN),lv_color_hex(0xE5E7EB)));
+    left_level=100;right_level=10;capture("meter_full_and_low");
+    auto snapshot=lv_snapshot_take(lv_screen_active(),LV_COLOR_FORMAT_RGB888);
+    assert(snapshot);
+    lv_area_t meter;lv_obj_get_coords(data->left_voice_bar,&meter);
+    const auto start=snapshot->data+(meter.y1+3)*snapshot->header.stride+(meter.x1+2)*3;
+    const auto end=snapshot->data+(meter.y1+3)*snapshot->header.stride+(meter.x2-2)*3;
+    assert(start[1]>start[2]);assert(end[2]>end[1]); // BGR: green low, red full scale.
+    lv_obj_get_coords(data->right_voice_bar,&meter);
+    const auto low=snapshot->data+(meter.y1+3)*snapshot->header.stride+(meter.x1+2)*3;
+    assert(low[1]>low[2]);
+    lv_draw_buf_destroy(snapshot);
+    left_level=72;right_level=46;
     ui_main_set_reconnect("4",true);settle();inside(reconnect_chip,info_widget);
     label_fits(lv_obj_get_child(reconnect_chip,0));capture("reconnect");
     ui_main_set_reconnect("3",true);capture("multiple_reconnect");
@@ -123,5 +188,5 @@ int main() {
     assert(std::strcmp(lv_label_get_text(status_rate_badge),"48k")==0);
     assert(lv_group_get_obj_count(main_group)==1);capture("empty");
     ui_free_main_widget();
-    puts("PASS: 24 modes, telemetry extremes, 0/1/4 devices, focus, reconnect, repeat entry");
+    puts("PASS: 72 modes, loss boundaries, meter gradient, telemetry extremes, 0/1/4 devices, focus, reconnect, repeat entry");
 }

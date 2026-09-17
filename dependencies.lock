@@ -40,7 +40,7 @@ dependencies:
       type: service
     version: 0.6.0
   espressif/esp-dl:
-    component_hash: f67408f364f2faa1178a5f0eb2f0fcdf504b68902fa4f3bcd6fa9f797e1ed623
+    component_hash: 233ee8d37dfedeb637fc74713b87bd861ac530cfbcc4c63c57c2e51064cdda31
     dependencies:
     - name: espressif/dl_fft
       registry_url: https://components.espressif.com
@@ -66,7 +66,7 @@ dependencies:
     - esp32s2
     - esp32s3
     - esp32s31
-    version: 3.3.10
+    version: 3.3.11
   espressif/esp-dsp:
     component_hash: 12e44db246517a627bc0fe2b255b8335410c0215c98bfba2df5a8e3edea839ef
     dependencies:
