@@ -28,7 +28,7 @@ extern "C" void app_main()
   ui_loading_set_part("音频解码器");
   ui_loading_set_percent(50);
   rf::setup();
-  ui_loading_set_part("蓝牙");
+  ui_loading_set_part("射频");
   ui_loading_set_percent(80);
   tf::setup();
   ui_loading_set_part("TF卡");
