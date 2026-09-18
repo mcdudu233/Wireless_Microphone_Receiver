@@ -16,6 +16,7 @@
 #define TF_RECORDINGS_ROOT "/recordings"
 #define TF_CONFIG_ROOT "/config"
 #define TF_LOG_ROOT "/logs"
+#define TF_ERROR_ROOT "/errors"
 
 #define TF_FILE_NAME_MAX 256
 #define TF_PATH_MAX 512

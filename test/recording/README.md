@@ -15,6 +15,10 @@ Python's independent `wave` reader checks all 18 sample-rate/depth/channel
 combinations; a separate RIFF parser checks sizes and LIST/INFO project,
 author and software metadata. PCM payload bytes are checked exactly.
 
+Crash summaries and raw dumps are saved as `/errors/CRASH00001.txt` and
+`/errors/CRASH00001.bin`, with increasing sequence numbers. Runtime logs remain
+in `/logs/`. Both directories are created directly under the TF card root.
+
 Assertions also cover:
 
 - Five-digit sequence allocation, reboot counter reconstruction, existing

@@ -127,7 +127,8 @@ namespace
 
   bool deletable_path(const char *path)
   {
-    return path_has_prefix(path, TF_RECORDINGS_ROOT) || path_has_prefix(path, TF_LOG_ROOT);
+    return path_has_prefix(path, TF_RECORDINGS_ROOT) || path_has_prefix(path, TF_LOG_ROOT) ||
+           path_has_prefix(path, TF_ERROR_ROOT);
   }
 
   tf::CardType current_card_type()
@@ -187,7 +188,7 @@ namespace
   bool initialize_directories()
   {
     return ensure_directory(TF_RECORDINGS_ROOT) && ensure_directory(TF_CONFIG_ROOT) &&
-           ensure_directory(TF_LOG_ROOT);
+           ensure_directory(TF_LOG_ROOT) && ensure_directory(TF_ERROR_ROOT);
   }
 
   // Called only with card ownership (at boot or from the storage worker).
@@ -453,8 +454,8 @@ namespace
     char path[80], text_path[80];
     for (uint32_t n = 1; n <= 99999; ++n)
     {
-      std::snprintf(path, sizeof(path), TF_LOG_ROOT "/CRASH%05lu.bin", static_cast<unsigned long>(n));
-      std::snprintf(text_path, sizeof(text_path), TF_LOG_ROOT "/CRASH%05lu.txt", static_cast<unsigned long>(n));
+      std::snprintf(path, sizeof(path), TF_ERROR_ROOT "/CRASH%05lu.bin", static_cast<unsigned long>(n));
+      std::snprintf(text_path, sizeof(text_path), TF_ERROR_ROOT "/CRASH%05lu.txt", static_cast<unsigned long>(n));
       if (!SD_MMC.exists(path) && !SD_MMC.exists(text_path))
         break;
       if (n == 99999)

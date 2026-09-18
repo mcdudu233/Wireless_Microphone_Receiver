@@ -54,8 +54,8 @@ namespace tf {
     list_ready=false;count=0;truncated=false;success=true;id=list_id;
     if(full_listing) {
       if(requested_path=="/") {
-        assert(capacity>=3);
-        for(const char *name:{"config","logs","recordings"}) {
+        assert(capacity>=4);
+        for(const char *name:{"config","errors","logs","recordings"}) {
           entries[count]={};std::strcpy(entries[count].name,name);
           entries[count].directory=true;entries[count].name_complete=true;++count;
         }
@@ -237,7 +237,7 @@ int main() {
   card_owned=false;card_present=false;settle();assert(find_label(setting_widget,"TF卡未挂载"));capture("files_restore_no_card");
   card_present=true;settle();list_ready=true;settle();assert(find_label(setting_widget,"目录为空"));
   full_listing=true;request_file_page();list_ready=true;settle();
-  assert(lv_obj_get_child_count(file_list)==3 && requested_path=="/");
+  assert(lv_obj_get_child_count(file_list)==4 && requested_path=="/");
   auto *recordings=find_label(setting_widget,"recordings/");assert(recordings);
   auto *recordings_row=lv_obj_get_parent(recordings);lv_group_focus_obj(recordings_row);settle();inside(recordings_row,file_list);
   lv_obj_send_event(recordings_row,LV_EVENT_CLICKED,nullptr);settle();

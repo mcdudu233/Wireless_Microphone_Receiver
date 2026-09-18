@@ -28,7 +28,7 @@ int main() {
   uint8_t final_sector[512];assert(tf::read_sector(geometry.sector_count-1,final_sector));
   assert(!tf::read_sector(geometry.sector_count,final_sector));
   assert(tf::set_usb_storage_active(false));
-  assert(fake::files.count("/recordings") && fake::files.count("/config") && fake::files.count("/logs"));
+  assert(fake::files.count("/recordings") && fake::files.count("/config") && fake::files.count("/logs") && fake::files.count("/errors"));
   assert(!fake::files.count("/WirelessMic"));
   for(auto rate:{AUDIO_RATE_48000,AUDIO_RATE_96000,AUDIO_RATE_192000})
     for(auto bit:{AUDIO_BIT_16,AUDIO_BIT_24,AUDIO_BIT_32}) for(auto channels:{AUDIO_CHANNEL_SINGLE,AUDIO_CHANNEL_STEREO}) {
@@ -56,7 +56,7 @@ int main() {
   assert(fake::mounts==mounts+1 && tf::is_mounted() && !tf::is_usb_storage_active());
   assert(tf::set_usb_storage_active(false));assert(fake::mounts==mounts+1);
   tf::FileEntry entries[4];size_t entry_count=0;bool truncated=false;
-  assert(tf::list("/",entries,4,entry_count,truncated) && entry_count==3);
+  assert(tf::list("/",entries,4,entry_count,truncated) && entry_count==4);
   assert(tf::set_usb_storage_active(true));fake::inserted=false;assert(tf::set_usb_storage_active(false));
   assert(!tf::is_mounted() && !tf::is_usb_storage_active());fake::inserted=true;assert(mount_card());
   request_status=tf::RequestStatus::BUSY;assert(!tf::set_usb_storage_active(true));
@@ -87,7 +87,7 @@ int main() {
   audio::buffer::restart();begin();recording_bytes=UINT32_MAX-257;frame(1,pcm);service_recording();assert(info().state==tf::RecordingState::ERROR); // never wrap RIFF
   assert(mount_card());
   assert(!tf::is_deletable_path("/config/device.ini"));assert(!tf::is_deletable_path("//recordings/a.wav"));
-  assert(tf::is_deletable_path("/recordings/MIC00001.wav"));assert(tf::is_deletable_path("/logs/CRASH00001.bin"));
+  assert(tf::is_deletable_path("/recordings/MIC00001.wav"));assert(tf::is_deletable_path("/errors/CRASH00001.bin"));
   // No card or corrupt/short saved files must never destroy the flash dump.
   fake::crash.resize(4099);for(size_t n=0;n<fake::crash.size();n++)fake::crash[n]=n%251;
   const auto crash=fake::crash;
@@ -95,8 +95,8 @@ int main() {
   fake::write_limit=5;assert(!export_crash());assert(fake::erases==0 && fake::crash==crash);fake::write_limit=SIZE_MAX;
   fake::corrupt_reads=true;assert(!export_crash());assert(fake::erases==0 && fake::crash==crash);fake::corrupt_reads=false;
   fake::crash_valid=false;assert(!export_crash());assert(fake::erases==0);fake::crash_valid=true;
-  assert(export_crash());assert(fake::erases==1 && fake::crash.empty());assert(fake::files.at("/logs/CRASH00001.bin").bytes==crash);
-  const auto text=fake::files.at("/logs/CRASH00001.txt").bytes;assert(std::string(text.begin(),text.end()).find("test panic")!=std::string::npos);
+  assert(export_crash());assert(fake::erases==1 && fake::crash.empty());assert(fake::files.at("/errors/CRASH00001.bin").bytes==crash);
+  const auto text=fake::files.at("/errors/CRASH00001.txt").bytes;assert(std::string(text.begin(),text.end()).find("test panic")!=std::string::npos);
   const std::string summary(text.begin(),text.end());
   assert(summary.find("0x40381234")!=std::string::npos && summary.find("0x40385678")!=std::string::npos);
   assert(summary.find("0xdeadbeef")!=std::string::npos && summary.find("Exception cause: 28")!=std::string::npos);
