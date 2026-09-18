@@ -873,7 +873,7 @@ void tf::setup()
       break;
     }
     }
-    LOGGER_INFO("TF card Size: %dMB\n", SD_MMC.cardSize() / (1024 * 1024));
+    LOGGER_INFO("TF card Size: %luMB", static_cast<unsigned long>(SD_MMC.cardSize() / (1024 * 1024)));
 
     const bool directories_ready = initialize_directories();
     if (!directories_ready)

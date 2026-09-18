@@ -2573,8 +2573,9 @@ void rf::setup()
   // 启动发送接收线程
   xTaskCreatePinnedToCore(rf_handle, "rf_handle", TASK_RF_STACK, NULL, TASK_RF_PRIORITY, NULL, TASK_RF_CORE);
 #ifdef BUILD_DEBUG
-  if (xTaskCreatePinnedToCoreWithCaps(rfDebugHandle, "rf_debug", 2560, nullptr, 1, nullptr,
-                                      1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+  // 栈必须放在内部RAM:PSRAM栈任务在flash擦写(NVS写入/崩溃转储擦除)关闭cache的窗口内
+  // 被调度或被打断时栈访问失效,表现为随机的"stack overflow in task rf_debug"崩溃
+  if (xTaskCreatePinnedToCore(rfDebugHandle, "rf_debug", 4096, nullptr, 1, nullptr, 1) != pdPASS)
   {
     LOGGER_INFO("RF debug task creation failed.");
   }

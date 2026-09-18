@@ -556,8 +556,8 @@ void audio::decoder::setup()
   pinMode(AUDIO_DECODER_ON, INPUT);
   xTaskCreatePinnedToCore(audioHandle, "audio_decoder_handle", TASK_AUDIO_DECODER_STACK, NULL, TASK_AUDIO_DECODER_PRIORITY, NULL, TASK_AUDIO_DECODER_CORE);
 #ifdef BUILD_DEBUG
-  if (xTaskCreatePinnedToCoreWithCaps(decoderDebugHandle, "audio_decoder_debug", 3072, nullptr, 1, nullptr,
-                                      1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+  // 栈必须放在内部RAM:PSRAM栈任务在flash擦写关闭cache的窗口内被调度时栈访问失效(同rf_debug崩溃)
+  if (xTaskCreatePinnedToCore(decoderDebugHandle, "audio_decoder_debug", 4096, nullptr, 1, nullptr, 1) != pdPASS)
   {
     LOGGER_INFO("Audio Decoder debug task creation failed.");
   }
