@@ -76,7 +76,7 @@ typedef char RFText[16];
 enum USBMode : uint8_t
 {
   USB_MODE_NONE = 0,
-  USB_MODE_JTAG = 1,
+  USB_MODE_DEBUG = 1, // 保持原JTAG模式的持久化值
   USB_MODE_AUDIO = 2,
   USB_MODE_SD = 3,
 };

@@ -260,7 +260,7 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_t *usb_mode_row = ui_create_dropdown(sub_usb_page, NULL, "传输模式", "关闭\n"
                                                        "音频\n"
                                                        "读卡器\n"
-                                                       "JTAG",
+                                                       "调试模式",
 
                        &dd_usb_mode);
     lv_obj_set_height(usb_mode_row, 24);
@@ -922,7 +922,7 @@ static void enter_subpage_cb(lv_event_t *e)
         case USB_MODE_SD:
             sel = 2;
             break;
-        case USB_MODE_JTAG:
+        case USB_MODE_DEBUG:
             sel = 3;
             break;
         }
@@ -1046,7 +1046,7 @@ static USBMode selected_usb_mode()
     case 2:
         return USB_MODE_SD;
     case 3:
-        return USB_MODE_JTAG;
+        return USB_MODE_DEBUG;
     default:
         return USB_MODE_NONE;
     }
@@ -1112,9 +1112,9 @@ static void update_usb_mode_details()
         lv_label_set_text(usb_detail_secondary, info.usb_active ? "已连接/主机独占" : "读写模式/主机独占");
         break;
     }
-    case USB_MODE_JTAG:
-        lv_label_set_text(usb_detail_primary, "下载、调试与串口");
-        lv_label_set_text(usb_detail_secondary, "使用USB Serial/JTAG");
+    case USB_MODE_DEBUG:
+        lv_label_set_text(usb_detail_primary, "程序下载与调试");
+        lv_label_set_text(usb_detail_secondary, "USB串口输出日志");
         break;
     case USB_MODE_NONE:
     default:
@@ -1225,7 +1225,7 @@ static void save_config(uint8_t page)
         if (!ui_setting_usb_page_scb(selected_usb_mode()))
         {
             const USBMode mode = config::config.usb.mode;
-            lv_dropdown_set_selected(dd_usb_mode, mode == USB_MODE_AUDIO ? 1 : mode == USB_MODE_SD ? 2 : mode == USB_MODE_JTAG ? 3 : 0);
+            lv_dropdown_set_selected(dd_usb_mode, mode == USB_MODE_AUDIO ? 1 : mode == USB_MODE_SD ? 2 : mode == USB_MODE_DEBUG ? 3 : 0);
             ui_popwin_msgbox("USB带宽不足\n请降低音频格式", nullptr, dd_usb_mode);
         }
         break;

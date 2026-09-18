@@ -106,7 +106,7 @@ int32_t tud_msc_scsi_cb(uint8_t, const uint8_t[16], void *, uint16_t) { return -
 }
 
 static void pump() {
-  xSemaphoreTake(device_lock, portMAX_DELAY); service_device(); xSemaphoreGive(device_lock);
+  service_device();
 }
 static std::vector<uint8_t> control(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
                                     uint16_t size, const std::vector<uint8_t> &payload = {}) {
@@ -149,11 +149,14 @@ static void check_descriptor(const usb::AudioFormat &format) {
   const unsigned total = tu_unaligned_read16(desc + 2);
   unsigned formats = 0, channels = 0, feature_length = 0, clock_controls = 0;
   unsigned ac_start = 0, ac_size = 0, ac_end = 0;
-  unsigned interface_number = 0;
+  unsigned interface_number = 0, interfaces = 0, endpoints = 0;
+  assert(desc[4] == 2 && ITF_NUM_TOTAL == 2 && CFG_TUD_CDC == 0);
   for (unsigned offset = 9; offset < total; offset += desc[offset]) {
     const auto *item = desc + offset; assert(item[0] > 0 && offset + item[0] <= total);
-    if (item[1] == TUSB_DESC_INTERFACE) interface_number = item[2];
-    if (item[1] == TUSB_DESC_CS_INTERFACE && interface_number < ITF_NUM_CDC_CMD) {
+    if (item[1] == TUSB_DESC_INTERFACE) {
+      interface_number = item[2]; assert(interface_number < 2 && item[5] == TUSB_CLASS_AUDIO); ++interfaces;
+    }
+    if (item[1] == TUSB_DESC_CS_INTERFACE) {
       if (item[0] == 9 && item[2] == AUDIO20_CS_AC_INTERFACE_HEADER) { ac_start = offset; ac_size = tu_unaligned_read16(item + 6); }
       if (item[0] == 8 && item[2] == AUDIO20_CS_AC_INTERFACE_CLOCK_SOURCE) clock_controls = item[5];
       if (item[0] == 17 && item[2] == AUDIO20_CS_AC_INTERFACE_INPUT_TERMINAL) {
@@ -165,10 +168,15 @@ static void check_descriptor(const usb::AudioFormat &format) {
         assert(item[4] == format.bit / 8 && item[5] == format.bit); ++formats;
       }
     }
-    if (item[1] == TUSB_DESC_ENDPOINT && item[2] == 0x83) assert(tu_unaligned_read16(item + 4) == format.packet_bytes());
+    if (item[1] == TUSB_DESC_ENDPOINT) {
+      assert(item[2] == 0x81 && (item[3] & 3) == TUSB_XFER_ISOCHRONOUS);
+      assert(tu_unaligned_read16(item + 4) == format.packet_bytes()); ++endpoints;
+    }
   }
   assert(formats == 1 && channels == 2 && feature_length == 6U + (format.channels + 1U) * 4U);
   assert(clock_controls == 5 && ac_start + ac_size == ac_end);
+  assert(interfaces == 3 && endpoints == 1 && tud_descriptor_string_cb(5, 0) == nullptr);
+  assert(serial().find("-U") != std::string::npos && serial().find("-A") == std::string::npos);
   assert(tud_descriptor_configuration_cb(1) == nullptr);
 }
 static void feed(const usb::AudioFormat &format, bool complete = true) {
@@ -185,7 +193,6 @@ static void feed(const usb::AudioFormat &format, bool complete = true) {
   }
 }
 int main() {
-  device_lock = xSemaphoreCreateMutex();
   audio::buffer::setup();
   unsigned supported = 0, rejected = 0;
   std::vector<std::string> identities;
@@ -220,9 +227,9 @@ int main() {
         assert(tu_fifo_peek_n(fifo, samples.data(), samples.size()) == samples.size());
         for (unsigned i = 0; i < samples.size(); ++i) assert(samples[i] == static_cast<uint8_t>(i * 37 + 19));
         // Actual TinyUSB IN transfer sizes must stay within descriptor capacity.
-        dcd_event_xfer_complete(0, 0x83, 0, XFER_RESULT_SUCCESS, false); tud_task_ext(0, false);
-        assert(transfers[0x83].size > 0 && transfers[0x83].size <= format.packet_bytes());
-        assert(transfers[0x83].size % format.sample_bytes() == 0);
+        dcd_event_xfer_complete(0, 0x81, 0, XFER_RESULT_SUCCESS, false); tud_task_ext(0, false);
+        assert(transfers[0x81].size > 0 && transfers[0x81].size <= format.packet_bytes());
+        assert(transfers[0x81].size % format.sample_bytes() == 0);
         if(format.frame_bytes()>PACKET_WIFI_AUDIO_DATA_MAX_SIZE) {
           feed(format,false); tud_audio_n_clear_ep_in_ff(0); usb::uac::_loop();
           assert(tu_fifo_count(fifo)==format.frame_bytes());
@@ -248,40 +255,33 @@ int main() {
   assert(supported == 13 && rejected == 5);
   config::config.audio = {}; // restore default 48 kHz/16 bit/mono
   usb::on(USB_MODE_AUDIO); pump(); enumerate();
-  control(0x21, 0x22, 3, ITF_NUM_CDC_CMD, 0); assert(USBCDCSerial.connected());
-  std::vector<uint8_t> serial_data(1024, 0x5A);
-  assert(USBCDCSerial.availableForWrite()>0);
-  const auto accepted=USBCDCSerial.write(serial_data.data(),serial_data.size());
-  assert(accepted>0 && accepted<=serial_data.size());
-  // Writes during stack teardown are rejected without waiting on the owner.
-  during_detach=[&] { assert(USBCDCSerial.write(serial_data.data(),serial_data.size())==0); };
-  usb::on(USB_MODE_SD); pump(); assert(!USBCDCSerial.connected());
-  usb::on(USB_MODE_AUDIO); pump(); enumerate();
-  control(0x21, 0x22, 3, ITF_NUM_CDC_CMD, 0); assert(USBCDCSerial.connected());
-  control(0x21, 0x22, 0, ITF_NUM_CDC_CMD, 0); assert(!USBCDCSerial.connected());
-  assert(USBCDCSerial.write(serial_data.data(),serial_data.size())==0);
-  control(0x21, 0x22, 2, ITF_NUM_CDC_CMD, 0); pump(); assert(usb::active_mode()==USB_MODE_JTAG);
+  // Old CDC interface requests cannot select a mode or disrupt audio.
+  for (unsigned interface_number : {2U, 3U}) {
+    control(0x21, 0x22, 3, interface_number, 0); assert(stalled);
+    assert(usb::active_mode() == USB_MODE_AUDIO && tud_mounted());
+  }
   for (unsigned repeat = 0; repeat < 25; ++repeat)
-    for (auto from : {USB_MODE_NONE, USB_MODE_AUDIO, USB_MODE_SD, USB_MODE_JTAG})
-      for (auto to : {USB_MODE_NONE, USB_MODE_AUDIO, USB_MODE_SD, USB_MODE_JTAG}) {
+    for (auto from : {USB_MODE_NONE, USB_MODE_AUDIO, USB_MODE_SD, USB_MODE_DEBUG})
+      for (auto to : {USB_MODE_NONE, USB_MODE_AUDIO, USB_MODE_SD, USB_MODE_DEBUG}) {
         usb::on(from); pump();
         if (from == USB_MODE_AUDIO || from == USB_MODE_SD) enumerate();
         usb::on(to); pump();
         assert(usb::active_mode() == to && storage_owned == (to == USB_MODE_SD));
-        assert(jtag_pad == (to == USB_MODE_JTAG)); assert(attached == (to == USB_MODE_SD || to == USB_MODE_AUDIO));
+        assert(jtag_pad == (to == USB_MODE_DEBUG)); assert(attached == (to == USB_MODE_SD || to == USB_MODE_AUDIO));
+        assert(tud_inited() == (to == USB_MODE_SD || to == USB_MODE_AUDIO));
         assert(!usb::uac::connected());
       }
   usb::on(USB_MODE_AUDIO); pump(); enumerate(); const std::string old_serial = serial();
   config::config.audio.bit = AUDIO_BIT_24; config::config.audio.channel = AUDIO_CHANNEL_STEREO;
   usb::audio_format_changed(); pump(); enumerate(); assert(serial() != old_serial);
   const auto before = serial(); usb::audio_format_changed(); pump(); assert(serial() == before && tud_mounted());
-  during_detach = [] { usb::on(USB_MODE_JTAG); };
-  usb::on(USB_MODE_SD); pump(); assert(usb::active_mode() == USB_MODE_JTAG && !storage_owned);
+  during_detach = [] { usb::on(USB_MODE_DEBUG); };
+  usb::on(USB_MODE_SD); pump(); assert(usb::active_mode() == USB_MODE_DEBUG && !storage_owned);
   usb::off(); pump(); fail_phy = true; usb::on(USB_MODE_AUDIO); pump();
   assert(usb::active_mode() == USB_MODE_NONE && !controller_live); clock_us += 1000000; pump(); assert(usb::active_mode() == USB_MODE_AUDIO);
   usb::off(); pump(); fail_controller = true; usb::on(USB_MODE_AUDIO); pump();
   assert(usb::active_mode() == USB_MODE_NONE && !controller_live && !attached); clock_us += 1000000; pump(); enumerate();
   usb::on(USB_MODE_SD); pump(); enumerate(); fail_storage_release = true; usb::off(); pump();
   assert(storage_owned && !attached && !controller_live); clock_us += 1000000; pump(); assert(!storage_owned && usb::active_mode() == USB_MODE_NONE);
-  puts("PASS: real TinyUSB enumeration/clock/PCM/mute/stop/reset/suspend/CDC, 18 formats, 400 mode transitions, format identity, rapid changes, failure recovery");
+  puts("PASS: audio-only TinyUSB enumeration/clock/PCM/mute/stop/reset/suspend, no CDC interfaces/endpoints, 18 formats, 400 mode transitions, format identity, rapid changes, failure recovery");
 }

@@ -1,5 +1,4 @@
 #include "logger.h"
-#include "module/usb/usb_device_cdc.h"
 
 #include "esp_heap_caps.h"
 

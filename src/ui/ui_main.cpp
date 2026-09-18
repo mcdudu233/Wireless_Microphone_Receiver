@@ -56,7 +56,7 @@ static void ui_rate_badge(AudioRate rate)
                      rate == AUDIO_RATE_96000 ? "96k" : "48k");
 }
 
-// USB模式→图标(关闭灰/音频蓝/SD卡琥珀/JTAG紫)
+// USB模式→图标(关闭灰/音频蓝/SD卡琥珀/调试紫)
 static const lv_image_dsc_t *ui_usb_icon(USBMode mode)
 {
     switch (mode)
@@ -65,7 +65,7 @@ static const lv_image_dsc_t *ui_usb_icon(USBMode mode)
         return &ui_img_usb_audio;
     case USB_MODE_SD:
         return &ui_img_usb_sd;
-    case USB_MODE_JTAG:
+    case USB_MODE_DEBUG:
         return &ui_img_usb_jtag;
     case USB_MODE_NONE:
     default:

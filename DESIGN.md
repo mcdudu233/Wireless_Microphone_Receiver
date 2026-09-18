@@ -32,7 +32,7 @@ but each screen must have one obvious focus target and no decorative clutter.
 | Success surface | `status-success-bg` | `#ECFDF5` | Connected selection state |
 | Quality low | `quality-low` | `#0891B2` | Legacy 48 kHz icon (unused on dashboard) |
 | Quality mid | `quality-mid` | `#2D6BDB` | Legacy 96 kHz icon (same value as `accent-primary`) |
-| Quality high | `quality-high` | `#7C3AED` | Legacy USB JTAG / 192 kHz icon |
+| Quality high | `quality-high` | `#7C3AED` | USB debug mode / 192 kHz icon |
 | Status amber | `status-amber` | `#D97706` | USB SD-card mode status icon |
 | Status error | `status-error` | LVGL palette red | Device-list disconnected state text (semantic error state, same rule as meter red) |
 
@@ -58,7 +58,7 @@ but each screen must have one obvious focus target and no decorative clutter.
 
 All three sizes are generated from the approved HarmonyOS Sans SC sources in
 `docs/resources/fonts/` (titles use Medium, body uses Regular) via the pipeline
-in `docs/tools/README.md`. They share one 199-glyph Chinese symbol set maintained
+in `docs/tools/README.md`. They share one 203-glyph Chinese symbol set maintained
 in Receiver/src/res/font/symbols.txt, and every size falls back to
 the matching built-in Montserrat font for `LV_SYMBOL_*` glyphs. Generated font
 files must not be hand-edited.
@@ -218,7 +218,12 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   A rejected format or audio-mode selection restores the previous dropdown
   value and opens the standard two-line dialog `USB带宽不足` / `请降低音频格式`;
   closing it restores focus to the edited control. No implicit conversion.
-  The limit includes the S3 hardware FIFO reserved for audio plus CDC.
+  Audio mode has only the UAC interfaces and one audio IN endpoint; no CDC
+  interfaces or endpoints. The limit includes the S3 hardware FIFO reserved
+  for audio and EP0.
+- The former JTAG dropdown option is named `调试模式`. Its detail lines read
+  `程序下载与调试` and `USB串口输出日志`. This mode uses the chip's built-in
+  USB Serial/JTAG controller for flashing, debugging and CDC console output.
 
 ### Audio and screen settings
 - Microphone capture and local 3.5 mm playback are separate root pages. The

@@ -152,7 +152,12 @@ int main() {
   capture("settings_root");
   assert(top_visible()==setting_widget);
   enter("USB传输设置");
+  assert(std::strcmp(lv_dropdown_get_options(dd_usb_mode),"关闭\n音频\n读卡器\n调试模式")==0);
   for(auto mode:{0U,1U,2U,3U}) { change(dd_usb_mode,mode); usb_details_fit(); capture("usb_mode_"+std::to_string(mode)); }
+  assert(config::config.usb.mode==USB_MODE_DEBUG);
+  assert(std::strcmp(lv_label_get_text(usb_detail_primary),"程序下载与调试")==0);
+  assert(std::strcmp(lv_label_get_text(usb_detail_secondary),"USB串口输出日志")==0);
+  lv_dropdown_open(dd_usb_mode); capture("usb_modes_popup"); lv_dropdown_close(dd_usb_mode);
   card_present=false; change(dd_usb_mode,2); capture("usb_no_card"); card_present=true;
   config::config.audio.rate=AUDIO_RATE_192000; config::config.audio.bit=AUDIO_BIT_32; config::config.audio.channel=AUDIO_CHANNEL_STEREO;
   change(dd_usb_mode,1); assert(lv_dropdown_get_selected(dd_usb_mode)==2); check_notice(dd_usb_mode);

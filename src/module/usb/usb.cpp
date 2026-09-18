@@ -1,14 +1,12 @@
 #include "config.h"
 #include "logger.h"
 #include "module/usb/usb.h"
-#include "module/usb/usb_device_cdc.h"
 #include "module/usb/usb_device_msc.h"
 #include "module/usb/usb_device_uac.h"
 #include "module/usb/usb_descriptors.h"
 #include "module/tf.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
 #include "esp_private/usb_phy.h"
 #include "esp_timer.h"
 #include "hal/usb_serial_jtag_ll.h"
@@ -20,7 +18,6 @@ static std::atomic<USBMode> usb_active_mode{USB_MODE_NONE};
 static bool usb_tusb_on;
 static bool cleanup_pending;
 static usb_phy_handle_t usb_phy;
-static SemaphoreHandle_t device_lock;
 static portMUX_TYPE request_lock = portMUX_INITIALIZER_UNLOCKED;
 struct USBRequest
 {
@@ -53,8 +50,6 @@ static bool stop_device()
 {
   cleanup_pending = true;
   usb::uac::_disconnect();
-  USBCDCSerial._disconnect();
-  USBCDCSerial.clear();
   if (usb_tusb_on)
   {
     tud_disconnect();
@@ -90,7 +85,7 @@ static bool stop_device()
   }
   usb_active_mode.store(USB_MODE_NONE);
   cleanup_pending = false;
-  // Allow Windows to remove the old audio/CDC/MSC/JTAG interfaces before
+  // Allow Windows to remove the old audio/MSC/Serial-JTAG interfaces before
   // attaching the new device, including when only the audio format changes.
   vTaskDelay(pdMS_TO_TICKS(250));
   return true;
@@ -113,7 +108,7 @@ static bool start_device(const USBRequest &request)
   // Publish the descriptor personality before enabling the controller.
   usb_active_mode.store(request.mode);
   usb_phy_config_t phy_config = {
-      .controller = request.mode == USB_MODE_JTAG ? USB_PHY_CTRL_SERIAL_JTAG : USB_PHY_CTRL_OTG,
+      .controller = request.mode == USB_MODE_DEBUG ? USB_PHY_CTRL_SERIAL_JTAG : USB_PHY_CTRL_OTG,
       .target = USB_PHY_TARGET_INT,
       .otg_mode = USB_OTG_MODE_DEVICE,
       .otg_speed = USB_PHY_SPEED_FULL};
@@ -123,7 +118,7 @@ static bool start_device(const USBRequest &request)
     stop_device();
     return false;
   }
-  if (request.mode == USB_MODE_JTAG)
+  if (request.mode == USB_MODE_DEBUG)
     usb_serial_jtag_ll_phy_enable_pad(true);
   else
   {
@@ -194,9 +189,7 @@ static void usb_handle(void *)
 #endif
   while (true)
   {
-    xSemaphoreTake(device_lock, portMAX_DELAY);
     service_device();
-    xSemaphoreGive(device_lock);
 #ifdef BUILD_DEBUG
     if (esp_timer_get_time() >= next_stack_report)
     {
@@ -210,12 +203,6 @@ static void usb_handle(void *)
 
 void usb::setup()
 {
-  device_lock = xSemaphoreCreateMutex();
-  if (device_lock == nullptr)
-  {
-    LOGGER_ERROR("USB mutex creation failed");
-    return;
-  }
   // Historical settings may select an unsupported format. Keep capture intact
   // and turn off USB instead of repeatedly attaching an invalid device.
   if (config::config.usb.mode == USB_MODE_AUDIO && !input_format().supported())
@@ -247,19 +234,6 @@ void usb::on(USBMode mode)
 }
 void usb::off() { on(USB_MODE_NONE); }
 USBMode usb::active_mode() { return usb_active_mode.load(); }
-bool usb::cdc_lock()
-{
-  if (device_lock == nullptr || xSemaphoreTake(device_lock, 0) != pdTRUE)
-    return false;
-  if (!usb_tusb_on || active_mode() != USB_MODE_AUDIO)
-  {
-    xSemaphoreGive(device_lock);
-    return false;
-  }
-  return true;
-}
-void usb::cdc_unlock() { xSemaphoreGive(device_lock); }
-void usb::download_later() { on(USB_MODE_JTAG); }
 void usb::audio_format_changed()
 {
   const AudioFormat format = input_format();
@@ -287,20 +261,16 @@ void tud_event_hook_cb(uint8_t, uint32_t event_id, bool)
   {
     // This hook can run in ISR context. Only publish atomic state here.
     usb::uac::_disconnect();
-    USBCDCSerial._disconnect();
   }
 }
 void tud_umount_cb()
 {
   usb::uac::_disconnect();
-  USBCDCSerial._disconnect();
-  USBCDCSerial.clear();
   LOGGER_INFO("USB unmounted");
 }
 void tud_suspend_cb(bool)
 {
   // Preserve the selected alternate interface so resume needs no SET_INTERFACE.
-  USBCDCSerial._disconnect();
   LOGGER_INFO("USB suspended");
 }
 void tud_resume_cb() { LOGGER_INFO("USB resumed"); }

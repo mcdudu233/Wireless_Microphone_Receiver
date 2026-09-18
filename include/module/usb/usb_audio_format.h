@@ -4,10 +4,10 @@
 
 namespace usb
 {
-  // ESP32-S3 DWC2: 256 FIFO words, 62 RX + 16 EP0 IN + 2 CDC notify
-  // + 16 CDC IN, leaving 160 words (640 bytes) for the audio IN endpoint.
+  // ESP32-S3 DWC2: 256 FIFO words, 62 RX + 16 EP0 IN, leaving
+  // 178 words (712 bytes) for the audio-only IN endpoint.
   // Keep one extra sample frame for TinyUSB's asynchronous clock correction.
-  constexpr uint16_t AUDIO_EP_MAX_BYTES = 640;
+  constexpr uint16_t AUDIO_EP_MAX_BYTES = 712;
 
   struct AudioFormat
   {

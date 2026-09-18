@@ -26,7 +26,7 @@ static const tusb_desc_device_t desc_device_msc = {
     TUD_AUDIO20_DESC_OUTPUT_TERM_LEN + TUD_AUDIO20_DESC_FEATURE_UNIT_LEN(ch) + \
     2 * TUD_AUDIO20_DESC_STD_AS_LEN + TUD_AUDIO20_DESC_CS_AS_INT_LEN + \
     TUD_AUDIO20_DESC_TYPE_I_FORMAT_LEN + TUD_AUDIO20_DESC_STD_AS_ISO_EP_LEN + TUD_AUDIO20_DESC_CS_AS_ISO_EP_LEN)
-#define AUDIO_CONFIG_LEN(ch) (TUD_CONFIG_DESC_LEN + AUDIO_DESC_LEN(ch) + TUD_CDC_DESC_LEN)
+#define AUDIO_CONFIG_LEN(ch) (TUD_CONFIG_DESC_LEN + AUDIO_DESC_LEN(ch))
 #define MUTE_CONTROL (AUDIO20_CTRL_RW << AUDIO20_FEATURE_UNIT_CTRL_MUTE_POS)
 #define AUDIO_DESCRIPTOR(ch, layout, ...) \
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, AUDIO_CONFIG_LEN(ch), 0, 500), \
@@ -48,10 +48,9 @@ static const tusb_desc_device_t desc_device_msc = {
     TUD_AUDIO20_DESC_CS_AS_INT(UAC2_ENTITY_OUTPUT_TERMINAL, 0, AUDIO20_FORMAT_TYPE_I, \
         AUDIO20_DATA_FORMAT_TYPE_I_PCM, ch, layout, 0), \
     TUD_AUDIO20_DESC_TYPE_I_FORMAT(static_cast<uint8_t>(format.bit / 8), static_cast<uint8_t>(format.bit)), \
-    TUD_AUDIO20_DESC_STD_AS_ISO_EP(0x83, static_cast<uint8_t>(TUSB_XFER_ISOCHRONOUS) | static_cast<uint8_t>(TUSB_ISO_EP_ATT_ASYNCHRONOUS), \
+    TUD_AUDIO20_DESC_STD_AS_ISO_EP(0x81, static_cast<uint8_t>(TUSB_XFER_ISOCHRONOUS) | static_cast<uint8_t>(TUSB_ISO_EP_ATT_ASYNCHRONOUS), \
         format.packet_bytes(), 1), \
-    TUD_AUDIO20_DESC_CS_AS_ISO_EP(AUDIO20_CS_AS_ISO_DATA_EP_ATT_NON_MAX_PACKETS_OK, 0, 0, 0), \
-    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_CMD, 5, 0x81, 8, 0x02, 0x82, 64)
+    TUD_AUDIO20_DESC_CS_AS_ISO_EP(AUDIO20_CS_AS_ISO_DATA_EP_ATT_NON_MAX_PACKETS_OK, 0, 0, 0)
 
 static uint8_t desc_configuration_audio[AUDIO_CONFIG_LEN(2)];
 static const uint8_t desc_configuration_msc[] = {
@@ -79,7 +78,9 @@ void usb::descriptors::prepare(const AudioFormat &format)
     esp_efuse_mac_get_default(mac);
     char id[13];
     snprintf(id, sizeof(id), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    snprintf(audio_serial, sizeof(audio_serial), "%s-A%lu-%u-%u", id,
+    // Distinguish the audio-only personality from the previous UAC+CDC device
+    // so Windows cannot reuse its cached CDC interfaces for the same format.
+    snprintf(audio_serial, sizeof(audio_serial), "%s-U%lu-%u-%u", id,
              static_cast<unsigned long>(format.rate / 1000), static_cast<unsigned>(format.bit), static_cast<unsigned>(format.channels));
     snprintf(msc_serial, sizeof(msc_serial), "%s-SD", id);
 }
@@ -100,14 +101,14 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t)
 {
     static uint16_t desc[32];
     static const char *const strings[] = {nullptr, "dudu233", "Wireless Microphone", nullptr,
-        "WirelessMicrophone Audio (UAC)", "WirelessMicrophone UART (CDC)", "WirelessMicrophone TF (MSC)"};
+        "WirelessMicrophone Audio (UAC)", nullptr, "WirelessMicrophone TF (MSC)"};
     if (index == 0)
     {
         desc[0] = (TUSB_DESC_STRING << 8) | 4;
         desc[1] = 0x0409;
         return desc;
     }
-    if (index >= TU_ARRAY_SIZE(strings))
+    if (index >= TU_ARRAY_SIZE(strings) || (index != 3 && strings[index] == nullptr))
         return nullptr;
     const bool storage = usb::active_mode() == USB_MODE_SD;
     const char *str = index == 3 ? (storage ? msc_serial : audio_serial) :
