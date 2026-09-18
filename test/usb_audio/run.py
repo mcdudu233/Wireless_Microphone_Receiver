@@ -20,6 +20,7 @@ env['PATH'] = str(pathlib.Path(a.compiler_bin).resolve()) + os.pathsep + env['PA
 sources = [tiny / name for name in ['tusb.c', 'device/usbd.c', 'common/tusb_fifo.c',
            'class/audio/audio_device.c', 'class/msc/msc_device.c']]
 sources += [repo / 'src/module/usb/usb_descriptors.cpp', repo / 'src/module/usb/usb_device_uac.cpp',
+            repo / 'src/module/usb/usb_device_msc.cpp',
             repo / 'src/module/audio/buffer.cpp', here / 'usb_audio.cpp']
 cmake = f'''cmake_minimum_required(VERSION 3.16)
 project(usb_audio_qa LANGUAGES C CXX)

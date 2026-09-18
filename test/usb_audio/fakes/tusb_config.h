@@ -8,7 +8,7 @@
 #define CFG_TUD_AUDIO 1
 #define CFG_TUD_CDC 0
 #define CFG_TUD_MSC 1
-#define CFG_TUD_MSC_EP_BUFSIZE 512
+#define CFG_TUD_MSC_EP_BUFSIZE 7680
 #define TUP_DCD_ENDPOINT_MAX 7
 #define TUP_DCD_EDPT_ISO_ALLOC
 #include "module/usb/tusb_config_uac.h"

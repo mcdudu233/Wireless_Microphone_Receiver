@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstdio>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,9 @@ struct Transfer { bool pending; uint8_t *buffer; uint16_t size; std::vector<uint
 static std::array<Transfer, 256> transfers;
 static bool stalled;
 static std::function<void()> during_detach;
+static constexpr uint32_t card_sectors = 100000;
+static std::map<uint32_t, std::array<uint8_t,512>> disk_writes;
+static bool fail_sector_io;
 int64_t esp_timer_get_time() { return clock_us; }
 void vTaskDelay(TickType_t ticks) {
   if (ticks == 250) {
@@ -45,13 +49,24 @@ int usb_del_phy(usb_phy_handle_t phy) {
 namespace tf {
   bool is_mounted() { return true; }
   void get_recording_info(RecordingInfo &info) { info={}; }
+  void get_info(StorageInfo &info) { info={true,storage_owned,CardType::SDHC,card_sectors*512ULL,98304*512ULL,0,card_sectors,512}; }
+  bool is_usb_storage_active() { return storage_owned; }
+  bool read_sector(uint32_t sector,uint8_t *buffer) {
+    if(!storage_owned || sector>=card_sectors || fail_sector_io)return false;
+    if(disk_writes.count(sector))memcpy(buffer,disk_writes.at(sector).data(),512);
+    else for(unsigned i=0;i<512;i++)buffer[i]=static_cast<uint8_t>(sector*7+i*37+19);
+    return true;
+  }
+  bool write_sector(uint32_t sector,const uint8_t *buffer) {
+    if(!storage_owned || sector>=card_sectors || fail_sector_io)return false;
+    memcpy(disk_writes[sector].data(),buffer,512);return true;
+  }
   bool set_usb_storage_active(bool active) {
     assert(!attached && !controller_live);
     if (!active && fail_storage_release) { fail_storage_release = false; return false; }
     storage_owned = active; return true;
   }
 }
-namespace usb::msc { void _connect() {} void _disconnect() {} }
 extern "C" {
 uint32_t tusb_time_millis_api() { return clock_us / 1000; }
 bool dcd_init(uint8_t, const tusb_rhport_init_t *) {
@@ -93,6 +108,7 @@ void dcd_edpt_close_all(uint8_t) {
 }
 bool dcd_edpt_xfer(uint8_t, uint8_t address, uint8_t *buffer, uint16_t size, bool) {
   assert(controller_live);
+  if(usb::active_mode()==USB_MODE_SD && (address&0x7f))assert((size+63U)/64U<=127);
   auto &transfer = transfers[address];
   transfer = {true, buffer, size, {}};
   if ((address & 0x80) && size) transfer.bytes.assign(buffer, buffer + size);
@@ -100,14 +116,6 @@ bool dcd_edpt_xfer(uint8_t, uint8_t address, uint8_t *buffer, uint16_t size, boo
 }
 void dcd_edpt_stall(uint8_t, uint8_t) { stalled = true; }
 void dcd_edpt_clear_stall(uint8_t, uint8_t) {}
-void tud_msc_inquiry_cb(uint8_t, uint8_t vendor[8], uint8_t product[16], uint8_t rev[4]) {
-  memset(vendor, ' ', 8); memset(product, ' ', 16); memset(rev, ' ', 4);
-}
-bool tud_msc_test_unit_ready_cb(uint8_t) { return storage_owned; }
-void tud_msc_capacity_cb(uint8_t, uint32_t *blocks, uint16_t *size) { *blocks = 100; *size = 512; }
-int32_t tud_msc_read10_cb(uint8_t, uint32_t, uint32_t, void *, uint32_t size) { return size; }
-int32_t tud_msc_write10_cb(uint8_t, uint32_t, uint32_t, uint8_t *, uint32_t size) { return size; }
-int32_t tud_msc_scsi_cb(uint8_t, const uint8_t[16], void *, uint16_t) { return -1; }
 }
 
 static void pump() {
@@ -142,6 +150,44 @@ static void enumerate() {
   assert(!stalled && descriptor.size() >= 9 && tu_unaligned_read16(&descriptor[2]) == descriptor.size());
   control(0, TUSB_REQ_SET_CONFIGURATION, 1, 0, 0);
   assert(!stalled && tud_mounted());
+}
+struct BulkResult { uint8_t status; uint32_t residue; std::vector<uint8_t> data; unsigned chunks; };
+static BulkResult scsi(const std::array<uint8_t,16> &command,unsigned length=0,bool in=true,
+                       const std::vector<uint8_t> &payload={}) {
+  static uint32_t tag;
+  msc_cbw_t cbw{};cbw.signature=MSC_CBW_SIGNATURE;cbw.tag=++tag;
+  cbw.total_bytes=length;cbw.dir=in?0x80:0;cbw.cmd_len=command[0]==SCSI_CMD_REQUEST_SENSE?6:10;
+  memcpy(cbw.command,command.data(),command.size());
+  assert(transfers[1].pending && transfers[1].size==sizeof(cbw));
+  memcpy(transfers[1].buffer,&cbw,sizeof(cbw));transfers[1].pending=false;
+  stalled=false;dcd_event_xfer_complete(0,1,sizeof(cbw),XFER_RESULT_SUCCESS,false);tud_task_ext(0,false);
+  BulkResult result{};unsigned sent=0;
+  for(unsigned step=0;step<1024;step++) {
+    if(stalled) {
+      control(2,TUSB_REQ_CLEAR_FEATURE,TUSB_REQ_FEATURE_EDPT_HALT,0x81,0);
+      control(2,TUSB_REQ_CLEAR_FEATURE,TUSB_REQ_FEATURE_EDPT_HALT,1,0);
+    }
+    if(transfers[0x81].pending) {
+      auto transfer=transfers[0x81];transfers[0x81].pending=false;
+      if(transfer.size==sizeof(msc_csw_t) && tu_unaligned_read32(transfer.bytes.data())==MSC_CSW_SIGNATURE) {
+        assert(tu_unaligned_read32(transfer.bytes.data()+4)==tag);
+        result.residue=tu_unaligned_read32(transfer.bytes.data()+8);result.status=transfer.bytes[12];
+        dcd_event_xfer_complete(0,0x81,transfer.size,XFER_RESULT_SUCCESS,false);tud_task_ext(0,false);
+        return result;
+      }
+      result.data.insert(result.data.end(),transfer.bytes.begin(),transfer.bytes.end());++result.chunks;
+      dcd_event_xfer_complete(0,0x81,transfer.size,XFER_RESULT_SUCCESS,false);tud_task_ext(0,false);
+    } else if(transfers[1].pending) {
+      auto transfer=transfers[1];assert(!in && sent+transfer.size<=payload.size());
+      memcpy(transfer.buffer,payload.data()+sent,transfer.size);sent+=transfer.size;transfers[1].pending=false;++result.chunks;
+      dcd_event_xfer_complete(0,1,transfer.size,XFER_RESULT_SUCCESS,false);tud_task_ext(0,false);
+    } else assert(false);
+  }
+  assert(false);return result;
+}
+static std::array<uint8_t,16> rw_command(uint8_t command,uint32_t lba,uint16_t blocks) {
+  std::array<uint8_t,16> c{};c[0]=command;tu_unaligned_write32(c.data()+2,tu_htonl(lba));
+  tu_unaligned_write16(c.data()+7,tu_htons(blocks));return c;
 }
 static std::string serial() {
   const auto str = tud_descriptor_string_cb(3, 0);
@@ -265,6 +311,43 @@ int main() {
     control(0x21, 0x22, 3, interface_number, 0); assert(stalled);
     assert(usb::active_mode() == USB_MODE_AUDIO && tud_mounted());
   }
+  usb::on(USB_MODE_SD);pump();enumerate();
+  std::array<uint8_t,16> command{};command[0]=SCSI_CMD_READ_CAPACITY_10;
+  auto capacity=scsi(command,8);
+  assert(capacity.status==0 && capacity.data.size()==8 && capacity.residue==0);
+  assert(tu_ntohl(tu_unaligned_read32(capacity.data.data()))==card_sectors-1);
+  assert(tu_ntohl(tu_unaligned_read32(capacity.data.data()+4))==512);
+  // Windows may read a large command ending at the actual last sector, well
+  // beyond the FAT data-space count returned by Arduino numSectors().
+  const uint32_t first=card_sectors-256;
+  constexpr unsigned large_transfer_chunks=(128*1024+CFG_TUD_MSC_EP_BUFSIZE-1)/CFG_TUD_MSC_EP_BUFSIZE;
+  auto tail=scsi(rw_command(SCSI_CMD_READ_10,first,256),128*1024);
+  assert(tail.status==0 && tail.residue==0 && tail.data.size()==128*1024 && tail.chunks==large_transfer_chunks);
+  for(unsigned i=0;i<tail.data.size();i++)assert(tail.data[i]==static_cast<uint8_t>((first+i/512)*7+(i%512)*37+19));
+  std::vector<uint8_t> written(128*1024);
+  for(unsigned i=0;i<written.size();i++)written[i]=static_cast<uint8_t>(i*13+97);
+  auto write=scsi(rw_command(SCSI_CMD_WRITE_10,1000,256),written.size(),false,written);
+  assert(write.status==0 && write.residue==0 && write.chunks==large_transfer_chunks);
+  auto read=scsi(rw_command(SCSI_CMD_READ_10,1000,256),written.size());
+  assert(read.status==0 && read.data==written && read.chunks==large_transfer_chunks);
+  command={};command[0]=0x35;assert(scsi(command).status==0); // host flush
+  // Partial, cross-sector writes must preserve surrounding data.
+  std::vector<uint8_t> partial(700,0xA5),sector_before(1024),sector_after(1024);
+  assert(tud_msc_read10_cb(0,333,0,sector_before.data(),sector_before.size())==1024);
+  assert(tud_msc_write10_cb(0,333,17,partial.data(),partial.size())==700);
+  assert(tud_msc_read10_cb(0,333,0,sector_after.data(),sector_after.size())==1024);
+  for(unsigned i=0;i<sector_after.size();i++)assert(sector_after[i]==(i>=17 && i<717?0xA5:sector_before[i]));
+  assert(scsi(rw_command(SCSI_CMD_READ_10,card_sectors,1),512).status==MSC_CSW_STATUS_FAILED);
+  command={};command[0]=SCSI_CMD_REQUEST_SENSE;command[4]=18;
+  assert(scsi(command,18).status==0);
+  fail_sector_io=true;assert(scsi(rw_command(SCSI_CMD_READ_10,10,1),512).status==MSC_CSW_STATUS_FAILED);
+  fail_sector_io=false;assert(scsi(command,18).status==0);
+  assert(scsi(rw_command(SCSI_CMD_READ_10,card_sectors-1,1),512).status==0);
+  command={};command[0]=SCSI_CMD_START_STOP_UNIT;command[4]=2;assert(scsi(command).status==0);
+  command={};command[0]=SCSI_CMD_TEST_UNIT_READY;assert(scsi(command).status==MSC_CSW_STATUS_FAILED);
+  command={};command[0]=SCSI_CMD_REQUEST_SENSE;command[4]=18;assert(scsi(command,18).status==0);
+  command={};command[0]=SCSI_CMD_START_STOP_UNIT;command[4]=3;assert(scsi(command).status==0);
+  command={};command[0]=SCSI_CMD_TEST_UNIT_READY;assert(scsi(command).status==0);
   for (unsigned repeat = 0; repeat < 25; ++repeat)
     for (auto from : {USB_MODE_NONE, USB_MODE_AUDIO, USB_MODE_SD, USB_MODE_DEBUG})
       for (auto to : {USB_MODE_NONE, USB_MODE_AUDIO, USB_MODE_SD, USB_MODE_DEBUG}) {
@@ -288,5 +371,5 @@ int main() {
   assert(usb::active_mode() == USB_MODE_NONE && !controller_live && !attached); clock_us += 1000000; pump(); enumerate();
   usb::on(USB_MODE_SD); pump(); enumerate(); fail_storage_release = true; usb::off(); pump();
   assert(storage_owned && !attached && !controller_live); clock_us += 1000000; pump(); assert(!storage_owned && usb::active_mode() == USB_MODE_NONE);
-  puts("PASS: audio-only TinyUSB enumeration/clock/PCM/mute/stop/reset/suspend, no CDC interfaces/endpoints, 18 formats, 400 mode transitions, format identity, rapid changes, failure recovery");
+  puts("PASS: real MSC capacity/tail/128KB read-write/flush/partial writes/eject/error recovery, bounded S3 bulk packets; audio-only enumeration/clock/PCM/mute/stop/reset/suspend, 18 formats, 400 mode transitions, rapid changes, failure recovery");
 }

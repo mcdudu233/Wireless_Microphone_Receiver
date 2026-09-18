@@ -148,13 +148,19 @@ namespace
   void refresh_storage_info()
   {
     const int sector_size = SD_MMC.sectorSize();
-    const int sector_count = SD_MMC.numSectors();
     storage_info.type = current_card_type();
     storage_info.capacity_bytes = SD_MMC.cardSize();
     storage_info.total_bytes = SD_MMC.totalBytes();
     storage_info.used_bytes = SD_MMC.usedBytes();
     storage_info.sector_size = sector_size > 0 ? static_cast<uint16_t>(sector_size) : 0;
-    storage_info.sector_count = sector_count > 0 ? static_cast<uint32_t>(sector_count) : 0;
+    // Arduino numSectors() is totalBytes()/sectorSize(): FAT data space,
+    // excluding the partition table, reserved sectors and FATs. USB exposes
+    // the entire raw card, so READ CAPACITY must use the CSD/cardSize instead.
+    const uint64_t sector_count = storage_info.sector_size
+                                      ? storage_info.capacity_bytes / storage_info.sector_size : 0;
+    storage_info.sector_count = sector_count > 0 && sector_count <= UINT32_MAX &&
+                                       storage_info.capacity_bytes % storage_info.sector_size == 0
+                                   ? static_cast<uint32_t>(sector_count) : 0;
   }
 
   bool ensure_directory(const char *path)

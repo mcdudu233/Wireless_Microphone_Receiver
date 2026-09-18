@@ -93,7 +93,9 @@ extern "C"
 #define CFG_TUD_AUDIO 1
 #define CFG_TUD_CDC 0
 #define CFG_TUD_MSC 1
-#define CFG_TUD_MSC_EP_BUFSIZE 512
+// 7.5 KB = 15 sectors / 120 full-speed packets: the largest whole-sector
+// buffer below S3's 127-packet limit (8192 bytes require 128 packets).
+#define CFG_TUD_MSC_EP_BUFSIZE 7680
 #define CFG_TUD_HID 0
 #define CFG_TUD_MIDI 0
 #define CFG_TUD_VENDOR 0

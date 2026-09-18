@@ -10,8 +10,8 @@ public:
   bool begin(const char *, bool, bool, unsigned) { ++fake::mounts;if(fake::during_mount)fake::during_mount();fake::card_mounted=fake::inserted;return fake::card_mounted; }
   void end() { fake::card_mounted=false; }
   int cardType() { return CARD_SDHC; }
-  int sectorSize() { return 512; } int numSectors() { return 100000; }
-  uint64_t cardSize() { return 51200000; } uint64_t totalBytes() { return cardSize(); }
+  int sectorSize() { return 512; } int numSectors() { return totalBytes()/sectorSize(); }
+  uint64_t cardSize() { return 51200000; } uint64_t totalBytes() { return 98304ULL*512; }
   uint64_t usedBytes() { uint64_t n=0;for(const auto &file:fake::files)n+=file.second.bytes.size();return n; }
   bool exists(const char *path) { fake::valid(path);return fake::inserted && fake::card_mounted && fake::files.count(path); }
   File open(const char *path, const char *mode=FILE_READ) {
@@ -32,7 +32,11 @@ public:
     if(!fake::inserted || !fake::card_mounted || !fake::files.count(from) || fake::files.count(to))return false;
     fake::files[to]=std::move(fake::files.at(from));fake::files.erase(from);return true;
   }
-  bool readRAW(uint8_t *, uint32_t) { return fake::inserted && fake::card_mounted; }
-  bool writeRAW(uint8_t *, uint32_t) { return fake::inserted && fake::card_mounted; }
+  bool readRAW(uint8_t *buffer, uint32_t sector) {
+    if(!fake::inserted || !fake::card_mounted || sector>=cardSize()/sectorSize())return false;
+    for(unsigned i=0;i<512;i++)buffer[i]=static_cast<uint8_t>(sector*7+i*37+19);
+    return true;
+  }
+  bool writeRAW(uint8_t *, uint32_t sector) { return fake::inserted && fake::card_mounted && sector<cardSize()/sectorSize(); }
 };
 inline FakeSD SD_MMC;

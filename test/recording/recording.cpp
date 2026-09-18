@@ -20,6 +20,14 @@ static void begin() { assert(tf::start_recording());service_recording();assert(i
 static void stop() { tf::stop_recording();for(int n=0;n<100 && info().state==tf::RecordingState::STOPPING;n++)service_recording(); }
 int main() {
   fake::files["/"]={true,{}};audio::buffer::setup();tf::setup();
+  tf::StorageInfo geometry;tf::get_info(geometry);
+  assert(geometry.sector_count==100000 && geometry.sector_count>static_cast<uint32_t>(SD_MMC.numSectors()));
+  assert(static_cast<uint64_t>(geometry.sector_count)*geometry.sector_size==geometry.capacity_bytes);
+  assert(geometry.total_bytes<geometry.capacity_bytes);
+  assert(tf::set_usb_storage_active(true));
+  uint8_t final_sector[512];assert(tf::read_sector(geometry.sector_count-1,final_sector));
+  assert(!tf::read_sector(geometry.sector_count,final_sector));
+  assert(tf::set_usb_storage_active(false));
   assert(fake::files.count("/recordings") && fake::files.count("/config") && fake::files.count("/logs"));
   assert(!fake::files.count("/WirelessMic"));
   for(auto rate:{AUDIO_RATE_48000,AUDIO_RATE_96000,AUDIO_RATE_192000})

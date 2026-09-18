@@ -10,6 +10,8 @@
 namespace
 {
   constexpr uint32_t MSC_SECTOR_SIZE = 512;
+  static_assert(CFG_TUD_MSC_EP_BUFSIZE % MSC_SECTOR_SIZE == 0, "MSC buffer must contain whole sectors");
+  static_assert(CFG_TUD_MSC_EP_BUFSIZE <= 127 * 64, "MSC transfer exceeds S3 bulk packet counter");
   bool media_ejected = true;
   uint8_t sector_buffer[MSC_SECTOR_SIZE] __attribute__((aligned(4)));
 
@@ -50,7 +52,10 @@ extern "C" bool tud_msc_test_unit_ready_cb(uint8_t lun)
 {
   if (lun != 0)
     return false;
-  if (media_ejected || !tf::is_usb_storage_active())
+  tf::StorageInfo info;
+  tf::get_info(info);
+  if (media_ejected || !info.mounted || !info.usb_active ||
+      info.sector_size != MSC_SECTOR_SIZE || !info.sector_count)
   {
     tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x3A, 0x00);
     return false;
@@ -58,12 +63,13 @@ extern "C" bool tud_msc_test_unit_ready_cb(uint8_t lun)
   return true;
 }
 
-extern "C" void tud_msc_capacity_cb(uint8_t, uint32_t *block_count, uint16_t *block_size)
+extern "C" void tud_msc_capacity_cb(uint8_t lun, uint32_t *block_count, uint16_t *block_size)
 {
   tf::StorageInfo info;
   tf::get_info(info);
-  *block_count = info.mounted ? info.sector_count : 0;
-  *block_size = info.mounted ? info.sector_size : MSC_SECTOR_SIZE;
+  *block_count = lun == 0 && !media_ejected && info.mounted && info.usb_active &&
+                         info.sector_size == MSC_SECTOR_SIZE ? info.sector_count : 0;
+  *block_size = MSC_SECTOR_SIZE;
 }
 
 extern "C" bool tud_msc_start_stop_cb(uint8_t lun, uint8_t, bool start, bool load_eject)
@@ -137,6 +143,11 @@ extern "C" int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset
 
 extern "C" int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void *, uint16_t)
 {
+  // SYNCHRONIZE CACHE(10): readRAW/writeRAW use synchronous disk I/O and
+  // write10 returns only after all sectors have been written. No dirty USB
+  // cache remains, so a host flush can finish without rejecting the command.
+  if (scsi_cmd[0] == 0x35 && lun == 0)
+    return tud_msc_test_unit_ready_cb(lun) ? 0 : -1;
   tud_msc_set_sense(lun, SCSI_SENSE_ILLEGAL_REQUEST, 0x20, 0x00);
   LOGGER_DEBUG("Unsupported MSC SCSI command: 0x%02x", scsi_cmd[0]);
   return -1;
