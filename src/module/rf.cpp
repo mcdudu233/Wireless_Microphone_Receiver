@@ -23,6 +23,7 @@ static DeviceManager deviceManager;
 // 阻止发现即自动连接在迁移过程中发起新的BLE连接
 static bool rfSwitchBusy = false;
 static bool rfSwitchEnterMain = false;
+static bool rfSwitchImported = false;
 
 // 计算音频传输速度
 static uint32_t transmitSpeed = 0;
@@ -530,6 +531,36 @@ static bool wifi_open()
   return true;
 }
 /****************************/
+static bool rf_request_protocol_switch(RFMode target, bool enter_main_on_success, bool imported = false);
+bool rf::settings_busy() { return rfSwitchBusy; }
+
+bool rf::apply_settings(const config::ConfigValue &previous)
+{
+  const auto &current = config::config;
+  if (previous.rf.mode != current.rf.mode)
+  {
+    bool migrate = false;
+    Device *devices = deviceManager.getAllDevices();
+    for (uint8_t i = 0; i < deviceManager.size(); ++i)
+      migrate = migrate || (current.rf.mode == RF_MODE_WIFI ? devices[i].isBleConnected() : devices[i].isWifiConnected());
+    if (migrate)
+    {
+      if (!rf_request_protocol_switch(current.rf.mode, false, true)) return false;
+      ui_popwin_msgbox("正在切换传输协议...", nullptr, nullptr);
+    }
+  }
+  const bool format_changed = previous.audio.rate != current.audio.rate ||
+    previous.audio.bit != current.audio.bit || previous.audio.channel != current.audio.channel;
+  if (format_changed)
+  {
+    audio::buffer::restart();
+    usb::audio_format_changed();
+  }
+  if (format_changed || previous.audio.gain != current.audio.gain || previous.audio.mode != current.audio.mode)
+    return ui_setting_audio_input_page_scb(current.audio.bit, current.audio.channel, current.audio.rate,
+                                            current.audio.gain, current.audio.mode);
+  return true;
+}
 
 /*****************************
           BLE协议
@@ -2200,6 +2231,7 @@ static void rf_switch_task(void *arg)
 {
   const RFMode target = static_cast<RFMode>(reinterpret_cast<uintptr_t>(arg));
   const bool enterMain = rfSwitchEnterMain;
+  const bool imported = rfSwitchImported;
   LOGGER_INFO("RF protocol switch task start, target=%u.", static_cast<unsigned int>(target));
 
   bool ok = false;
@@ -2229,10 +2261,23 @@ static void rf_switch_task(void *arg)
     config::config.rf.mode = target;
     config::save();
   }
+  else if (imported)
+  {
+    // Failed migration reopens BLE. Keep the persisted imported configuration
+    // consistent with that actual fallback and mirror it to TF on the next pass.
+    config::config.rf.mode = RF_MODE_BLE;
+    config::config.audio.rate = AUDIO_RATE_48000;
+    config::config.audio.bit = AUDIO_BIT_16;
+    config::config.audio.channel = AUDIO_CHANNEL_SINGLE;
+    audio::buffer::restart();
+    usb::audio_format_changed();
+    config::save();
+  }
 
   LV_LOCK();
   // 关闭"正在连接/切换"提示弹窗
   ui_close_popup();
+  if (imported) ui_setting_refresh_config();
   if (ok)
   {
     if (enterMain)
@@ -2254,7 +2299,7 @@ static void rf_switch_task(void *arg)
 }
 
 // 请求在独立任务中切换协议;返回false表示已有切换在进行或任务创建失败
-static bool rf_request_protocol_switch(RFMode target, bool enter_main_on_success)
+static bool rf_request_protocol_switch(RFMode target, bool enter_main_on_success, bool imported)
 {
   if (rfSwitchBusy)
   {
@@ -2262,6 +2307,7 @@ static bool rf_request_protocol_switch(RFMode target, bool enter_main_on_success
   }
   rfSwitchBusy = true;
   rfSwitchEnterMain = enter_main_on_success;
+  rfSwitchImported = imported;
   if (xTaskCreatePinnedToCore(rf_switch_task, "rf_switch", TASK_RF_SWITCH_STACK,
                               reinterpret_cast<void *>(static_cast<uintptr_t>(target)),
                               TASK_RF_SWITCH_PRIORITY, nullptr, TASK_RF_SWITCH_CORE) != pdPASS)

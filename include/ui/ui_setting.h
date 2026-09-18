@@ -10,6 +10,8 @@
 void ui_setting_system_page_rcb(float &cpu1_pct, float &cpu2_pct, size_t &iram_current, size_t &psram_current, size_t &l_iram_max, size_t &l_psram_max);
 
 // 更新新的配置时调用
+// Caller holds LVGL lock; refresh visible controls without saving or navigation.
+void ui_setting_refresh_config();
 
 // 音频输入页面读取、保存并立即生效回调
 void ui_setting_audio_input_page_rcb(AudioBit &bit, AudioChannel &channel, AudioRate &rate, AudioGain &gain, AudioMode &mode);

@@ -1,5 +1,10 @@
 #include "logger.h"
 #include "config.h"
+#include "config_file.h"
+#include "module/rf.h"
+#include "module/screen.h"
+#include "module/usb/usb.h"
+#include "ui/ui_setting.h"
 
 #include "nvs_flash.h"
 #include "Preferences.h"
@@ -12,6 +17,8 @@ static Preferences prefs;
 // save()会被多个任务(界面/解码器/USB/协议切换)并发调用,
 // 同一NVS句柄并发读写会导致句柄状态破坏而崩溃,必须串行化
 static SemaphoreHandle_t saveMutex = nullptr;
+static config::ConfigValue persisted;
+static uint32_t generation = 0;
 
 // v0.11 的持久化布局；升级时保留用户已有的音频、无线和 USB 设置。
 struct ConfigValueV000B
@@ -121,6 +128,8 @@ void config::setup()
 
   // 读取配置
   prefs.getBytes(CONFIG_DATA_NAME, &config, sizeof(ConfigValue));
+  persisted = config;
+  generation = 1;
 
   LOGGER_INFO("Config is started.");
 }
@@ -129,10 +138,57 @@ void config::save()
 {
   if (saveMutex == nullptr || xSemaphoreTake(saveMutex, portMAX_DELAY) != pdTRUE)
   {
-    // 锁不可用时仍执行保存(保底),仅在互斥锁创建失败时出现
-    prefs.putBytes(CONFIG_DATA_NAME, &config, sizeof(ConfigValue));
+    // Do not use an unprotected NVS handle after mutex initialization failure.
+    LOGGER_WARN("Config save unavailable.");
     return;
   }
-  prefs.putBytes(CONFIG_DATA_NAME, &config, sizeof(ConfigValue));
+  const ConfigValue saving = config;
+  if (prefs.putBytes(CONFIG_DATA_NAME, &saving, sizeof(ConfigValue)) == sizeof(ConfigValue))
+  {
+    persisted = saving;
+    ++generation;
+  }
+  else LOGGER_WARN("Config Preferences write failed.");
   xSemaphoreGive(saveMutex);
+}
+
+bool config::snapshot(ConfigValue &value, uint32_t &revision)
+{
+  if (!saveMutex || xSemaphoreTake(saveMutex, portMAX_DELAY) != pdTRUE) return false;
+  value = persisted;
+  revision = generation;
+  xSemaphoreGive(saveMutex);
+  return revision != 0;
+}
+
+bool config::import_from_tf(const ConfigValue &value, uint32_t expected_generation)
+{
+  if (!file::valid(value) || !saveMutex) return false;
+  // Never call while holding the TF card mutex: USB owner may need that mutex
+  // while a UI event holds LVGL. Serialize with UI events only after media IO.
+  LV_LOCK();
+  if (rf::settings_busy()) { LV_UNLOCK(); return false; }
+  xSemaphoreTake(saveMutex, portMAX_DELAY);
+  if (generation != expected_generation ||
+      prefs.putBytes(CONFIG_DATA_NAME, &value, sizeof(value)) != sizeof(value))
+  {
+    xSemaphoreGive(saveMutex); LV_UNLOCK(); return false;
+  }
+  const ConfigValue previous = config;
+  config = persisted = value;
+  ++generation;
+  xSemaphoreGive(saveMutex);
+  if (!rf::apply_settings(previous))
+  {
+    config = previous;
+    save();
+    LV_UNLOCK();
+    return false;
+  }
+  screen::apply_settings();
+  usb::on();
+  ui_setting_refresh_config();
+  LV_UNLOCK();
+  LOGGER_INFO("TF configuration imported into Preferences.");
+  return true;
 }

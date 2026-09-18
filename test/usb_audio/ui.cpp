@@ -24,9 +24,9 @@ bool ui_setting_audio_input_page_scb(AudioBit bit, AudioChannel channels, AudioR
   if(config::config.usb.mode==USB_MODE_AUDIO && !usb::AudioFormat{rate,bit,channels}.supported()) return false;
   auto &a=config::config.audio; a.bit=bit; a.channel=channels; a.rate=rate; a.gain=gain; a.mode=mode; return true;
 }
-void ui_setting_audio_output_page_rcb(bool &enabled, AudioOutputMode &mode) { enabled=true; mode=AUDIO_OUTPUT_AUTO; }
+void ui_setting_audio_output_page_rcb(bool &enabled, AudioOutputMode &mode) { enabled=config::config.audio_output.enabled; mode=config::config.audio_output.mode; }
 void ui_setting_audio_output_page_scb(bool, AudioOutputMode) {}
-void ui_setting_screen_page_rcb(uint8_t &brightness, ScreenTimeout &timeout) { brightness=100; timeout=SCREEN_TIMEOUT_NEVER; }
+void ui_setting_screen_page_rcb(uint8_t &brightness, ScreenTimeout &timeout) { brightness=config::config.screen.brightness; timeout=config::config.screen.timeout; }
 void ui_setting_screen_page_scb(uint8_t, ScreenTimeout) {}
 void ui_setting_rf_page_rcb(RFMode &mode) { mode=config::config.rf.mode; }
 void ui_setting_rf_page_scb(RFMode mode) { config::config.rf.mode=mode; }
@@ -142,6 +142,8 @@ static void change(lv_obj_t *dropdown,unsigned value) {
 static void label_fits(lv_obj_t *obj) {
   lv_point_t size;
   lv_text_get_size(&size,lv_label_get_text(obj),lv_obj_get_style_text_font(obj,LV_PART_MAIN),0,0,1000,LV_TEXT_FLAG_NONE);
+  if(size.x>lv_obj_get_width(obj) || size.y>lv_obj_get_height(obj))
+    std::fprintf(stderr,"Label does not fit: %s text=%ldx%ld box=%ldx%ld\n",lv_label_get_text(obj),long(size.x),long(size.y),long(lv_obj_get_width(obj)),long(lv_obj_get_height(obj)));
   assert(size.x<=lv_obj_get_width(obj) && size.y<=lv_obj_get_height(obj));
 }
 static void inside(lv_obj_t *obj,lv_obj_t *parent,int margin=0) {
@@ -176,6 +178,7 @@ static void check_notice(lv_obj_t *restore,const char *text="USB带宽不足\n�
   assert(lv_group_get_focused(setting_group)==restore); settings_notice=true;
 }
 int main() {
+  config::config.screen.brightness=100;
   lv_init(); auto *display=lv_display_create(160,80); static uint8_t pixels[160*80*4];
   lv_display_set_buffers(display,pixels,nullptr,sizeof(pixels),LV_DISPLAY_RENDER_MODE_FULL);
   lv_display_set_flush_cb(display,[](lv_display_t *d,const lv_area_t *,uint8_t *) {lv_display_flush_ready(d);});
@@ -252,5 +255,36 @@ int main() {
   lv_obj_send_event(parent_row,LV_EVENT_CLICKED,nullptr);settle();
   assert(requested_path=="/" && std::strcmp(current_file_path,"/")==0);
   list_ready=true;settle();capture("files_root_directories");
+  // TF imports refresh the exact visible controls without replaying navigation,
+  // retaining focus or advancing it when new settings disable that control.
+  enter("USB传输设置");auto *usb_focus=lv_group_get_focused(setting_group);
+  config::config.usb.mode=USB_MODE_DEBUG;ui_setting_refresh_config();settle();
+  assert(lv_dropdown_get_selected(dd_usb_mode)==3 && lv_group_get_focused(setting_group)==usb_focus);
+  usb_details_fit();capture("tf_import_usb_refresh");
+  enter("屏幕设置");lv_group_focus_obj(dd_screen_timeout);settle();
+  config::config.screen.brightness=88;config::config.screen.timeout=SCREEN_TIMEOUT_30_SECONDS;
+  ui_setting_refresh_config();settle();
+  assert(lv_slider_get_value(slider_screen_brightness)==88 && lv_dropdown_get_selected(dd_screen_timeout)==1);
+  assert(std::strcmp(lv_label_get_text(label_screen_brightness),"88%") == 0);
+  assert(lv_group_get_focused(setting_group)==dd_screen_timeout);capture("tf_import_screen_refresh");
+  config::config.audio.mode=AUDIO_MODE_MANUAL;config::config.audio.rate=AUDIO_RATE_48000;
+  config::config.audio.bit=AUDIO_BIT_16;config::config.audio.channel=AUDIO_CHANNEL_SINGLE;
+  config::config.audio.gain=-64;
+  enter("音频输入设置");lv_group_focus_obj(slider_audio_gain);settle();
+  assert(lv_slider_get_value(slider_audio_gain)==-64 && std::strcmp(lv_label_get_text(label_audio_gain),"-64dB")==0);
+  label_fits(label_audio_gain);inside(label_audio_gain,lv_obj_get_parent(label_audio_gain));capture("tf_import_negative_gain");
+  auto *import_popup=ui_popwin_msgbox("正在录音\n请先停止录音",nullptr,slider_audio_gain);
+  config::config.rf.mode=RF_MODE_BLE;config::config.audio.mode=AUDIO_MODE_AUTO;
+  ui_setting_refresh_config();settle();
+  lv_obj_send_event(import_popup,LV_EVENT_CLICKED,nullptr);settle();
+  assert(lv_obj_has_state(slider_audio_gain,LV_STATE_DISABLED));
+  assert(lv_group_get_focused(setting_group)!=slider_audio_gain &&
+         !lv_obj_has_state(lv_group_get_focused(setting_group),LV_STATE_DISABLED));
+  capture("tf_import_ble_refresh");
+  enter("音频输出设置");auto *output_focus=lv_group_get_focused(setting_group);
+  config::config.audio_output.enabled=false;config::config.audio_output.mode=AUDIO_OUTPUT_ALWAYS_ON;
+  ui_setting_refresh_config();settle();
+  assert(lv_dropdown_get_selected(dd_audio_output_enabled)==0 && lv_dropdown_get_selected(dd_audio_output_mode)==1);
+  assert(lv_group_get_focused(setting_group)==output_focus);capture("tf_import_output_refresh");
   assert(settings_notice); puts("PASS: actual LVGL USB/input controls, unsupported rollback, two-line dialog and restored focus, format details, loading/Bluetooth/main/settings/subpages");
 }

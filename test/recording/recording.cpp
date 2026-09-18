@@ -4,6 +4,9 @@
 #include <fstream>
 
 namespace config { ConfigValue config; }
+bool config::snapshot(ConfigValue &, uint32_t &) { return false; }
+bool config::import_from_tf(const ConfigValue &, uint32_t) { assert(false);return false; }
+size_t logger::take_logs(uint8_t *, size_t, uint32_t &dropped) { dropped=0;return 0; }
 static tf::RecordingInfo info() { tf::RecordingInfo i;tf::get_recording_info(i);return i; }
 static void frame(uint32_t number, const std::vector<uint8_t> &pcm, bool incomplete=false) {
   for(size_t offset=0;offset<pcm.size();offset+=PACKET_WIFI_AUDIO_DATA_MAX_SIZE) {

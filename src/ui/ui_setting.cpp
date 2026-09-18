@@ -54,6 +54,7 @@ static lv_obj_t *dd_audio_output_enabled;
 static lv_obj_t *dd_audio_output_mode;
 
 static lv_obj_t *slider_screen_brightness;
+static lv_obj_t *label_screen_brightness;
 static lv_obj_t *dd_screen_timeout;
 
 static lv_obj_t *dd_rf_mode;
@@ -70,6 +71,7 @@ static lv_obj_t *psram;
 // static lv_obj_t *sd;
 
 static void save_config(uint8_t page);
+static void load_setting_values(uint8_t page);
 static void setting_value_changed_cb(lv_event_t *e);
 static void back_cb(lv_event_t *e);                        // 设置页面back按钮回调
 static void ui_set_audio_format_locked(bool locked); // BLE模式锁定采样格式下拉框
@@ -332,7 +334,7 @@ void ui_setting_init(lv_obj_t *ui_from)
                                                          "手动",
                        &dd_audio_audio_mode);
     lv_obj_add_event_cb(dd_audio_audio_mode, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_input_page);
-    ui_create_slider(sub_audio_input_page, NULL, "增益", 0, 60, 0, "dB", &slider_audio_gain, &label_audio_gain);
+    ui_create_slider(sub_audio_input_page, NULL, "增益", -64, 63, 0, "dB", &slider_audio_gain, &label_audio_gain);
     lv_obj_add_event_cb(slider_audio_gain, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_input_page);
 
     ui_create_dropdown(sub_audio_output_page, NULL, "音频输出", "关闭\n开启", &dd_audio_output_enabled);
@@ -340,7 +342,7 @@ void ui_setting_init(lv_obj_t *ui_from)
     ui_create_dropdown(sub_audio_output_page, NULL, "启停方式", "插入检测\n始终开启", &dd_audio_output_mode);
     lv_obj_add_event_cb(dd_audio_output_mode, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::audio_output_page);
 
-    ui_create_slider(sub_screen_page, NULL, "亮度", 10, 100, 50, "%", &slider_screen_brightness);
+    ui_create_slider(sub_screen_page, NULL, "亮度", 10, 100, 50, "%", &slider_screen_brightness, &label_screen_brightness);
     lv_obj_add_event_cb(slider_screen_brightness, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::screen_page);
     ui_create_dropdown(sub_screen_page, NULL, "自动息屏", "永不\n30秒\n1分钟\n5分钟", &dd_screen_timeout);
     lv_obj_add_event_cb(dd_screen_timeout, setting_value_changed_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)e_page::screen_page);
@@ -684,7 +686,7 @@ static lv_obj_t *ui_create_slider(lv_obj_t *parent, const void *icon, const char
     lv_obj_t *pct = lv_label_create(obj);
     lv_label_set_text_fmt(pct, "%d%s", static_cast<int>(val), suffix);
     lv_obj_set_user_data(pct, const_cast<char *>(suffix));
-    lv_obj_set_size(pct, 34, lv_font_get_line_height(UI_FONT_BODY));
+    lv_obj_set_size(pct, 38, lv_font_get_line_height(UI_FONT_BODY));
     lv_obj_set_style_text_font(pct, UI_FONT_BODY, 0);
     lv_obj_set_style_text_color(pct, lv_color_hex(0x1F2937), 0);
     lv_obj_set_style_text_align(pct, LV_TEXT_ALIGN_RIGHT, 0);
@@ -783,6 +785,15 @@ static void enter_subpage_cb(lv_event_t *e)
     uint8_t p = (uint8_t)(intptr_t)lv_obj_get_user_data(page);
     last_enter_page = p;
     LOGGER_INFO("进入页面");
+    load_setting_values(p);
+    lv_obj_set_user_data(last_enter_btn, page);
+    set_settings_focus(p);
+    lv_obj_send_event(page, LV_EVENT_SCROLL, NULL);
+    lv_obj_scroll_to_view(lv_obj_get_child(page, 0), LV_ANIM_OFF);
+}
+
+static void load_setting_values(uint8_t p)
+{
     switch (p)
     {
 
@@ -891,6 +902,7 @@ static void enter_subpage_cb(lv_event_t *e)
         ScreenTimeout timeout;
         ui_setting_screen_page_rcb(brightness, timeout);
         lv_slider_set_value(slider_screen_brightness, brightness, LV_ANIM_OFF);
+        lv_label_set_text_fmt(label_screen_brightness, "%u%%", unsigned(brightness));
 
         int selected_timeout = 0;
         switch (timeout)
@@ -951,10 +963,21 @@ static void enter_subpage_cb(lv_event_t *e)
     }
     }
 
-    lv_obj_set_user_data(last_enter_btn, page); // 记录btn对应的page
-    set_settings_focus(p);
-    lv_obj_send_event(page, LV_EVENT_SCROLL, NULL);
-    lv_obj_scroll_to_view(lv_obj_get_child(page, 0), LV_ANIM_OFF);
+}
+
+void ui_setting_refresh_config()
+{
+    if (!setting_widget || !lv_obj_is_valid(setting_widget) || lv_obj_has_flag(setting_widget, LV_OBJ_FLAG_HIDDEN)) return;
+    lv_obj_t *page = lv_menu_get_cur_main_page(menu);
+    const uint8_t p = uint8_t(reinterpret_cast<uintptr_t>(lv_obj_get_user_data(page)));
+    if (p == e_page::audio_input_page || p == e_page::audio_output_page || p == e_page::screen_page ||
+        p == e_page::usb_page || p == e_page::rf_page)
+        load_setting_values(p);
+    if (lv_group_get_default() == setting_group)
+    {
+        lv_obj_t *focused = lv_group_get_focused(setting_group);
+        if (focused && lv_obj_has_state(focused, LV_STATE_DISABLED)) lv_group_focus_next(setting_group);
+    }
 }
 
 // 异步把焦点放回来源条目（并滚动可见）

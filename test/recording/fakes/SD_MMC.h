@@ -27,6 +27,12 @@ public:
   }
   bool mkdir(const char *path) { fake::valid(path);if(!fake::inserted || !fake::card_mounted)return false;fake::files[path]={true,{}};return true; }
   bool remove(const char *path) { fake::valid(path);return fake::inserted && fake::files.erase(path); }
-  bool readRAW(uint8_t *, uint32_t) { return true; } bool writeRAW(uint8_t *, uint32_t) { return true; }
+  bool rename(const char *from, const char *to) {
+    fake::valid(from);fake::valid(to);
+    if(!fake::inserted || !fake::card_mounted || !fake::files.count(from) || fake::files.count(to))return false;
+    fake::files[to]=std::move(fake::files.at(from));fake::files.erase(from);return true;
+  }
+  bool readRAW(uint8_t *, uint32_t) { return fake::inserted && fake::card_mounted; }
+  bool writeRAW(uint8_t *, uint32_t) { return fake::inserted && fake::card_mounted; }
 };
 inline FakeSD SD_MMC;

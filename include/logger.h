@@ -21,6 +21,7 @@
 namespace logger
 {
   void setup();
+  size_t take_logs(uint8_t *data, size_t capacity, uint32_t &dropped);
 
   // 输出各类堆的剩余量和最大连续块，供硬件调试定位内存碎片。
   void memory(const char *stage);

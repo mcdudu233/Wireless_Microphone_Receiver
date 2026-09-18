@@ -175,4 +175,7 @@ namespace config
 
   void setup();
   void save();
+  // Last successfully persisted settings and monotonic in-memory generation.
+  bool snapshot(ConfigValue &value, uint32_t &generation);
+  bool import_from_tf(const ConfigValue &value, uint32_t expected_generation);
 }

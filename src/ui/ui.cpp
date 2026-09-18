@@ -44,7 +44,7 @@ void ui_close_popup()
                 lv_group_set_default(value->g);
                 ui_bind_group_to_all_encoders(value->g);
             }
-            if (value->obj != nullptr && lv_obj_is_valid(value->obj))
+            if (value->obj != nullptr && lv_obj_is_valid(value->obj) && !lv_obj_has_state(value->obj, LV_STATE_DISABLED))
             {
                 lv_group_focus_obj(value->obj);
             }
@@ -200,7 +200,7 @@ lv_obj_t **ui_popwin(bool has_bg, lv_group_t *g, lv_obj_t *obj)
         back_val* v = (back_val *)lv_obj_get_user_data(target);
         lv_group_set_default(v->g);
         ui_bind_group_to_all_encoders(v->g);
-        if(lv_obj_is_valid(v->obj)) lv_group_focus_obj(v->obj);
+        if(lv_obj_is_valid(v->obj) && !lv_obj_has_state(v->obj, LV_STATE_DISABLED)) lv_group_focus_obj(v->obj);
         if (lv_obj_is_valid(target)) lv_obj_del(target);
         }, LV_EVENT_CLICKED, NULL);
     static lv_obj_t *ret[2];

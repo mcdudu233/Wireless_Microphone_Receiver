@@ -137,6 +137,8 @@ struct __attribute__((packed)) Packet
 namespace rf
 {
   void setup();
+  bool settings_busy();
+  bool apply_settings(const config::ConfigValue &previous);
   // 获取首个已连接发射器上报的当前实际增益(dB),无已连接/未上报时返回-1
   AudioGain getConnectedDeviceGain();
 }

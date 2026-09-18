@@ -245,6 +245,8 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   follows the transmitter's gain reductions (never increases) at about 1 Hz;
   manual mode edits a fixed gain. Peak-reduction reductions are written back
   to the stored gain so the next commanded initial gain matches reality.
+  The gain slider covers the persisted -64..63 dB range so imported negative
+  values are preserved when another audio setting is edited.
 - While the transport protocol is BLE, the microphone format is fixed at
   48 kHz / 16 bit / mono: the sample-rate, bit-depth, and channel dropdowns are
   shown in a muted disabled state (60% text opacity, `border-subtle` outline)
@@ -256,7 +258,7 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   settings UI unreadable. Auto-off offers never, 30 seconds, 1 minute, and 5
   minutes; changing either value applies immediately.
 - Sliders use a 64x6 px track with a 12 px knob, followed by a fixed-width,
-  right-aligned value label. Values never overlay the track or knob. The gray
+  38 px right-aligned value label (including `-64dB`). Values never overlay the track or knob. The gray
   track, blue filled portion, white knob, and blue focus outline use existing
   design tokens.
 
@@ -373,6 +375,11 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 - Meter animation communicates live level only. No decorative animation.
 
 ## 7. Depth & Surface
+
+When TF settings are imported, refresh visible setting controls without changing
+pages or replaying entry motion. Preserve focus unless the imported settings
+disable that control; then advance to the next enabled control in the same group.
+Closing a popup must not restore focus to a control disabled by an import.
 
 Use tonal separation first: pale screen, white controls, subtle gray dividers.
 Shadows are limited to modal dialogs and one shallow main information surface.
