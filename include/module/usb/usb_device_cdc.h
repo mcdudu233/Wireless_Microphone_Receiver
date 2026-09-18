@@ -1,13 +1,14 @@
 #pragma once
 
 #include "Stream.h"
+#include <atomic>
 
 // 自定义串口
 class USBCDCStream : public Stream
 {
 private:
   static USBCDCStream *_instance;
-  bool _connected;
+  std::atomic<bool> _connected;
 
   // 环形缓冲区
   uint8_t *_rx_buffer;

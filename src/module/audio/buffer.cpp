@@ -205,10 +205,9 @@ void audio::buffer::writeBLEPacket(BLEAudioPacket *packet)
   }
 }
 
-static AudioData *getConsumerData(uint32_t &last_number, bool &started, bool &delay_flag,
+static AudioData *getConsumerDataLocked(uint32_t &last_number, bool &started, bool &delay_flag,
                                   bool decoder_consumer)
 {
-  xSemaphoreTake(mutex, portMAX_DELAY);
   AudioData *audio = nullptr;
 
   if (!started)
@@ -276,6 +275,14 @@ static AudioData *getConsumerData(uint32_t &last_number, bool &started, bool &de
 #else
   (void)decoder_consumer;
 #endif
+  return audio;
+}
+
+static AudioData *getConsumerData(uint32_t &last_number, bool &started, bool &delay_flag,
+                                  bool decoder_consumer)
+{
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  AudioData *audio = getConsumerDataLocked(last_number, started, delay_flag, decoder_consumer);
   xSemaphoreGive(mutex);
   return audio;
 }
@@ -288,6 +295,31 @@ AudioData *audio::buffer::getDecoderData()
 AudioData *audio::buffer::getUSBData()
 {
   return getConsumerData(usbLastNumber, usbStarted, usbDelayFlag, false);
+}
+
+bool audio::buffer::readUSBFrame(uint8_t *destination, uint32_t expected_size)
+{
+  if (mutex == nullptr || data == nullptr || destination == nullptr || expected_size == 0 ||
+      expected_size > AUDIO_BUFFER_MAX_DATA_SIZE)
+    return false;
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  AudioData *frame = getConsumerDataLocked(usbLastNumber, usbStarted, usbDelayFlag, false);
+  const bool complete = frame != nullptr && frame->complete && frame->size == expected_size;
+  if (complete)
+    memcpy(destination, frame->data, expected_size);
+  xSemaphoreGive(mutex);
+  return complete;
+}
+
+void audio::buffer::resetUSBReader()
+{
+  if (mutex == nullptr)
+    return;
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  usbLastNumber = 0;
+  usbStarted = false;
+  usbDelayFlag = false;
+  xSemaphoreGive(mutex);
 }
 
 #ifdef BUILD_DEBUG

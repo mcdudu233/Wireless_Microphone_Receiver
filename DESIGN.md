@@ -58,7 +58,7 @@ but each screen must have one obvious focus target and no decorative clutter.
 
 All three sizes are generated from the approved HarmonyOS Sans SC sources in
 `docs/resources/fonts/` (titles use Medium, body uses Regular) via the pipeline
-in `docs/tools/README.md`. They share one 194-glyph Chinese symbol set maintained
+in `docs/tools/README.md`. They share one 199-glyph Chinese symbol set maintained
 in Receiver/src/res/font/symbols.txt, and every size falls back to
 the matching built-in Montserrat font for `LV_SYMBOL_*` glyphs. Generated font
 files must not be hand-edited.
@@ -207,10 +207,18 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   detail surface; the first line contains the mode's primary capability or TF
   capacity/type, and the second line contains availability or access behavior.
 - **Layout**: the complete selector and detail block must fit in the USB page's
-  fixed viewport. The page is not scrollable and never shows a scrollbar.
+  155x56 viewport: a 24 px selector row, 2 px gap, and 30 px detail block with
+  two 15 px lines and no internal row gap. The page has zero vertical padding,
+  is not scrollable, and never shows a scrollbar.
 - **Behavior**: details preview the highlighted dropdown option immediately.
   Missing TF media is shown as an unavailable state; mass-storage mode states
   that the host has exclusive access while it is active.
+- USB audio exposes exactly the microphone input rate, bit depth and channel
+  count. The two detail lines show that format and `音频格式与输入同步`.
+  A rejected format or audio-mode selection restores the previous dropdown
+  value and opens the standard two-line dialog `USB带宽不足` / `请降低音频格式`;
+  closing it restores focus to the edited control. No implicit conversion.
+  The limit includes the S3 hardware FIFO reserved for audio plus CDC.
 
 ### Audio and screen settings
 - Microphone capture and local 3.5 mm playback are separate root pages. The

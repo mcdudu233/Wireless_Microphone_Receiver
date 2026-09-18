@@ -33,7 +33,6 @@ extern "C"
 
 #include "tusb_config_cdc.h"
 #include "tusb_config_uac.h"
-#include "usb_descriptors.h"
 
 //--------------------------------------------------------------------+
 // Board Specific Configuration

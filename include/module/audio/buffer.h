@@ -59,6 +59,10 @@ namespace audio::buffer
   AudioData *getDecoderData();
   // 获取USB的数据
   AudioData *getUSBData();
+  // Copy a complete PCM frame under the reassembly lock; no slot pointers
+  // escape while USB reads samples. Reset only the USB consumer on reopen.
+  bool readUSBFrame(uint8_t *destination, uint32_t expected_size);
+  void resetUSBReader();
 
   // 当前配置每个4ms音频帧应有的字节数。
   uint32_t getFrameSize();

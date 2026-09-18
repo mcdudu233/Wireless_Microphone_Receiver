@@ -2,6 +2,7 @@
 #include "ui/ui_setting.h"
 #include "module/tf.h"
 #include "module/rf.h"
+#include "module/usb/usb_audio_format.h"
 
 #include "esp_attr.h"
 
@@ -16,6 +17,7 @@ static lv_obj_t *last_widget;
 static lv_obj_t *menu;
 static lv_obj_t *setting_widget;
 static lv_obj_t *last_enter_btn = NULL; // 记录进入子页面所用的条目
+static uint8_t last_enter_page; // 行的user_data用于动画标记，不能解释为页面指针
 static lv_timer_t *sys_info_timer;
 static lv_style_t scroll_style;
 static bool scroll_style_initialized;
@@ -186,6 +188,8 @@ void ui_setting_init(lv_obj_t *ui_from)
     lv_obj_t *sub_usb_page = ui_create_sub_page(menu, "USB传输设置", false);
     lv_obj_set_user_data(sub_usb_page, (void *)e_page::usb_page);
     lv_obj_remove_flag(sub_usb_page, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(sub_usb_page, 0, 0);
+    lv_obj_set_style_pad_row(sub_usb_page, 2, 0);
     lv_obj_t *sub_file_page = ui_create_sub_page(menu, "文件管理");
     lv_obj_set_user_data(sub_file_page, (void *)e_page::file_page);
     file_page_ref = sub_file_page;
@@ -260,13 +264,16 @@ void ui_setting_init(lv_obj_t *ui_from)
 
                        &dd_usb_mode);
     lv_obj_set_height(usb_mode_row, 24);
+    lv_obj_set_width(usb_mode_row, 155);
+    lv_obj_set_style_margin_bottom(usb_mode_row, 0, 0);
     lv_obj_set_style_pad_ver(usb_mode_row, 2, 0);
     lv_obj_set_height(dd_usb_mode, 18);
     lv_obj_add_event_cb(dd_usb_mode, usb_mode_changed_cb, LV_EVENT_VALUE_CHANGED, nullptr);
 
     lv_obj_t *usb_details = lv_obj_create(sub_usb_page);
-    lv_obj_set_size(usb_details, lv_pct(100), 30);
+    lv_obj_set_size(usb_details, 155, 30);
     lv_obj_set_style_pad_all(usb_details, 0, 0);
+    lv_obj_set_style_pad_row(usb_details, 0, 0);
     lv_obj_set_style_pad_hor(usb_details, 5, 0);
     lv_obj_set_style_border_width(usb_details, 0, 0);
     lv_obj_set_style_radius(usb_details, 4, 0);
@@ -277,11 +284,11 @@ void ui_setting_init(lv_obj_t *ui_from)
 
     usb_detail_primary = lv_label_create(usb_details);
     usb_detail_secondary = lv_label_create(usb_details);
-    lv_obj_set_width(usb_detail_primary, lv_pct(100));
+    lv_obj_set_width(usb_detail_primary, 145);
     lv_obj_set_height(usb_detail_primary, lv_font_get_line_height(UI_FONT_BODY));
     lv_label_set_long_mode(usb_detail_primary, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(usb_detail_primary, UI_FONT_BODY, 0);
-    lv_obj_set_width(usb_detail_secondary, lv_pct(100));
+    lv_obj_set_width(usb_detail_secondary, 145);
     lv_obj_set_height(usb_detail_secondary, lv_font_get_line_height(UI_FONT_BODY));
     lv_label_set_long_mode(usb_detail_secondary, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(usb_detail_secondary, UI_FONT_BODY, 0);
@@ -559,8 +566,7 @@ static void back_cb(lv_event_t *e)
         {
             set_settings_focus(0);
             // 异步执行，确保菜单已完成页面切换
-            lv_obj_t *page_obj = (lv_obj_t *)lv_obj_get_user_data(last_enter_btn);
-            uint8_t p = (uint8_t)(intptr_t)lv_obj_get_user_data(page_obj);
+            const uint8_t p = last_enter_page;
             if (p == e_page::system_page)
             {
                 lv_timer_pause(sys_info_timer);
@@ -771,6 +777,7 @@ static void enter_subpage_cb(lv_event_t *e)
     last_enter_btn = lv_event_get_target_obj(e);
     lv_obj_t *page = (lv_obj_t *)lv_event_get_user_data(e);
     uint8_t p = (uint8_t)(intptr_t)lv_obj_get_user_data(page);
+    last_enter_page = p;
     LOGGER_INFO("进入页面");
     switch (p)
     {
@@ -1060,11 +1067,12 @@ static void update_usb_mode_details()
         AudioGain gain;
         AudioMode mode;
         ui_setting_audio_input_page_rcb(bit, channel, rate, gain, mode);
-        lv_label_set_text_fmt(usb_detail_primary, "麦克风 %lukHz/%ubit/%s",
+        lv_label_set_text_fmt(usb_detail_primary, "%lukHz/%ubit/%s",
                               static_cast<unsigned long>(rate) / 1000,
                               static_cast<unsigned int>(bit),
                               channel == AUDIO_CHANNEL_STEREO ? "立体声" : "单声道");
-        lv_label_set_text(usb_detail_secondary, "同时提供CDC串口");
+        lv_label_set_text(usb_detail_secondary, usb::AudioFormat{rate, bit, channel}.supported()
+                          ? "音频格式与输入同步" : "USB带宽不足");
         break;
     }
     case USB_MODE_SD:
@@ -1118,8 +1126,8 @@ static void update_usb_mode_details()
 
 static void usb_mode_changed_cb(lv_event_t *)
 {
-    update_usb_mode_details();
     save_config(e_page::usb_page);
+    update_usb_mode_details();
 }
 
 static void setting_value_changed_cb(lv_event_t *e)
@@ -1213,22 +1221,15 @@ static void save_config(uint8_t page)
     switch (page)
     {
     case e_page::usb_page:
-        switch (lv_dropdown_get_selected(dd_usb_mode))
+    {
+        if (!ui_setting_usb_page_scb(selected_usb_mode()))
         {
-        case 0:
-            ui_setting_usb_page_scb(USB_MODE_NONE);
-            break;
-        case 1:
-            ui_setting_usb_page_scb(USB_MODE_AUDIO);
-            break;
-        case 2:
-            ui_setting_usb_page_scb(USB_MODE_SD);
-            break;
-        case 3:
-            ui_setting_usb_page_scb(USB_MODE_JTAG);
-            break;
+            const USBMode mode = config::config.usb.mode;
+            lv_dropdown_set_selected(dd_usb_mode, mode == USB_MODE_AUDIO ? 1 : mode == USB_MODE_SD ? 2 : mode == USB_MODE_JTAG ? 3 : 0);
+            ui_popwin_msgbox("USB带宽不足\n请降低音频格式", nullptr, dd_usb_mode);
         }
         break;
+    }
     case e_page::audio_input_page:
         AudioBit v_bit;
         AudioChannel v_channel;
@@ -1292,7 +1293,15 @@ static void save_config(uint8_t page)
         }
         // 模式切换时同步增益滑条可用状态(切到自动增益立即禁用)
         ui_apply_gain_slider_lock();
-        ui_setting_audio_input_page_scb(v_bit, v_channel, v_rate, v_gain, v_audio_mode);
+        if (!ui_setting_audio_input_page_scb(v_bit, v_channel, v_rate, v_gain, v_audio_mode))
+        {
+            lv_obj_t *focus = lv_group_get_focused(setting_group);
+            const auto &audio = config::config.audio;
+            lv_dropdown_set_selected(dd_audio_rate, audio.rate == AUDIO_RATE_192000 ? 2 : audio.rate == AUDIO_RATE_96000 ? 1 : 0);
+            lv_dropdown_set_selected(dd_audio_bit, audio.bit == AUDIO_BIT_32 ? 2 : audio.bit == AUDIO_BIT_24 ? 1 : 0);
+            lv_dropdown_set_selected(dd_audio_channel, audio.channel == AUDIO_CHANNEL_STEREO ? 1 : 0);
+            ui_popwin_msgbox("USB带宽不足\n请降低音频格式", nullptr, focus);
+        }
         break;
     case e_page::audio_output_page:
         ui_setting_audio_output_page_scb(lv_dropdown_get_selected(dd_audio_output_enabled) == 1,

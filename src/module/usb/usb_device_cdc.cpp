@@ -3,9 +3,6 @@
 
 #include "Arduino.h"
 #include "tusb.h"
-#include "soc/soc.h"
-#include "soc/system_reg.h"
-#include "soc/rtc_cntl_reg.h"
 
 USBCDCStream *USBCDCStream::_instance = nullptr;
 USBCDCStream USBCDCSerial;
@@ -19,6 +16,8 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
 static bool flagDownload = false;
 void USBCDCStream::_line_state_callback(uint8_t itf, bool dtr, bool rts)
 {
+  if (itf != 0)
+    return;
   if (_instance)
   {
     // RTS DTR
@@ -51,7 +50,13 @@ void USBCDCStream::_line_state_callback(uint8_t itf, bool dtr, bool rts)
     }
 
     // 终端连接
-    USBCDCSerial._connect();
+    if (dtr)
+      USBCDCSerial._connect();
+    else
+    {
+      USBCDCSerial._disconnect();
+      USBCDCSerial.clear();
+    }
   }
 }
 
@@ -62,6 +67,8 @@ void tud_cdc_rx_cb(uint8_t itf)
 }
 void USBCDCStream::_rx_callback(uint8_t itf)
 {
+  if (itf != 0)
+    return;
   if (_instance)
   {
     uint8_t buf[64];
@@ -148,56 +155,32 @@ int USBCDCStream::peek()
 
 void USBCDCStream::flush()
 {
-  if (!_connected)
+  if (!_connected || !usb::cdc_lock())
   {
     return;
   }
 
   tud_cdc_write_flush();
+  usb::cdc_unlock();
 }
 
 size_t USBCDCStream::write(uint8_t ch)
 {
-  if (!_connected)
-  {
-    return 0;
-  }
-
-  uint32_t count = 0;
-  while (count == 0)
-  {
-    count = tud_cdc_write(&ch, 1);
-    if (count == 0)
-    {
-      delay(1); // 等待缓冲区空间
-    }
-  }
-  tud_cdc_write_flush();
-  return count;
+  return write(&ch, 1);
 }
 
 size_t USBCDCStream::write(const uint8_t *buffer, size_t size)
 {
-  if (!_connected || size == 0)
+  if (!_connected || buffer == nullptr || size == 0 || !usb::cdc_lock())
   {
     return 0;
   }
 
-  size_t total_written = 0;
-  while (total_written < size)
-  {
-    uint32_t written = tud_cdc_write(buffer + total_written, size - total_written);
-    if (written > 0)
-    {
-      total_written += written;
-      tud_cdc_write_flush();
-    }
-    else
-    {
-      delay(1); // 等待缓冲区空间
-    }
-  }
-  return total_written;
+  const size_t written = tud_cdc_connected() ? tud_cdc_write(buffer, size) : 0;
+  if (written)
+    tud_cdc_write_flush();
+  usb::cdc_unlock();
+  return written;
 }
 
 void USBCDCStream::clear()
@@ -208,9 +191,11 @@ void USBCDCStream::clear()
 
 int USBCDCStream::availableForWrite()
 {
-  if (!_connected)
+  if (!_connected || !usb::cdc_lock())
   {
     return 0;
   }
-  return tud_cdc_write_available();
+  const int available = tud_cdc_write_available();
+  usb::cdc_unlock();
+  return available;
 }

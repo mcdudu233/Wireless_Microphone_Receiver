@@ -4,6 +4,8 @@
 #include "module/screen.h"
 #include "module/audio/buffer.h"
 #include "module/audio/decoder.h"
+#include "module/usb/usb.h"
+#include "module/usb/usb_audio_format.h"
 #include "tool/device.h"
 #include "ui/ui.h"
 #include "ui/ui_bt.h"
@@ -2212,6 +2214,8 @@ static void rf_switch_task(void *arg)
       config::config.audio.channel = AUDIO_CHANNEL_SINGLE;
       config::config.audio.rate = AUDIO_RATE_48000;
       config::config.audio.bit = AUDIO_BIT_16;
+      audio::buffer::restart();
+      usb::audio_format_changed();
     }
     ok = rf_migrate_devices_to_ble();
   }
@@ -2488,6 +2492,8 @@ void rf::setup()
     config::config.audio.channel = AUDIO_CHANNEL_SINGLE;
     config::config.audio.rate = AUDIO_RATE_48000;
     config::config.audio.bit = AUDIO_BIT_16;
+    audio::buffer::restart();
+    usb::audio_format_changed();
     config::save();
   }
   wifiSocketMutex = xSemaphoreCreateMutex();
@@ -2802,7 +2808,7 @@ void ui_setting_audio_input_page_rcb(AudioBit &bit, AudioChannel &channel, Audio
   mode = config::config.audio.mode;
 }
 
-void ui_setting_audio_input_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode)
+bool ui_setting_audio_input_page_scb(AudioBit bit, AudioChannel channel, AudioRate rate, AudioGain gain, AudioMode mode)
 {
   LOGGER_INFO("ui_setting_audio_input_page_scb");
   // BLE带宽仅支持48000Hz/16bit/单声道,收到更高格式时收敛(未来支持立体声)
@@ -2814,11 +2820,20 @@ void ui_setting_audio_input_page_scb(AudioBit bit, AudioChannel channel, AudioRa
     rate = AUDIO_RATE_48000;
     bit = AUDIO_BIT_16;
   }
+  if (config::config.usb.mode == USB_MODE_AUDIO && !usb::AudioFormat{rate, bit, channel}.supported())
+    return false;
+  const bool format_changed = bit != config::config.audio.bit || channel != config::config.audio.channel ||
+                              rate != config::config.audio.rate;
   config::config.audio.bit = (AudioBit)bit;
   config::config.audio.channel = (AudioChannel)channel;
   config::config.audio.rate = (AudioRate)rate;
   config::config.audio.gain = (AudioGain)gain;
   config::config.audio.mode = (AudioMode)mode;
+  if (format_changed)
+  {
+    audio::buffer::restart();
+    usb::audio_format_changed();
+  }
   config::save();
 
   // 立即将新音频配置发送到所有已连接设备
@@ -2868,6 +2883,7 @@ void ui_setting_audio_input_page_scb(AudioBit bit, AudioChannel channel, AudioRa
       }
     }
   }
+  return true;
 }
 
 void ui_setting_rf_page_rcb(RFMode &mode)
@@ -2907,6 +2923,8 @@ void ui_setting_rf_page_scb(RFMode mode)
       config::config.audio.channel = AUDIO_CHANNEL_SINGLE;
       config::config.audio.rate = AUDIO_RATE_48000;
       config::config.audio.bit = AUDIO_BIT_16;
+      audio::buffer::restart();
+      usb::audio_format_changed();
     }
     config::config.rf.mode = mode;
     config::save();
