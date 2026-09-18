@@ -30,6 +30,9 @@ void vTaskDelay(TickType_t ticks) {
 void usb_serial_jtag_ll_phy_enable_pad(bool enabled) { jtag_pad = enabled; }
 int usb_new_phy(const usb_phy_config_t *conf, usb_phy_handle_t *phy) {
   assert(*phy == nullptr && !attached && !controller_live);
+  // ESP-IDF usb_new_phy aborts when a Serial/JTAG handle is given OTG mode
+  // settings. The fake must enforce the real API's controller restriction.
+  assert(conf->otg_mode == USB_PHY_MODE_DEFAULT || conf->controller == USB_PHY_CTRL_OTG);
   if (fail_phy) { fail_phy = false; return -1; }
   *phy = new int(conf->controller);
   return ESP_OK;

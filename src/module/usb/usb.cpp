@@ -107,11 +107,17 @@ static bool start_device(const USBRequest &request)
   cleanup_pending = true;
   // Publish the descriptor personality before enabling the controller.
   usb_active_mode.store(request.mode);
-  usb_phy_config_t phy_config = {
-      .controller = request.mode == USB_MODE_DEBUG ? USB_PHY_CTRL_SERIAL_JTAG : USB_PHY_CTRL_OTG,
-      .target = USB_PHY_TARGET_INT,
-      .otg_mode = USB_OTG_MODE_DEVICE,
-      .otg_speed = USB_PHY_SPEED_FULL};
+  // Debug is the original hardware Serial/JTAG mode. OTG settings are not
+  // valid for this controller: usb_new_phy calls ESP_ERROR_CHECK on them.
+  usb_phy_config_t phy_config = {};
+  phy_config.controller = USB_PHY_CTRL_SERIAL_JTAG;
+  if (request.mode != USB_MODE_DEBUG)
+  {
+    phy_config.controller = USB_PHY_CTRL_OTG;
+    phy_config.target = USB_PHY_TARGET_INT;
+    phy_config.otg_mode = USB_OTG_MODE_DEVICE;
+    phy_config.otg_speed = USB_PHY_SPEED_FULL;
+  }
   if (usb_new_phy(&phy_config, &usb_phy) != ESP_OK)
   {
     LOGGER_WARN("USB PHY init failed");

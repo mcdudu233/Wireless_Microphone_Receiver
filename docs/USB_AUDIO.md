@@ -113,3 +113,18 @@ release 链接符号检查未发现 `USBCDCStream`、`USBCDCSerial`、
   读卡器大量传输后的剩余栈空间，以及堆内存是否随切换次数持续下降。
 
 release 合并固件为 `build/firmware.bin`，整包烧录地址为 `0x0`。
+
+## 调试模式重启修复
+
+原生 Serial/JTAG 必须沿用原 JTAG 初始化配置，不能传入 OTG 的
+`USB_OTG_MODE_DEVICE`。ESP-IDF 的 `usb_new_phy()` 会对此调用
+`ESP_ERROR_CHECK(usb_phy_otg_set_mode(...))`，而该函数拒绝非 OTG
+控制器，导致断言重启。现将 PHY 配置先清零，调试模式只设置
+`USB_PHY_CTRL_SERIAL_JTAG`；音频和读卡器才设置 OTG 模式及速度。
+“调试模式”仅是原 JTAG 模式的显示名称，不新增软件 CDC。
+
+主机检查的 PHY 替身已对齐 ESP-IDF 枚举值，并检查 Serial/JTAG
+不可使用 OTG 参数，避免宽松替身漏掉这类实机断言。旧参数触发该
+回归检查的断言，修复后通过；18 种音频格式及四种模式之间的
+400 次切换检查、PlatformIO debug/release 构建均通过。实机 JTAG
+切换、连续日志和下载仍需烧录后验证；原有冷启动音频经用户确认正常。
