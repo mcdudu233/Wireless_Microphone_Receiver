@@ -23,3 +23,5 @@
 音频格式与输入同步USB带宽不足请降低
 # USB debug mode and built-in serial logging
 调试模式程序下载与调试USB串口输出日志
+保制变待慢查法稍等达限
+后改止被退

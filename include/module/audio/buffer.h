@@ -45,6 +45,21 @@ struct AudioBufferDebugStats
 
 namespace audio::buffer
 {
+  struct RecordingReader
+  {
+    uint32_t next_number;
+    uint32_t generation;
+    bool started;
+    uint32_t end_number;
+    bool stopping;
+  };
+  enum class RecordingRead : uint8_t { WAIT, FRAME, OVERRUN, RESET };
+  void resetRecordingReader(RecordingReader &reader);
+  void stopRecordingReader(RecordingReader &reader);
+  // Copies under the reassembly lock. Missing fragments become a whole silent
+  // frame; backlog is never silently discarded. force drains the stop boundary.
+  RecordingRead readRecordingFrame(RecordingReader &reader, uint8_t *destination,
+                                   uint32_t expected_size, bool force = false);
   void setup();
   // 重置指针
   void restart();

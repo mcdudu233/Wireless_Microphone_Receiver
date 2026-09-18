@@ -1,9 +1,9 @@
 #pragma once
 #include "config.h"
+#include "project.h"
 
 // 系统信息刷新周期 ms
 #define SYSTEM_INFO_REFLUSH_TIME 1000
-#define AUTHOR "dudu233, tiosa"
 #define WEBSITE "www.mcso.top/mic"
 
 // 获取系统信息调用

@@ -25,6 +25,10 @@ Assertions and screenshots cover:
 - Loss boundaries 0/1/2/3/9/10/99/100/255 and pixel checks for green/red meter endpoints.
 - Geometry bounds and text widths at maximum values and device number 255.
 - One/multiple reconnect overlays, longest link-loss dialog and group restoration.
+- Record-button placement and focus order; idle, starting, recording, stopping,
+  saved and all six error notices, including return focus to Record.
+- Every captured visible label must resolve every UTF-8 glyph to a real font
+  glyph; placeholder boxes fail QA even if `symbols.txt` verification passes.
 - Removal of middle/active devices: tab buttons, group count, selected device.
 
 2026-09-17: host assertions passed; rendered mode grid, focus states, empty state,

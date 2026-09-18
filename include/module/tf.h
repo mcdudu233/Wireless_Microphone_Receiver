@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <ctime>
 
 #define TF_CLK_IO GPIO_NUM_12
 #define TF_CMD_IO GPIO_NUM_11
@@ -14,10 +13,9 @@
 #define TF_1BIT_MODE false
 #define TF_FREQ 40000
 #define TF_MOUNT_POINT "/card"
-#define TF_DATA_ROOT "/WirelessMic"
-#define TF_RECORDINGS_ROOT TF_DATA_ROOT "/recordings"
-#define TF_CONFIG_ROOT TF_DATA_ROOT "/config"
-#define TF_LOG_ROOT TF_DATA_ROOT "/logs"
+#define TF_RECORDINGS_ROOT "/recordings"
+#define TF_CONFIG_ROOT "/config"
+#define TF_LOG_ROOT "/logs"
 
 #define TF_FILE_NAME_MAX 256
 #define TF_PATH_MAX 512
@@ -25,6 +23,19 @@
 
 namespace tf
 {
+  enum class RecordingState : uint8_t { IDLE, STARTING, RECORDING, STOPPING, SAVED, ERROR };
+  enum class RecordingError : uint8_t { NONE, NO_CARD, USB_BUSY, IO, FORMAT_CHANGED, OVERRUN, LIMIT };
+  struct RecordingInfo
+  {
+    RecordingState state;
+    RecordingError error;
+    uint32_t revision;
+    uint32_t bytes;
+    char filename[32];
+  };
+  bool start_recording();
+  void stop_recording();
+  void get_recording_info(RecordingInfo &info);
   enum class CardType : uint8_t
   {
     NONE,
@@ -72,7 +83,6 @@ namespace tf
   bool is_deletable_path(const char *path);
   bool list(const char *path, FileEntry *entries, size_t capacity, size_t &count, bool &truncated);
   bool remove_file(const char *path);
-  bool make_recording_path(time_t timestamp, char *path, size_t path_size);
   bool request_list(const char *path, uint32_t request_id);
   bool take_list_result(FileEntry *entries, size_t capacity, size_t &count, bool &truncated, bool &success, uint32_t &request_id);
   bool request_remove_file(const char *path, uint32_t request_id);

@@ -58,7 +58,7 @@ but each screen must have one obvious focus target and no decorative clutter.
 
 All three sizes are generated from the approved HarmonyOS Sans SC sources in
 `docs/resources/fonts/` (titles use Medium, body uses Regular) via the pipeline
-in `docs/tools/README.md`. They share one 203-glyph Chinese symbol set maintained
+in `docs/tools/README.md`. They share one 219-glyph Chinese symbol set maintained
 in Receiver/src/res/font/symbols.txt, and every size falls back to
 the matching built-in Montserrat font for `LV_SYMBOL_*` glyphs. Generated font
 files must not be hand-edited.
@@ -195,6 +195,11 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   re-entering a directory reloads its contents; long names use end ellipsis;
   destructive delete keeps the two-button confirmation.
 - **States**: same as dense list, plus a truncated-list notice row.
+- **USB ownership**: reader mode replaces entries with two non-interactive
+  18 px rows, `TF卡被USB占用` and `请退出读卡器模式`. The fixed back control
+  remains reachable. The page observes actual TF ownership/mount state and
+  reloads when USB releases and remounts the card; stale async results cannot
+  replace the ownership notice. A failed remount displays `TF卡未挂载`.
 
 ### Info row
 - **Structure**: one-line focusable row with a secondary-color name on the left
@@ -213,6 +218,9 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
 - **Behavior**: details preview the highlighted dropdown option immediately.
   Missing TF media is shown as an unavailable state; mass-storage mode states
   that the host has exclusive access while it is active.
+- Reader details explicitly state `独占TF/录音不可用`. Selecting reader mode
+  during recording restores the old selection and shows `正在录音` /
+  `请先停止录音`; selecting it without media shows the missing-card dialog.
 - USB audio exposes exactly the microphone input rate, bit depth and channel
   count. The two detail lines show that format and `音频格式与输入同步`.
   A rejected format or audio-mode selection restores the previous dropdown
@@ -257,7 +265,8 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   (4,4), settings button at (106,50), 48x24. Do not move settings to a header.
 - The 20 px tab strip uses persistent device numbers. Four tabs fit across
   96 px; labels have bounded one-line geometry. Active tabs have a pale blue
-  surface; keyboard focus has an inset blue outline. Focus order: tabs, settings.
+  surface; keyboard focus has an inset blue outline. Focus order: tabs, record,
+  settings.
 - A 94x48 card contains L and R in two rows, at y=0 and y=16. The 74x8
   meter tracks start at x=16, y=4/20. Their horizontal gradient is anchored
   to the entire track, green at zero and red at full scale; LVGL clips the
@@ -273,8 +282,19 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   x=102 (24 px), bit depth at x=127 (18 px), USB at x=146 (12 px).
   Matching white rounded tiles and blue content, with USB-off gray. Compact
   ASCII text reads `48k`/`96k`/`192k` and `16b`/`24b`/`32b`; the USB icon
-  occupies a 12x12 box using CONTAIN. The area y=24..46 on the right remains
-  free for a future button. Settings stays at (106,50), 48x24.
+  occupies a 12x12 box using CONTAIN. Record occupies (106,24), 48x22;
+  settings stays at (106,50), 48x24. Both use explicit 12 px body text.
+- Record uses the existing white action surface, blue text and focus outline.
+  Its label is `录制` when idle, `停止` while recording (semantic error-red
+  text), and `等待` while starting/finalizing (disabled). Confirmation toggles
+  start/stop without a modal start dialog. Stopping closes the WAV before the
+  standard two-line `录音已保存` / `MIC00001.wav` message appears. Missing TF,
+  USB ownership, write failure, format change, buffer overrun and file limits
+  use standard two-line messages; errors never claim that audio was saved.
+- Recording continues while settings are open; format/transport changes stop
+  recording with a message and finalize the previous format. Leaving the main
+  dashboard after the last device disconnects requests a stop. Tabs change
+  telemetry only; recording captures the existing common input PCM stream.
 - Mode badges refresh even with no cards. Transport is now on every device
   card and follows the receiver's common transport configuration.
 - Empty state is a bounded label in the left content region; settings remains

@@ -1,6 +1,8 @@
 #include "logger.h"
 #include "config.h"
 #include "module/tf.h"
+#include "module/audio/buffer.h"
+#include "module/audio/wav.h"
 
 #include "FS.h"
 #include "SD_MMC.h"
@@ -8,9 +10,13 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_attr.h"
+#include "esp_core_dump.h"
+#include "esp_partition.h"
+#include "esp_system.h"
 
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 
 namespace
 {
@@ -32,6 +38,20 @@ namespace
   uint32_t result_request_id = 0;
   uint32_t request_id = 0;
   volatile tf::RequestStatus request_status = tf::RequestStatus::IDLE;
+  tf::RecordingInfo recording_info = {};
+  AudioRate recording_rate;
+  AudioBit recording_bit;
+  AudioChannel recording_channels;
+  File recording_file;
+  bool recording_open = false;
+  audio::wav::Header recording_header;
+  audio::buffer::RecordingReader recording_reader = {};
+  EXT_RAM_BSS_ATTR uint8_t recording_data[32768];
+  uint32_t recording_bytes = 0;
+  uint32_t recording_sync_time = 0;
+  uint32_t next_recording_number = 1;
+  bool crash_export_pending = true;
+  bool export_crash();
 
   class CardLock
   {
@@ -152,9 +172,10 @@ namespace
                "; UTF-8 text file, reserved for future runtime configuration\n"
                "[recording]\n"
                "format=wav\n"
-               "filename_time=local\n"
+               "filename=MIC00001.wav\n"
                "[storage]\n"
-               "recordings_dir=/WirelessMic/recordings\n");
+               "recordings_dir=/recordings\n"
+               "logs_dir=/logs\n");
     file.close();
   }
 
@@ -166,16 +187,379 @@ namespace
     return written >= 0 && static_cast<size_t>(written) < TF_FILE_NAME_MAX;
   }
 
+  bool initialize_directories()
+  {
+    return ensure_directory(TF_RECORDINGS_ROOT) && ensure_directory(TF_CONFIG_ROOT) &&
+           ensure_directory(TF_LOG_ROOT);
+  }
+
+  // Called only with card ownership (at boot or from the storage worker).
+  bool mount_card()
+  {
+    SD_MMC.end();
+    mounted = false;
+    storage_info.mounted = false;
+    if (!SD_MMC.begin(TF_MOUNT_POINT, TF_1BIT_MODE, false, TF_FREQ))
+      return false;
+    if (!initialize_directories())
+    {
+      SD_MMC.end();
+      return false;
+    }
+    refresh_storage_info();
+    write_default_config();
+    mounted = true;
+    storage_info.mounted = true;
+    return true;
+  }
+
+  bool recording_busy()
+  {
+    return recording_info.state == tf::RecordingState::STARTING ||
+           recording_info.state == tf::RecordingState::RECORDING ||
+           recording_info.state == tf::RecordingState::STOPPING;
+  }
+
+  void publish_recording(tf::RecordingState state, tf::RecordingError error = tf::RecordingError::NONE)
+  {
+    xSemaphoreTake(request_mutex, portMAX_DELAY);
+    recording_info.state = state;
+    recording_info.error = error;
+    recording_info.bytes = recording_bytes;
+    recording_info.revision++;
+    xSemaphoreGive(request_mutex);
+  }
+
+  bool reserve_recording_path(char *path, size_t size)
+  {
+    File directory = SD_MMC.open(TF_RECORDINGS_ROOT);
+    if (!directory || !directory.isDirectory())
+      return false;
+    // Scan actual media so switching cards/USB edits and reboots cannot overwrite
+    // an existing file. The session counter also avoids reuse after deleting one.
+    for (File file = directory.openNextFile(); file; file = directory.openNextFile())
+    {
+      const char *name = file.name();
+      const char *base = std::strrchr(name, '/');
+      name = base ? base + 1 : name;
+      if (!file.isDirectory() && std::strncmp(name, "MIC", 3) == 0 &&
+          name[3] >= '0' && name[3] <= '9')
+      {
+        char *end;
+        const unsigned long number = std::strtoul(name + 3, &end, 10);
+        if (std::strcmp(end, ".wav") == 0 && number < 100000 && number >= next_recording_number)
+          next_recording_number = static_cast<uint32_t>(number) + 1;
+      }
+      file.close();
+    }
+    directory.close();
+    while (next_recording_number <= 99999)
+    {
+      const int length = std::snprintf(path, size, TF_RECORDINGS_ROOT "/MIC%05lu.wav",
+                                       static_cast<unsigned long>(next_recording_number++));
+      if (length < 0 || static_cast<size_t>(length) >= size)
+        return false;
+      if (!SD_MMC.exists(path))
+      {
+        recording_file = SD_MMC.open(path, FILE_WRITE);
+        recording_open = static_cast<bool>(recording_file);
+        return static_cast<bool>(recording_file);
+      }
+    }
+    return false;
+  }
+
+  bool sync_recording(bool final)
+  {
+    if (final && (recording_bytes & 1U))
+    {
+      const uint8_t padding = 0;
+      if (!recording_file.seek(recording_header.size + recording_bytes) ||
+          recording_file.write(&padding, 1) != 1)
+        return false;
+    }
+    audio::wav::finish(recording_header, recording_bytes);
+    if (!recording_file.seek(0) ||
+        recording_file.write(recording_header.data, recording_header.size) != recording_header.size)
+      return false;
+    recording_file.flush();
+    return recording_file.seek(recording_header.size + recording_bytes);
+  }
+
+  void finish_recording(tf::RecordingError error)
+  {
+    if (recording_open)
+    {
+      if (!sync_recording(true))
+        error = tf::RecordingError::IO;
+      recording_file.close();
+      recording_open = false;
+      if (error != tf::RecordingError::IO)
+      {
+        tf::RecordingInfo info;
+        tf::get_recording_info(info);
+        char path[80];
+        std::snprintf(path, sizeof(path), TF_RECORDINGS_ROOT "/%s", info.filename);
+        File saved = SD_MMC.open(path, FILE_READ);
+        const uint32_t expected_size = recording_header.size + recording_bytes + (recording_bytes & 1U);
+        if (!saved || saved.size() != expected_size ||
+            saved.read(recording_data, recording_header.size) != recording_header.size ||
+            std::memcmp(recording_data, recording_header.data, recording_header.size) != 0)
+          error = tf::RecordingError::IO;
+        saved.close();
+      }
+      if (error == tf::RecordingError::IO)
+      {
+        mounted = false;
+        storage_info.mounted = false;
+      }
+      else
+        refresh_storage_info();
+    }
+    LOGGER_INFO("TF recording ended: bytes=%lu error=%u stack_free=%lu",
+                static_cast<unsigned long>(recording_bytes), static_cast<unsigned>(error),
+                static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
+    publish_recording(error == tf::RecordingError::NONE ? tf::RecordingState::SAVED : tf::RecordingState::ERROR, error);
+  }
+
+  void service_recording()
+  {
+    tf::RecordingInfo info;
+    tf::get_recording_info(info);
+    if (info.state != tf::RecordingState::STARTING && info.state != tf::RecordingState::RECORDING &&
+        info.state != tf::RecordingState::STOPPING)
+      return;
+    CardLock lock;
+    if (!lock.acquired())
+      return;
+    if (info.state == tf::RecordingState::STARTING)
+    {
+      recording_bytes = 0;
+      if (usb_storage_active)
+      {
+        publish_recording(tf::RecordingState::ERROR, tf::RecordingError::USB_BUSY);
+        return;
+      }
+      if (!mounted && !mount_card())
+      {
+        publish_recording(tf::RecordingState::ERROR, tf::RecordingError::NO_CARD);
+        return;
+      }
+      if (crash_export_pending)
+        crash_export_pending = !export_crash();
+      char path[80];
+      if (!audio::wav::make(recording_header, recording_rate, recording_bit, recording_channels) ||
+          !reserve_recording_path(path, sizeof(path)))
+      {
+        publish_recording(tf::RecordingState::ERROR, next_recording_number > 99999 ?
+                          tf::RecordingError::LIMIT : tf::RecordingError::IO);
+        return;
+      }
+      xSemaphoreTake(request_mutex, portMAX_DELAY);
+      std::snprintf(recording_info.filename, sizeof(recording_info.filename), "%s", std::strrchr(path, '/') + 1);
+      xSemaphoreGive(request_mutex);
+      if (recording_file.write(recording_header.data, recording_header.size) != recording_header.size)
+      {
+        finish_recording(tf::RecordingError::IO);
+        return;
+      }
+      audio::buffer::resetRecordingReader(recording_reader);
+      recording_sync_time = millis();
+      // Stop may have been requested while opening the file. Preserve it.
+      xSemaphoreTake(request_mutex, portMAX_DELAY);
+      if (recording_info.state == tf::RecordingState::STARTING)
+        recording_info.state = tf::RecordingState::RECORDING;
+      recording_info.revision++;
+      xSemaphoreGive(request_mutex);
+      LOGGER_INFO("TF recording started: %s %luHz/%ubit/%uch", path,
+                  static_cast<unsigned long>(recording_rate), static_cast<unsigned>(recording_bit),
+                  static_cast<unsigned>(recording_channels));
+      return;
+    }
+    if (!recording_file)
+    {
+      if (recording_open)
+        finish_recording(tf::RecordingError::IO);
+      else
+        publish_recording(tf::RecordingState::IDLE);
+      return;
+    }
+    if (config::config.audio.rate != recording_rate || config::config.audio.bit != recording_bit ||
+        config::config.audio.channel != recording_channels)
+    {
+      finish_recording(tf::RecordingError::FORMAT_CHANGED);
+      return;
+    }
+    const bool stopping = info.state == tf::RecordingState::STOPPING;
+    if (stopping && !recording_reader.stopping)
+      audio::buffer::stopRecordingReader(recording_reader);
+    const uint32_t frame_size = static_cast<uint32_t>(recording_rate) *
+                                static_cast<uint32_t>(recording_bit) *
+                                static_cast<uint32_t>(recording_channels) / 8 *
+                                AUDIO_DECODER_POLLING_CYCLE / 1000;
+    uint32_t count = 0;
+    audio::buffer::RecordingRead read = audio::buffer::RecordingRead::WAIT;
+    tf::RecordingError error = tf::RecordingError::NONE;
+    while (count + frame_size <= sizeof(recording_data))
+    {
+      read = audio::buffer::readRecordingFrame(recording_reader, recording_data + count, frame_size, stopping);
+      if (read != audio::buffer::RecordingRead::FRAME)
+        break;
+      count += frame_size;
+    }
+    if (count)
+    {
+      if (recording_bytes > UINT32_MAX - recording_header.size - count - 2)
+        error = tf::RecordingError::LIMIT;
+      else
+      {
+        const size_t written = recording_file.write(recording_data, count);
+        // Only declare complete sample frames if the medium returns a short write.
+        const uint32_t alignment = static_cast<uint32_t>(recording_bit) / 8 * recording_channels;
+        recording_bytes += static_cast<uint32_t>(written) / alignment * alignment;
+        if (written != count)
+          error = tf::RecordingError::IO;
+      }
+    }
+    if (read == audio::buffer::RecordingRead::RESET)
+      error = tf::RecordingError::FORMAT_CHANGED;
+    else if (read == audio::buffer::RecordingRead::OVERRUN)
+      error = tf::RecordingError::OVERRUN;
+    if (error != tf::RecordingError::NONE || (stopping && read == audio::buffer::RecordingRead::WAIT))
+      finish_recording(error);
+    else if (millis() - recording_sync_time >= 1000)
+    {
+      recording_sync_time = millis();
+      if (!sync_recording(false))
+        finish_recording(tf::RecordingError::IO);
+    }
+  }
+
+  // Export the complete checksummed flash image, retaining it on any media
+  // failure. Reading the saved file back is required before erasing flash.
+  bool export_crash()
+  {
+    size_t address = 0, size = 0;
+    const esp_err_t found = esp_core_dump_image_get(&address, &size);
+    if (found == ESP_ERR_NOT_FOUND)
+      return true;
+    if (found != ESP_OK || esp_core_dump_image_check() != ESP_OK)
+      return false;
+    const esp_partition_t *partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                                               ESP_PARTITION_SUBTYPE_DATA_COREDUMP, nullptr);
+    if (!partition || address < partition->address || size > partition->size ||
+        address - partition->address > partition->size - size)
+      return false;
+    char path[80], text_path[80];
+    for (uint32_t n = 1; n <= 99999; ++n)
+    {
+      std::snprintf(path, sizeof(path), TF_LOG_ROOT "/CRASH%05lu.bin", static_cast<unsigned long>(n));
+      std::snprintf(text_path, sizeof(text_path), TF_LOG_ROOT "/CRASH%05lu.txt", static_cast<unsigned long>(n));
+      if (!SD_MMC.exists(path) && !SD_MMC.exists(text_path))
+        break;
+      if (n == 99999)
+        return false;
+    }
+    File file = SD_MMC.open(path, FILE_WRITE);
+    if (!file)
+      return false;
+    // Reuse worker-owned PSRAM scratch, leaving the worker stack for filesystem
+    // calls. No recording runs while this startup/remount export is in progress.
+    bool success = true;
+    for (size_t offset = 0; offset < size && success; offset += 1024)
+    {
+      const size_t count = size - offset < 1024 ? size - offset : 1024;
+      success = esp_partition_read(partition, address - partition->address + offset, recording_data, count) == ESP_OK &&
+                file.write(recording_data, count) == count;
+    }
+    file.flush();
+    file.close();
+    file = SD_MMC.open(path, FILE_READ);
+    success = success && file && file.size() == size;
+    for (size_t offset = 0; offset < size && success; offset += 1024)
+    {
+      const size_t count = size - offset < 1024 ? size - offset : 1024;
+      success = esp_partition_read(partition, address - partition->address + offset, recording_data, count) == ESP_OK &&
+                file.read(recording_data + 1024, count) == count &&
+                std::memcmp(recording_data, recording_data + 1024, count) == 0;
+    }
+    file.close();
+    if (success)
+    {
+      esp_core_dump_summary_t summary = {};
+      char reason[160] = {};
+      const bool has_summary = esp_core_dump_get_summary(&summary) == ESP_OK;
+      esp_core_dump_get_panic_reason(reason, sizeof(reason));
+      char text[1280];
+      int length = std::snprintf(text, sizeof(text),
+          "Project: %s\nAuthors: %s\nDevice: Receiver\nBoot reset reason: %u\n"
+          "Image: %s\nImage bytes: %lu\nPanic: %s\nTask: %.16s\nPC: 0x%08lx\n"
+          "Exception cause: %lu\nFault address: 0x%08lx\n"
+          "Crashed ELF SHA256: %.64s\nKeep the matching firmware.elf for decoding this raw core dump.\n",
+          MIC_PROJECT_NAME, AUTHOR, static_cast<unsigned>(esp_reset_reason()), path,
+          static_cast<unsigned long>(size), reason, has_summary ? summary.exc_task : "unknown",
+          static_cast<unsigned long>(summary.exc_pc), static_cast<unsigned long>(summary.ex_info.exc_cause),
+          static_cast<unsigned long>(summary.ex_info.exc_vaddr),
+          has_summary ? reinterpret_cast<const char *>(summary.app_elf_sha256) : "unknown");
+      if (has_summary && length > 0 && static_cast<size_t>(length) < sizeof(text))
+      {
+        int added = std::snprintf(text + length, sizeof(text) - length, "Backtrace (corrupted=%u):\n",
+                                  summary.exc_bt_info.corrupted ? 1U : 0U);
+        length = added > 0 ? length + added : -1;
+        const size_t maximum = sizeof(summary.exc_bt_info.bt) / sizeof(summary.exc_bt_info.bt[0]);
+        for (size_t i = 0; i < summary.exc_bt_info.depth && i < maximum &&
+                           length > 0 && static_cast<size_t>(length) < sizeof(text); ++i)
+        {
+          added = std::snprintf(text + length, sizeof(text) - length, "0x%08lx\n",
+                                static_cast<unsigned long>(summary.exc_bt_info.bt[i]));
+          length = added > 0 ? length + added : -1;
+        }
+      }
+      file = SD_MMC.open(text_path, FILE_WRITE);
+      success = length > 0 && static_cast<size_t>(length) < sizeof(text) && file &&
+                file.write(reinterpret_cast<const uint8_t *>(text), static_cast<size_t>(length)) == static_cast<size_t>(length);
+      file.flush();
+      file.close();
+      file = SD_MMC.open(text_path, FILE_READ);
+      success = success && file && file.size() == static_cast<size_t>(length) &&
+                file.read(recording_data, static_cast<size_t>(length)) == static_cast<size_t>(length) &&
+                std::memcmp(recording_data, text, static_cast<size_t>(length)) == 0;
+      file.close();
+    }
+    if (!success)
+    {
+      SD_MMC.remove(path);
+      SD_MMC.remove(text_path);
+      LOGGER_WARN("TF crash export failed; flash image retained.");
+      return false;
+    }
+    const esp_err_t erased = esp_core_dump_image_erase();
+    LOGGER_INFO("TF crash exported: %s erase=%s stack_free=%lu", path, esp_err_to_name(erased),
+                static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
+    return erased == ESP_OK;
+  }
+
   void tf_worker(void *)
   {
+    uint32_t last_crash_attempt = millis() - 5000;
     for (;;)
     {
-      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+      ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
+      if (crash_export_pending && mounted && !usb_storage_active && !recording_file &&
+          millis() - last_crash_attempt >= 5000)
+      {
+        last_crash_attempt = millis();
+        CardLock lock;
+        if (lock.acquired())
+          crash_export_pending = !export_crash();
+      }
+      service_recording();
       RequestKind kind;
       uint32_t current_request_id;
       char path[TF_PATH_MAX];
       xSemaphoreTake(request_mutex, portMAX_DELAY);
       kind = request_kind;
+      request_kind = RequestKind::NONE;
       current_request_id = request_id;
       std::snprintf(path, sizeof(path), "%s", request_path);
       xSemaphoreGive(request_mutex);
@@ -256,10 +640,7 @@ void tf::setup()
     }
     LOGGER_INFO("TF card Size: %dMB\n", SD_MMC.cardSize() / (1024 * 1024));
 
-    const bool directories_ready = ensure_directory(TF_DATA_ROOT) &&
-                                   ensure_directory(TF_RECORDINGS_ROOT) &&
-                                   ensure_directory(TF_CONFIG_ROOT) &&
-                                   ensure_directory(TF_LOG_ROOT);
+    const bool directories_ready = initialize_directories();
     if (!directories_ready)
     {
       LOGGER_WARN("TF storage directory initialization failed.");
@@ -269,13 +650,6 @@ void tf::setup()
       write_default_config();
       mounted = true;
       storage_info.mounted = true;
-      if (xTaskCreatePinnedToCore(tf_worker, "tf_worker", TASK_TF_STACK, nullptr, TASK_TF_PRIORITY, &worker_handle, TASK_TF_CORE) != pdPASS)
-      {
-        worker_handle = nullptr;
-        mounted = false;
-        storage_info.mounted = false;
-        LOGGER_WARN("TF worker creation failed.");
-      }
     }
   }
   else
@@ -283,6 +657,14 @@ void tf::setup()
     LOGGER_WARN("TF card mount failed.");
   }
 
+  // Remain available when booted without a card; Record retries mounting.
+  if (xTaskCreatePinnedToCore(tf_worker, "tf_worker", TASK_TF_STACK, nullptr, TASK_TF_PRIORITY, &worker_handle, TASK_TF_CORE) != pdPASS)
+  {
+    worker_handle = nullptr;
+    mounted = false;
+    storage_info.mounted = false;
+    LOGGER_WARN("TF worker creation failed.");
+  }
   LOGGER_INFO("TF card is started.");
 }
 
@@ -303,48 +685,43 @@ bool tf::set_usb_storage_active(bool active)
   if (!card_mutex || !request_mutex)
     return !active;
 
+  // Match the worker's card -> state lock order; never keep the UI's short
+  // state mutex held while waiting on filesystem I/O.
+  CardLock lock;
+  if (!lock.acquired())
+    return false;
   xSemaphoreTake(request_mutex, portMAX_DELAY);
-  if (active && (!mounted || request_status != RequestStatus::IDLE ||
+  // Completed replies live in RAM and do not own media. A paused file browser
+  // may consume them later; they must not prevent entering reader mode.
+  if (active && (!mounted || recording_busy() || request_status == RequestStatus::BUSY ||
                  storage_info.sector_size != 512 || storage_info.sector_count == 0))
   {
     xSemaphoreGive(request_mutex);
     return false;
   }
 
-  CardLock lock;
-  if (!lock.acquired())
+  const bool was_active = usb_storage_active;
+  if (active)
   {
+    usb_storage_active = true;
+    storage_info.usb_active = true;
     xSemaphoreGive(request_mutex);
-    return false;
+    return true;
   }
-
-  usb_storage_active = active;
-  storage_info.usb_active = active;
-  if (!active && mounted)
-  {
-    mounted = false;
-    storage_info.mounted = false;
-    SD_MMC.end();
-    if (SD_MMC.begin(TF_MOUNT_POINT, TF_1BIT_MODE, false, TF_FREQ))
-    {
-      refresh_storage_info();
-      mounted = true;
-      storage_info.mounted = true;
-      if (!(ensure_directory(TF_DATA_ROOT) &&
-            ensure_directory(TF_RECORDINGS_ROOT) &&
-            ensure_directory(TF_CONFIG_ROOT) &&
-            ensure_directory(TF_LOG_ROOT)))
-        LOGGER_WARN("TF storage directory remount check failed.");
-      else
-        write_default_config();
-    }
-    else
-    {
-      storage_info.type = CardType::NONE;
-      LOGGER_WARN("TF card remount after USB storage failed.");
-    }
-  }
+  // Keep ownership reserved while remounting, but release the short state lock
+  // so LVGL status polling cannot block on slow media initialization.
   xSemaphoreGive(request_mutex);
+  if (was_active && !mount_card())
+  {
+    storage_info.type = CardType::NONE;
+    LOGGER_WARN("TF card remount after USB storage failed.");
+  }
+  xSemaphoreTake(request_mutex, portMAX_DELAY);
+  usb_storage_active = false;
+  storage_info.usb_active = false;
+  xSemaphoreGive(request_mutex);
+  // Ownership is released even if the medium disappeared. The new USB mode can
+  // start; TF UI reports unmounted and Record can retry after reinsertion.
   return true;
 }
 
@@ -371,6 +748,11 @@ bool tf::write_sector(uint32_t sector, const uint8_t *buffer)
 
 bool tf::is_deletable_path(const char *path)
 {
+  RecordingInfo info;
+  get_recording_info(info);
+  if ((info.state == RecordingState::STARTING || info.state == RecordingState::RECORDING ||
+       info.state == RecordingState::STOPPING) && path && path_has_prefix(path, TF_RECORDINGS_ROOT))
+    return false;
   return mounted && !usb_storage_active && valid_path(path) && deletable_path(path);
 }
 
@@ -528,50 +910,50 @@ bool tf::take_remove_result(bool &success, uint32_t &request_id_value)
   return true;
 }
 
-bool tf::make_recording_path(time_t timestamp, char *path, size_t path_size)
+bool tf::start_recording()
 {
-  if (!mounted || usb_storage_active || !path || path_size == 0)
+  if (!request_mutex || !worker_handle)
     return false;
-
-  struct tm local_time;
-  if (!localtime_r(&timestamp, &local_time) || local_time.tm_year < 124)
-    return false;
-
-  char day_path[TF_PATH_MAX];
-  std::snprintf(day_path, sizeof(day_path), "%s/%04d/%02d/%02d", TF_RECORDINGS_ROOT,
-                local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday);
-
-  CardLock lock;
-  if (!lock.acquired() || usb_storage_active || !ensure_directory(TF_RECORDINGS_ROOT))
-    return false;
-  char year_path[TF_PATH_MAX];
-  char month_path[TF_PATH_MAX];
-  std::snprintf(year_path, sizeof(year_path), "%s/%04d", TF_RECORDINGS_ROOT, local_time.tm_year + 1900);
-  std::snprintf(month_path, sizeof(month_path), "%s/%02d", year_path, local_time.tm_mon + 1);
-  if (!ensure_directory(year_path) || !ensure_directory(month_path) || !ensure_directory(day_path))
-    return false;
-
-  for (unsigned int suffix = 0; suffix < 100; ++suffix)
+  xSemaphoreTake(request_mutex, portMAX_DELAY);
+  if (recording_busy())
   {
-    int written;
-    if (suffix == 0)
-      written = std::snprintf(path, path_size, "%s/REC_%04d%02d%02d_%02d%02d%02d.wav", day_path,
-                              local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday,
-                              local_time.tm_hour, local_time.tm_min, local_time.tm_sec);
-    else
-      written = std::snprintf(path, path_size, "%s/REC_%04d%02d%02d_%02d%02d%02d_%02u.wav", day_path,
-                              local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday,
-                              local_time.tm_hour, local_time.tm_min, local_time.tm_sec, suffix);
-    if (written < 0 || static_cast<size_t>(written) >= path_size)
-      return false;
-    if (!SD_MMC.exists(path))
-    {
-      File reserved = SD_MMC.open(path, FILE_WRITE);
-      if (!reserved)
-        return false;
-      reserved.close();
-      return true;
-    }
+    xSemaphoreGive(request_mutex);
+    return false;
   }
-  return false;
+  recording_info = {RecordingState::STARTING, RecordingError::NONE, recording_info.revision + 1, 0, {}};
+  recording_rate = config::config.audio.rate;
+  recording_bit = config::config.audio.bit;
+  recording_channels = config::config.audio.channel;
+  if (usb_storage_active)
+  {
+    recording_info.state = RecordingState::ERROR;
+    recording_info.error = RecordingError::USB_BUSY;
+  }
+  xSemaphoreGive(request_mutex);
+  xTaskNotifyGive(worker_handle);
+  return true;
+}
+
+void tf::stop_recording()
+{
+  if (!request_mutex || !worker_handle)
+    return;
+  xSemaphoreTake(request_mutex, portMAX_DELAY);
+  if (recording_info.state == RecordingState::RECORDING || recording_info.state == RecordingState::STARTING)
+  {
+    recording_info.state = RecordingState::STOPPING;
+    recording_info.revision++;
+  }
+  xSemaphoreGive(request_mutex);
+  xTaskNotifyGive(worker_handle);
+}
+
+void tf::get_recording_info(RecordingInfo &info)
+{
+  info = {};
+  if (!request_mutex)
+    return;
+  xSemaphoreTake(request_mutex, portMAX_DELAY);
+  info = recording_info;
+  xSemaphoreGive(request_mutex);
 }

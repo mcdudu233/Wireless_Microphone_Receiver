@@ -7,6 +7,7 @@ static AudioData *data;
 static uint8_t data_pointer;
 static uint8_t buffered_slots;
 static bool buffer_has_data;
+static uint32_t buffer_generation;
 
 // 使用互斥锁保护缓冲区及重组状态。
 static SemaphoreHandle_t mutex = NULL;
@@ -322,6 +323,75 @@ void audio::buffer::resetUSBReader()
   xSemaphoreGive(mutex);
 }
 
+void audio::buffer::resetRecordingReader(RecordingReader &reader)
+{
+  if (!mutex || !data)
+    return;
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  AudioData *front = getAudioDataFront();
+  reader = {front ? front->num + 1 : 0, buffer_generation, front != nullptr, 0, false};
+  xSemaphoreGive(mutex);
+}
+
+void audio::buffer::stopRecordingReader(RecordingReader &reader)
+{
+  if (!mutex || !data)
+    return;
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  AudioData *front = getAudioDataFront();
+  reader.end_number = front ? front->num : reader.next_number - 1;
+  if (!reader.started && front)
+  {
+    reader.next_number = getAudioData(buffered_slots - 1)->num;
+    reader.started = true;
+  }
+  reader.stopping = true;
+  xSemaphoreGive(mutex);
+}
+
+audio::buffer::RecordingRead audio::buffer::readRecordingFrame(
+    RecordingReader &reader, uint8_t *destination, uint32_t expected_size, bool force)
+{
+  if (!mutex || !data || !destination || !expected_size || expected_size > AUDIO_BUFFER_MAX_DATA_SIZE)
+    return RecordingRead::RESET;
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  RecordingRead result = RecordingRead::WAIT;
+  AudioData *front = getAudioDataFront();
+  if (reader.generation != buffer_generation)
+    result = RecordingRead::RESET;
+  else if (reader.stopping && (!reader.started || static_cast<int32_t>(reader.next_number - reader.end_number) > 0))
+    result = RecordingRead::WAIT;
+  else if (front)
+  {
+    if (!reader.started)
+    {
+      AudioData *oldest = getAudioData(buffered_slots - 1);
+      reader.next_number = oldest->num;
+      reader.started = true;
+    }
+    const int32_t ahead = static_cast<int32_t>(front->num - reader.next_number);
+    if (ahead >= static_cast<int32_t>(buffered_slots))
+      result = RecordingRead::OVERRUN;
+    else if (ahead >= 0)
+    {
+      AudioData *frame = getAudioData(static_cast<uint32_t>(ahead));
+      if (frame->size != expected_size)
+        result = RecordingRead::RESET;
+      else if (frame->complete || ahead >= 2 || force)
+      {
+        if (frame->complete)
+          memcpy(destination, frame->data, expected_size);
+        else
+          memset(destination, 0, expected_size);
+        reader.next_number++;
+        result = RecordingRead::FRAME;
+      }
+    }
+  }
+  xSemaphoreGive(mutex);
+  return result;
+}
+
 #ifdef BUILD_DEBUG
 void audio::buffer::getDebugStats(AudioBufferDebugStats &stats)
 {
@@ -339,6 +409,7 @@ void audio::buffer::getDebugStats(AudioBufferDebugStats &stats)
 void audio::buffer::restart()
 {
   xSemaphoreTake(mutex, portMAX_DELAY);
+  buffer_generation++;
   for (int i = 0; i < AUDIO_BUFFER_MAX_BUFFER_SIZE; i++)
   {
     data[i].num = 0;

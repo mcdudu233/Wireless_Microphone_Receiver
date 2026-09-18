@@ -254,6 +254,14 @@ bool ui_setting_usb_page_scb(USBMode mode)
 {
   if (mode == USB_MODE_AUDIO && !input_format().supported())
     return false;
+  if (mode == USB_MODE_SD)
+  {
+    tf::RecordingInfo recording;
+    tf::get_recording_info(recording);
+    if (!tf::is_mounted() || recording.state == tf::RecordingState::STARTING ||
+        recording.state == tf::RecordingState::RECORDING || recording.state == tf::RecordingState::STOPPING)
+      return false;
+  }
   config::config.usb.mode = mode;
   config::save();
   usb::on(mode);

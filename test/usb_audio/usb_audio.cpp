@@ -43,6 +43,8 @@ int usb_del_phy(usb_phy_handle_t phy) {
   return ESP_OK;
 }
 namespace tf {
+  bool is_mounted() { return true; }
+  void get_recording_info(RecordingInfo &info) { info={}; }
   bool set_usb_storage_active(bool active) {
     assert(!attached && !controller_live);
     if (!active && fail_storage_release) { fail_storage_release = false; return false; }

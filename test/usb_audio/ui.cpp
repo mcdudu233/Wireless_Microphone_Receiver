@@ -4,9 +4,17 @@
 #include <cassert>
 #include <fstream>
 #include <vector>
+#include "../main_dashboard/glyphs.h"
 
 namespace config { ConfigValue config; }
 static bool card_present = true;
+static bool card_owned;
+static bool recording_busy;
+static unsigned list_requests;
+static bool list_ready;
+static uint32_t list_id;
+static bool full_listing;
+static std::string requested_path;
 static bool settings_notice;
 static std::vector<std::string> linked;
 void ui_setting_audio_input_page_rcb(AudioBit &bit, AudioChannel &channels, AudioRate &rate, AudioGain &gain, AudioMode &mode) {
@@ -26,18 +34,47 @@ void ui_setting_usb_page_rcb(USBMode &mode) { mode=config::config.usb.mode; }
 bool ui_setting_usb_page_scb(USBMode mode) {
   const auto &a=config::config.audio;
   if(mode==USB_MODE_AUDIO && !usb::AudioFormat{a.rate,a.bit,a.channel}.supported()) return false;
-  config::config.usb.mode=mode; return true;
+  if(mode==USB_MODE_SD && (!card_present || recording_busy)) return false;
+  config::config.usb.mode=mode;card_owned=mode==USB_MODE_SD;return true;
 }
 void ui_setting_system_page_rcb(float &a,float &b,size_t &c,size_t &d,size_t &e,size_t &f) { a=b=100; c=e=320*1024; d=f=8*1024*1024; }
 namespace rf { AudioGain getConnectedDeviceGain() { return 63; } }
 namespace tf {
+  void get_recording_info(RecordingInfo &info) { info={};if(recording_busy)info.state=RecordingState::RECORDING; }
+  bool start_recording() { return false; }
+  void stop_recording() {}
   bool is_mounted() { return card_present; }
-  void get_info(StorageInfo &info) { info={card_present,false,CardType::SDHC,128ULL*1024*1024*1024,0,0,0,512}; }
-  bool request_list(const char *path,uint32_t) { assert(std::strcmp(path,"/")==0); return true; }
-  bool take_list_result(FileEntry *,size_t,size_t &,bool &,bool &,uint32_t &) { return false; }
+  void get_info(StorageInfo &info) { info={card_present,card_owned,CardType::SDHC,128ULL*1024*1024*1024,0,0,0,512}; }
+  bool request_list(const char *path,uint32_t id) {
+    assert(std::strcmp(path,"/")==0 || std::strcmp(path,"/recordings")==0);
+    assert(!card_owned);++list_requests;list_id=id;requested_path=path;return true;
+  }
+  bool take_list_result(FileEntry *entries,size_t capacity,size_t &count,bool &truncated,bool &success,uint32_t &id) {
+    if(!list_ready) return false;
+    list_ready=false;count=0;truncated=false;success=true;id=list_id;
+    if(full_listing) {
+      if(requested_path=="/") {
+        assert(capacity>=3);
+        for(const char *name:{"config","logs","recordings"}) {
+          entries[count]={};std::strcpy(entries[count].name,name);
+          entries[count].directory=true;entries[count].name_complete=true;++count;
+        }
+      } else {
+        assert(capacity==TF_FILE_LIST_MAX);
+        for(size_t n=0;n<capacity;++n) {
+          entries[n]={};std::snprintf(entries[n].name,sizeof(entries[n].name),"MIC%05u.wav",static_cast<unsigned>(n+1));
+          entries[n].size=UINT64_MAX;entries[n].name_complete=true;
+        }
+        count=capacity;truncated=true;
+      }
+    }
+    return true;
+  }
   bool request_remove_file(const char *,uint32_t) { return false; }
   bool take_remove_result(bool &,uint32_t &) { return false; }
-  bool is_deletable_path(const char *) { return false; }
+  bool is_deletable_path(const char *path) {
+    assert(!std::strstr(path,"//"));return std::strncmp(path,"/recordings/",12)==0;
+  }
 }
 std::vector<std::string> ui_bt_get_linked() { return linked; }
 uint8_t ui_info_get_number(const std::string &) { return 255; }
@@ -74,7 +111,8 @@ static lv_obj_t *top_visible() {
   return nullptr;
 }
 static void capture(const std::string &name) {
-  settle(); auto *buf=lv_snapshot_take(lv_screen_active(),LV_COLOR_FORMAT_RGB888); assert(buf);
+  settle();assert_visible_glyphs(lv_screen_active());
+  auto *buf=lv_snapshot_take(lv_screen_active(),LV_COLOR_FORMAT_RGB888); assert(buf);
   std::ofstream file(name+".ppm",std::ios::binary); file<<"P6\n160 80\n255\n";
   for(int y=0;y<80;++y) for(int x=0;x<160;++x) {
     auto *b=buf->data+y*buf->header.stride+x*3;
@@ -121,18 +159,19 @@ static void usb_details_fit() {
   }
   inside(dd_usb_mode,page,3); inside(dd_usb_mode,setting_widget,3);
 }
-static void check_notice(lv_obj_t *restore) {
+static void check_notice(lv_obj_t *restore,const char *text="USB带宽不足\n请降低音频格式") {
   auto *popup=top_visible(); auto *win=lv_obj_get_child(popup,0);
   bool body=false;
   for(unsigned i=0;i<lv_obj_get_child_count(win);++i) {
     auto *obj=lv_obj_get_child(win,i);
-    if(lv_obj_check_type(obj,&lv_label_class) && std::strcmp(lv_label_get_text(obj),"USB带宽不足\n请降低音频格式")==0) {
+    if(lv_obj_check_type(obj,&lv_label_class) && std::strcmp(lv_label_get_text(obj),text)==0) {
       lv_point_t size;
       lv_text_get_size(&size,lv_label_get_text(obj),UI_FONT_BODY,0,0,lv_obj_get_width(obj),LV_TEXT_FLAG_NONE);
       assert(size.y<=lv_obj_get_height(obj)); body=true;
     }
   }
-  assert(body); capture("usb_bandwidth_dialog");
+  assert(body); capture(std::strcmp(text,"USB带宽不足\n请降低音频格式")==0 ? "usb_bandwidth_dialog" :
+                        std::strcmp(text,"正在录音\n请先停止录音")==0 ? "reader_recording_dialog" : "usb_no_card");
   lv_obj_send_event(popup,LV_EVENT_CLICKED,nullptr); settle();
   assert(lv_group_get_focused(setting_group)==restore); settings_notice=true;
 }
@@ -158,9 +197,10 @@ int main() {
   assert(std::strcmp(lv_label_get_text(usb_detail_primary),"程序下载与调试")==0);
   assert(std::strcmp(lv_label_get_text(usb_detail_secondary),"USB串口输出日志")==0);
   lv_dropdown_open(dd_usb_mode); capture("usb_modes_popup"); lv_dropdown_close(dd_usb_mode);
-  card_present=false; change(dd_usb_mode,2); capture("usb_no_card"); card_present=true;
+  card_present=false; change(dd_usb_mode,2); capture("usb_no_card");
+  assert(lv_dropdown_get_selected(dd_usb_mode)==3);check_notice(dd_usb_mode,"未检测到TF卡\n请插入TF卡");card_present=true;
   config::config.audio.rate=AUDIO_RATE_192000; config::config.audio.bit=AUDIO_BIT_32; config::config.audio.channel=AUDIO_CHANNEL_STEREO;
-  change(dd_usb_mode,1); assert(lv_dropdown_get_selected(dd_usb_mode)==2); check_notice(dd_usb_mode);
+  change(dd_usb_mode,1); assert(lv_dropdown_get_selected(dd_usb_mode)==3); check_notice(dd_usb_mode);
   config::config.audio.rate=AUDIO_RATE_96000; config::config.audio.bit=AUDIO_BIT_24;
   change(dd_usb_mode,1); assert(config::config.usb.mode==USB_MODE_AUDIO); usb_details_fit(); capture("usb_96k_24bit_stereo");
   enter("音频输入设置"); change(dd_audio_bit,2); assert(lv_dropdown_get_selected(dd_audio_bit)==1); check_notice(dd_audio_bit);
@@ -171,5 +211,46 @@ int main() {
   enter("USB传输设置"); usb_details_fit(); capture("usb_192k_24bit_mono");
   unsigned index=0;
   for(const char *page:{"音频输出设置","屏幕设置","系统信息","关于","文件管理","无线传输设置"}) { enter(page); capture("subpage_"+std::to_string(index++)); }
+  enter("USB传输设置");recording_busy=true;
+  const auto previous_mode=config::config.usb.mode;
+  change(dd_usb_mode,2);assert(config::config.usb.mode==previous_mode);
+  check_notice(dd_usb_mode,"正在录音\n请先停止录音");recording_busy=false;
+  card_present=false;change(dd_usb_mode,2);assert(config::config.usb.mode==previous_mode);
+  check_notice(dd_usb_mode,"未检测到TF卡\n请插入TF卡");card_present=true;
+  change(dd_usb_mode,2);usb_details_fit();capture("reader_exclusive_details");
+  const auto requests_before=list_requests;
+  enter("文件管理");
+  assert(list_requests==requests_before && lv_group_get_focused(setting_group)==main_back_btn);
+  for(const char *text:{"TF卡被USB占用","请退出读卡器模式"}) {
+    auto *label=find_label(setting_widget,text);assert(label);label_fits(label);inside(label,lv_menu_get_cur_main_page(menu));
+  }
+  capture("files_usb_exclusive");
+  // Actual owner release/remount, independent of selected-mode UI timing.
+  card_owned=false;settle();assert(list_requests==requests_before+1);
+  list_ready=true;settle();assert(find_label(setting_widget,"目录为空"));capture("files_restored");
+  // A stale list completion must not replace the USB ownership notice.
+  request_file_page();card_owned=true;settle();list_ready=true;settle();
+  assert(find_label(setting_widget,"TF卡被USB占用"));capture("files_stale_result_blocked");
+  card_owned=false;card_present=false;settle();assert(find_label(setting_widget,"TF卡未挂载"));capture("files_restore_no_card");
+  card_present=true;settle();list_ready=true;settle();assert(find_label(setting_widget,"目录为空"));
+  full_listing=true;request_file_page();list_ready=true;settle();
+  assert(lv_obj_get_child_count(file_list)==3 && requested_path=="/");
+  auto *recordings=find_label(setting_widget,"recordings/");assert(recordings);
+  auto *recordings_row=lv_obj_get_parent(recordings);lv_group_focus_obj(recordings_row);settle();inside(recordings_row,file_list);
+  lv_obj_send_event(recordings_row,LV_EVENT_CLICKED,nullptr);settle();
+  assert(requested_path=="/recordings" && std::strcmp(current_file_path,"/recordings")==0);
+  list_ready=true;settle();assert(lv_obj_get_child_count(file_list)==26);
+  for(unsigned n:{1U,12U,24U}) {
+    auto *row=lv_obj_get_child(file_list,n);lv_group_focus_obj(row);settle();
+    assert(lv_group_get_focused(setting_group)==row);inside(row,file_list);
+    auto *label=lv_obj_get_child(row,1);assert(lv_obj_get_width(label)==115);
+    assert(lv_obj_get_height(label)==lv_font_get_line_height(UI_FONT_BODY));
+    assert(lv_label_get_long_mode(label)==LV_LABEL_LONG_DOT);
+    capture("files_max_focus_"+std::to_string(n));
+  }
+  auto *parent_row=lv_obj_get_child(file_list,0);lv_group_focus_obj(parent_row);settle();inside(parent_row,file_list);
+  lv_obj_send_event(parent_row,LV_EVENT_CLICKED,nullptr);settle();
+  assert(requested_path=="/" && std::strcmp(current_file_path,"/")==0);
+  list_ready=true;settle();capture("files_root_directories");
   assert(settings_notice); puts("PASS: actual LVGL USB/input controls, unsupported rollback, two-line dialog and restored focus, format details, loading/Bluetooth/main/settings/subpages");
 }

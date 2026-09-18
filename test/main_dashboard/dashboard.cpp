@@ -1,8 +1,20 @@
 #include "../../src/ui/ui_main.cpp"
 #include <cassert>
 #include <fstream>
+#include "glyphs.h"
 
 namespace config { ConfigValue config; }
+namespace tf {
+static RecordingInfo recording = {};
+static bool reject_start;
+void get_recording_info(RecordingInfo &info) { info=recording; }
+bool start_recording() { if(reject_start)return false;recording.state=RecordingState::STARTING;recording.revision++;return true; }
+void stop_recording() {
+    if(recording.state==RecordingState::RECORDING || recording.state==RecordingState::STARTING) {
+        recording.state=RecordingState::STOPPING;recording.revision++;
+    }
+}
+}
 static unsigned device_count = 4;
 static int8_t power_value = 100, signal_value = -35;
 static uint8_t loss_value = 0;
@@ -38,6 +50,7 @@ static void label_fits(lv_obj_t *label) {
 }
 static void capture(const char *name) {
     settle();
+    assert_visible_glyphs(lv_screen_active());
     lv_draw_buf_t *buf=lv_snapshot_take(lv_screen_active(),LV_COLOR_FORMAT_RGB888);
     assert(buf);
     std::ofstream file(std::string(name)+".ppm",std::ios::binary);
@@ -56,7 +69,7 @@ int main() {
     lv_display_set_flush_cb(display,[](lv_display_t *d,const lv_area_t *,uint8_t *) {lv_display_flush_ready(d);});
     ui_main_init();settle();
     assert(cards.size()==4);
-    assert(lv_group_get_obj_count(main_group)==5);
+    assert(lv_group_get_obj_count(main_group)==6);
     auto bar=lv_tabview_get_tab_bar(tabview);
     for(int i=0;i<4;i++) {
         auto button=lv_obj_get_child(bar,i);
@@ -160,13 +173,39 @@ int main() {
     ui_main_set_reconnect("3",true);capture("multiple_reconnect");
     ui_main_set_reconnect("4",false);ui_main_set_reconnect("3",false);
     lv_group_focus_obj(lv_obj_get_child(bar,3));lv_group_focus_next(main_group);
+    assert(lv_group_get_focused(main_group)==record_button);
+    inside(record_button,main_widget);label_fits(lv_obj_get_child(record_button,0));
+    assert(lv_obj_get_x(record_button)==106 && lv_obj_get_y(record_button)==24);
+    assert(lv_obj_get_width(record_button)==48 && lv_obj_get_height(record_button)==22);
+    capture("record_focus");
+    lv_obj_send_event(record_button,LV_EVENT_CLICKED,nullptr);settle();
+    assert(tf::recording.state==tf::RecordingState::STARTING && lv_obj_has_state(record_button,LV_STATE_DISABLED));
+    label_fits(lv_obj_get_child(record_button,0));capture("record_starting");
+    tf::recording.state=tf::RecordingState::RECORDING;tf::recording.revision++;settle();
+    assert(!lv_obj_has_state(record_button,LV_STATE_DISABLED));
+    assert(std::strcmp(lv_label_get_text(lv_obj_get_child(record_button,0)),"停止")==0);capture("recording");
+    lv_group_focus_obj(record_button);lv_obj_send_event(record_button,LV_EVENT_CLICKED,nullptr);settle();
+    assert(tf::recording.state==tf::RecordingState::STOPPING);capture("record_stopping");
+    tf::recording.state=tf::RecordingState::SAVED;tf::recording.revision++;
+    std::strcpy(tf::recording.filename,"MIC99999.wav");capture("record_saved");ui_close_popup();
+    assert(lv_group_get_default()==main_group && lv_group_get_focused(main_group)==record_button);
+    for(auto error:{tf::RecordingError::NO_CARD,tf::RecordingError::USB_BUSY,tf::RecordingError::IO,
+                   tf::RecordingError::FORMAT_CHANGED,tf::RecordingError::OVERRUN,tf::RecordingError::LIMIT}) {
+        tf::recording.state=tf::RecordingState::ERROR;tf::recording.error=error;tf::recording.revision++;
+        capture(("record_error_"+std::to_string(static_cast<unsigned>(error))).c_str());ui_close_popup();
+        assert(lv_group_get_default()==main_group && lv_group_get_focused(main_group)==record_button);
+    }
+    tf::recording.state=tf::RecordingState::IDLE;
+    tf::reject_start=true;lv_obj_send_event(record_button,LV_EVENT_CLICKED,nullptr);
+    capture("record_start_unavailable");ui_close_popup();tf::reject_start=false;
+    lv_group_focus_next(main_group);
     auto settings=lv_group_get_focused(main_group);
     assert(lv_obj_get_parent(settings)==main_widget);
     capture("settings_focus");lv_obj_send_event(settings,LV_EVENT_CLICKED,nullptr);assert(settings_opened);
     // Removing an earlier tab must retain device 4 and remove its stale button.
     ui_info_del_card("2");settle();
     assert(cards.size()==3 && lv_obj_get_child_count(bar)==3);
-    assert(lv_group_get_obj_count(main_group)==4);
+    assert(lv_group_get_obj_count(main_group)==5);
     assert(lv_tabview_get_tab_active(tabview)==2);
     assert(cards[2]->device_mac=="4");
     lv_obj_send_event(lv_obj_get_child(bar,2),LV_EVENT_CLICKED,nullptr);settle();
@@ -186,7 +225,7 @@ int main() {
     ui_free_main_widget();device_count=0;ui_main_init();
     config::config.audio.rate=AUDIO_RATE_48000;settle();
     assert(std::strcmp(lv_label_get_text(status_rate_badge),"48k")==0);
-    assert(lv_group_get_obj_count(main_group)==1);capture("empty");
+    assert(lv_group_get_obj_count(main_group)==2);capture("empty");
     ui_free_main_widget();
     puts("PASS: 72 modes, loss boundaries, meter gradient, telemetry extremes, 0/1/4 devices, focus, reconnect, repeat entry");
 }

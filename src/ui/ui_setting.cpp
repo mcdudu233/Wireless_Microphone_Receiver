@@ -38,8 +38,9 @@ static size_t file_entry_count = 0;
 static bool file_list_truncated = false;
 static bool file_operation_pending = false;
 static uint32_t file_request_id = 0;
+static bool file_card_mounted;
+static bool file_usb_active;
 
-static bool enter_bottom = false;
 static lv_obj_t *root_page_ref = NULL;
 
 static lv_obj_t *dd_audio_bit;
@@ -117,7 +118,6 @@ enum e_page
 
 void ui_setting_init(lv_obj_t *ui_from)
 {
-    lv_obj_t *btn;
     char *from_data;
 
     if (!scroll_style_initialized)
@@ -519,8 +519,12 @@ static void set_settings_focus(uint8_t page)
     case e_page::file_page:
         for (uint32_t i = 0; i < lv_obj_get_child_count(file_list); ++i)
             add_focus_object(lv_obj_get_child(file_list, i));
-        if (lv_obj_get_child_count(file_list) > 0)
-            first = lv_obj_get_child(file_list, 0);
+        for (uint32_t i = 0; i < lv_obj_get_child_count(file_list); ++i)
+            if (!lv_obj_has_state(lv_obj_get_child(file_list, i), LV_STATE_DISABLED))
+            {
+                first = lv_obj_get_child(file_list, i);
+                break;
+            }
         break;
     default:
         break;
@@ -585,7 +589,7 @@ static void back_cb(lv_event_t *e)
     }
 }
 // 重新连接蓝牙点击
-static void relink_bt_cb(lv_event_t *e)
+static void relink_bt_cb(lv_event_t *)
 {
     lv_timer_delete(sys_info_timer);
     sys_info_timer = nullptr;
@@ -1109,7 +1113,7 @@ static void update_usb_mode_details()
         else
             lv_label_set_text_fmt(usb_detail_primary, "TF大小 %luMB/%s",
                                   static_cast<unsigned long>(info.capacity_bytes / (1024 * 1024)), type);
-        lv_label_set_text(usb_detail_secondary, info.usb_active ? "已连接/主机独占" : "读写模式/主机独占");
+        lv_label_set_text(usb_detail_secondary, "独占TF/录音不可用");
         break;
     }
     case USB_MODE_DEBUG:
@@ -1222,11 +1226,20 @@ static void save_config(uint8_t page)
     {
     case e_page::usb_page:
     {
-        if (!ui_setting_usb_page_scb(selected_usb_mode()))
+        const USBMode requested_mode = selected_usb_mode();
+        if (!ui_setting_usb_page_scb(requested_mode))
         {
             const USBMode mode = config::config.usb.mode;
             lv_dropdown_set_selected(dd_usb_mode, mode == USB_MODE_AUDIO ? 1 : mode == USB_MODE_SD ? 2 : mode == USB_MODE_DEBUG ? 3 : 0);
-            ui_popwin_msgbox("USB带宽不足\n请降低音频格式", nullptr, dd_usb_mode);
+            tf::RecordingInfo recording;
+            tf::get_recording_info(recording);
+            const bool recording_busy = recording.state == tf::RecordingState::STARTING ||
+                                        recording.state == tf::RecordingState::RECORDING ||
+                                        recording.state == tf::RecordingState::STOPPING;
+            const char *text = requested_mode == USB_MODE_SD ?
+                               (recording_busy ? "正在录音\n请先停止录音" : "未检测到TF卡\n请插入TF卡") :
+                               "USB带宽不足\n请降低音频格式";
+            ui_popwin_msgbox(text, nullptr, dd_usb_mode);
         }
         break;
     }
@@ -1353,6 +1366,7 @@ static lv_obj_t *add_file_row(const char *symbol, const char *text, lv_event_cb_
     lv_obj_t *label = lv_obj_get_child(row, 1);
     if (label)
     {
+        lv_obj_set_flex_grow(label, 0);
         lv_obj_set_width(label, 115);
         lv_obj_set_height(label, lv_font_get_line_height(UI_FONT_BODY));
         lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
@@ -1400,8 +1414,27 @@ static void request_file_page()
 
     clear_file_rows();
     update_file_title();
+    ++file_request_id;
+    if (file_request_id == 0)
+        ++file_request_id;
+    tf::StorageInfo info;
+    tf::get_info(info);
+    file_card_mounted = info.mounted;
+    file_usb_active = info.usb_active;
 
-    if (!tf::is_mounted())
+    if (info.usb_active)
+    {
+        for (const char *text : {"TF卡被USB占用", "请退出读卡器模式"})
+        {
+            lv_obj_t *row = add_file_row(LV_SYMBOL_WARNING, text, nullptr, nullptr);
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_state(row, LV_STATE_DISABLED);
+        }
+        lv_group_focus_obj(main_back_btn);
+        return;
+    }
+
+    if (!info.mounted)
     {
         lv_obj_t *row = add_file_row(LV_SYMBOL_WARNING, "TF卡未挂载", nullptr, nullptr);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -1414,15 +1447,19 @@ static void request_file_page()
     lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_state(row, LV_STATE_DISABLED);
     lv_group_focus_obj(row);
-    ++file_request_id;
-    if (file_request_id == 0)
-        ++file_request_id;
     if (!tf::request_list(current_file_path, file_request_id))
         render_file_page(false);
 }
 
 static void render_file_page(bool success)
 {
+    tf::StorageInfo info;
+    tf::get_info(info);
+    if (info.usb_active || !info.mounted)
+    {
+        request_file_page();
+        return;
+    }
     clear_file_rows();
 
     if (std::strcmp(current_file_path, "/") != 0)
@@ -1550,6 +1587,13 @@ static void file_parent_cb(lv_event_t *)
 
 static void file_timer_cb(lv_timer_t *)
 {
+    tf::StorageInfo info;
+    tf::get_info(info);
+    if (info.mounted != file_card_mounted || info.usb_active != file_usb_active)
+    {
+        request_file_page();
+        return;
+    }
     bool success = false;
     uint32_t request_id = 0;
     if (tf::take_list_result(file_entries, TF_FILE_LIST_MAX, file_entry_count,

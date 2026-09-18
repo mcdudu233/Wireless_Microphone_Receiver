@@ -1,6 +1,7 @@
 #include "ui/ui_main.h"
 #include "module/screen.h"
 #include "config.h"
+#include "module/tf.h"
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -38,6 +39,59 @@ static lv_timer_t *timer_update;
 static uint16_t timer_update_elapsed;
 static lv_group_t *main_group;
 static bool style_indic_h_initialized;
+static lv_obj_t *record_button;
+static uint32_t recording_revision;
+
+static void recording_widget_cb(lv_event_t *)
+{
+    tf::RecordingInfo info;
+    tf::get_recording_info(info);
+    if (info.state == tf::RecordingState::RECORDING)
+        tf::stop_recording();
+    else if (info.state != tf::RecordingState::STARTING && info.state != tf::RecordingState::STOPPING)
+    {
+        if (!tf::start_recording())
+            ui_popwin_msgbox("录音无法启动\n请稍后重试", main_group, record_button);
+    }
+}
+
+static void recording_refresh()
+{
+    tf::RecordingInfo info;
+    tf::get_recording_info(info);
+    const bool recording = info.state == tf::RecordingState::RECORDING;
+    const bool waiting = info.state == tf::RecordingState::STARTING || info.state == tf::RecordingState::STOPPING;
+    lv_obj_t *label = lv_obj_get_child(record_button, 0);
+    lv_label_set_text(label, waiting ? "等待" : recording ? "停止" : "录制");
+    lv_obj_set_style_text_color(label, recording ? lv_palette_main(LV_PALETTE_RED) : lv_color_hex(0x2D6BDB), 0);
+    if (waiting)
+        lv_obj_add_state(record_button, LV_STATE_DISABLED);
+    else
+        lv_obj_remove_state(record_button, LV_STATE_DISABLED);
+    if (info.revision == recording_revision || lv_obj_has_flag(main_widget, LV_OBJ_FLAG_HIDDEN))
+        return;
+    recording_revision = info.revision;
+    if (info.state == tf::RecordingState::SAVED)
+    {
+        char text[64];
+        std::snprintf(text, sizeof(text), "录音已保存\n%s", info.filename);
+        ui_popwin_msgbox(text, main_group, record_button);
+    }
+    else if (info.state == tf::RecordingState::ERROR)
+    {
+        const char *text = "录音保存失败\n请检查TF卡";
+        switch (info.error)
+        {
+        case tf::RecordingError::NO_CARD: text = "未检测到TF卡\n请插入TF卡"; break;
+        case tf::RecordingError::USB_BUSY: text = "TF卡被USB占用\n请退出存储模式"; break;
+        case tf::RecordingError::FORMAT_CHANGED: text = "音频格式已改变\n录音已停止"; break;
+        case tf::RecordingError::OVERRUN: text = "TF卡写入过慢\n录音已停止"; break;
+        case tf::RecordingError::LIMIT: text = "录音达到上限\n请开始新录音"; break;
+        default: break;
+        }
+        ui_popwin_msgbox(text, main_group, record_button);
+    }
+}
 
 // 状态栏图标(采样率/USB模式/传输模式)与配置缓存:
 // 设置页可修改这三项配置且主界面不重建,定时器对比缓存按需换图
@@ -230,6 +284,21 @@ void ui_main_init()
         lv_obj_set_style_outline_color(btn, lv_color_hex(0x2D6BDB), LV_STATE_FOCUSED);
     }
 
+    record_button = ui_add_button(main_widget, "录制", 48, 22, UI_FONT_BODY);
+    lv_obj_set_pos(record_button, 106, 24);
+    lv_obj_set_style_bg_color(record_button, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_color(record_button, lv_color_hex(0xDBEAFE), LV_STATE_PRESSED);
+    lv_obj_set_style_shadow_width(record_button, 0, 0);
+    lv_obj_set_style_border_width(record_button, 1, 0);
+    lv_obj_set_style_border_color(record_button, lv_color_hex(0xD1D5DB), 0);
+    lv_obj_set_style_outline_width(record_button, 1, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_pad(record_button, 0, LV_STATE_FOCUSED);
+    lv_obj_set_style_text_color(lv_obj_get_child(record_button, 0), lv_color_hex(0x2D6BDB), 0);
+    lv_obj_add_event_cb(record_button, recording_widget_cb, LV_EVENT_CLICKED, nullptr);
+    tf::RecordingInfo initial_recording;
+    tf::get_recording_info(initial_recording);
+    recording_revision = initial_recording.revision;
+
     btn = ui_add_button(main_widget, "设置", 48, 24, UI_FONT_BODY);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0xDBEAFE), LV_STATE_PRESSED);
@@ -278,6 +347,7 @@ void ui_main_init()
     timer_update_elapsed = UPDATE_INFO_PERIOD;
     timer_update = lv_timer_create([](lv_timer_t *)
     {
+        recording_refresh();
         // 挂起的"返回设备连接页":设置页退出、主界面重新可见后执行
         if (pending_return_bt && main_widget != nullptr && lv_obj_is_valid(main_widget) && !lv_obj_has_flag(main_widget, LV_OBJ_FLAG_HIDDEN))
         {
@@ -500,6 +570,7 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac
 
 void ui_free_main_widget()
 {
+    tf::stop_recording();
     if (timer_update != nullptr)
     {
         lv_timer_delete(timer_update);
