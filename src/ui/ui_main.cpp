@@ -16,8 +16,8 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac
 // 电量/信号等级使用固定语义色:低红、中琥珀、高绿
 static lv_color_t ui_level_color(uint8_t level)
 {
-    return level <= 20 ? lv_palette_main(LV_PALETTE_RED) :
-           level <= 50 ? lv_color_hex(0xD97706) : lv_color_hex(0x059669);
+    return level <= STATUS_CRITICAL_LEVEL ? lv_palette_main(LV_PALETTE_RED) :
+           level <= STATUS_WARNING_LEVEL ? lv_color_hex(0xD97706) : lv_color_hex(0x059669);
 }
 
 // RSSI(dBm)映射为0-100信号强度;0视为未知信号
@@ -32,23 +32,28 @@ static uint8_t ui_rssi_to_level(int8_t rssi)
     return (uint8_t)((rssi + 90) * 100 / 55);
 }
 
-// 爆音预警:峰值电平达到CLIP_ALERT_LEVEL(95,约-5dBFS)时L/R文字变红,
-// 电平回落后保持CLIP_HOLD_TIME_MS再恢复灰色;持续高于阈值时持续红色。
-// 仅在颜色切换瞬间更新样式,避免每个刷新周期重复刷新。
+// 电平预警:超过90为橙色；达到95(约-5dBFS)为红色并保持CLIP_HOLD_TIME_MS。
 static void ui_clip_label_refresh(lv_obj_t *label, int8_t voice, uint16_t &clip_hold_ms)
 {
     if (voice >= CLIP_ALERT_LEVEL)
     {
-        if (clip_hold_ms == 0)
-            lv_obj_set_style_text_color(label, lv_palette_main(LV_PALETTE_RED), 0);
         clip_hold_ms = CLIP_HOLD_TIME_MS;
+        lv_obj_set_style_text_color(label, lv_palette_main(LV_PALETTE_RED), 0);
         return;
     }
-    if (clip_hold_ms == 0)
-        return;
-    clip_hold_ms = clip_hold_ms > UPDATE_TIMER_PERIOD ? clip_hold_ms - UPDATE_TIMER_PERIOD : 0;
-    if (clip_hold_ms == 0)
-        lv_obj_set_style_text_color(label, lv_color_hex(0x6B7280), 0);
+    if (clip_hold_ms > 0)
+    {
+        clip_hold_ms = clip_hold_ms > UPDATE_TIMER_PERIOD ? clip_hold_ms - UPDATE_TIMER_PERIOD : 0;
+        if (clip_hold_ms > 0)
+        {
+            lv_obj_set_style_text_color(label, lv_palette_main(LV_PALETTE_RED), 0);
+            return;
+        }
+    }
+    lv_obj_set_style_text_color(label,
+                                voice > CLIP_WARNING_LEVEL ? lv_color_hex(0xD97706)
+                                                           : lv_color_hex(0x6B7280),
+                                0);
 }
 
 static std::vector<std::string> linked_devices;
@@ -421,7 +426,7 @@ void ui_main_init()
         const int8_t right_voice = ui_info_get_right_voice(card_data->device_mac);
         lv_bar_set_value(card_data->left_voice_bar, left_voice, LV_ANIM_OFF);
         lv_bar_set_value(card_data->right_voice_bar, right_voice, LV_ANIM_OFF);
-        // 爆音预警:电平≥CLIP_ALERT_LEVEL(约-5dBFS)时L/R文字变红并保持3秒,持续超限不恢复
+        // 电平预警:>90橙色，≥95红色并保持3秒。
         ui_clip_label_refresh(card_data->left_label, left_voice, card_data->left_clip_hold_ms);
         ui_clip_label_refresh(card_data->right_label, right_voice, card_data->right_clip_hold_ms);
         timer_update_elapsed += UPDATE_TIMER_PERIOD;

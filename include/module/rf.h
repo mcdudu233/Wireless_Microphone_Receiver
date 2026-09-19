@@ -20,6 +20,7 @@
 // 接收侧实际缓冲容量:对端单包最大为音频分片392B或控制包<64B,与COC MTU(仅作信用窗口)解耦
 #define BLE_RECEIVE_DATA_MAX 512
 // WIFI
+#define WIFI_DRIVER_TASK_STACK 5120 // 实测默认3584B仅余约364B，与发射器一致扩大栈余量
 #define WIFI_NAME "MicRx"
 #define WIFI_PASSWORD "Cx^9Xbg5wih3"
 #define WIFI_CHANNEL 8

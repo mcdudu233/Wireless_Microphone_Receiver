@@ -16,6 +16,13 @@
 #include "algorithm"
 #include "freertos/idf_additions.h"
 
+// ESP-IDF 5.5的闭源WiFi库通过此内部函数取得任务栈大小，默认3584B；
+// 链接器--wrap仅替换该查询结果，不改变驱动实现和任务优先级/绑核。
+extern "C" uint32_t __wrap_config_get_wifi_task_stack_size()
+{
+  return WIFI_DRIVER_TASK_STACK;
+}
+
 // 缓存的设备
 static DeviceManager deviceManager;
 

@@ -23,9 +23,9 @@ Assertions and screenshots cover:
 - Single-row right badges, left device surface contrast, transport/S/P/battery order.
 - Compact 10 px S/P annotations and signal-matched colors at weak/medium/strong/unknown RSSI.
 - Loss boundaries 0/1/2/3/9/10/99/100/255 and pixel checks for green/red meter endpoints.
-- Clip-hold indicator: L/R markers turn red at meter level ≥95 (≈ -5 dBFS),
-  hold 3 s after the last above-threshold reading, and stay red while the
-  level stays at or above the threshold.
+- Level indicator: L/R markers are gray through 90, amber at 91-94 and red at
+  ≥95 (≈ -5 dBFS); red holds 3 s after the last above-threshold reading and
+  stays red while the level remains at or above the threshold.
 - Geometry bounds and text widths at maximum values and device number 255.
 - One/multiple reconnect overlays, longest link-loss dialog and group restoration.
 - Record-button placement and focus order; idle, starting, recording, stopping,

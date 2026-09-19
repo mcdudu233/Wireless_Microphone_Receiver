@@ -151,6 +151,14 @@ int main() {
         assert(lv_color_eq(lv_obj_get_style_text_color(data->packet_label,LV_PART_MAIN),expected_color));
         capture(("loss_"+std::to_string(losses[k])).c_str());
     }
+    const int8_t powers[]={0,20,21,50,51,100};
+    const lv_color_t power_colors[]={lv_palette_main(LV_PALETTE_RED),lv_palette_main(LV_PALETTE_RED),
+                                    lv_color_hex(0xD97706),lv_color_hex(0xD97706),
+                                    lv_color_hex(0x059669),lv_color_hex(0x059669)};
+    for(unsigned k=0;k<sizeof(powers);k++) {
+        power_value=powers[k];settle();
+        assert(lv_color_eq(lv_obj_get_style_bg_color(data->battery_fill,LV_PART_INDICATOR),power_colors[k]));
+    }
     power_value=0;signal_value=-95;loss_value=100;settle();capture("weak_signal_max_loss");
     assert(lv_bar_get_value(data->battery_fill)==0);
     signal_value=0;power_value=100;settle();capture("unknown_signal");
@@ -167,15 +175,19 @@ int main() {
     const auto low=snapshot->data+(meter.y1+3)*snapshot->header.stride+(meter.x1+2)*3;
     assert(low[1]>low[2]);
     lv_draw_buf_destroy(snapshot);
-    // 爆音预警:≥95(约-5dBFS)L变红R保持灰色;低于阈值仅剩保持期,3秒后恢复;95持续超限不恢复
+    // 电平预警:>90橙色,≥95红色;红色保持3秒后按当前电平回落到橙色或灰色。
     assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_palette_main(LV_PALETTE_RED)));
     assert(lv_color_eq(lv_obj_get_style_text_color(data->right_label,LV_PART_MAIN),lv_color_hex(0x6B7280)));
     capture("clip_full_scale");
-    left_level=94; // 阈值下沿之下:不再触发,只消耗保持期
+    left_level=94; // 红色阈值以下但仍处于橙色区间，先消耗红色保持期
     for(int i=0;i<15;i++) { lv_tick_inc(50); lv_timer_handler(); }
     assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_palette_main(LV_PALETTE_RED)));
-    for(int i=0;i<60;i++) { lv_tick_inc(50); lv_timer_handler(); } // 超过3秒:恢复灰色
+    for(int i=0;i<60;i++) { lv_tick_inc(50); lv_timer_handler(); } // 超过3秒:按当前94恢复橙色
+    assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_color_hex(0xD97706)));
+    left_level=90;settle();
     assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_color_hex(0x6B7280)));
+    left_level=91;settle();
+    assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_color_hex(0xD97706)));
     left_level=95; // 阈值下沿持续超限:红色不恢复
     for(int i=0;i<80;i++) { lv_tick_inc(50); lv_timer_handler(); }
     assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_palette_main(LV_PALETTE_RED)));

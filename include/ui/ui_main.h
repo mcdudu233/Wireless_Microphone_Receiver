@@ -4,14 +4,17 @@
 
 #define UPDATE_TIMER_PERIOD 50 // 主界面数据刷新周期；音量包络由RF侧限频至25Hz
 #define UPDATE_INFO_PERIOD 500 // 速率、电量、信号无需随音量条高频刷新
-#define CLIP_HOLD_TIME_MS 3000 // 爆音(满刻度)L/R文字红色保持时间;持续爆音不恢复
-#define CLIP_ALERT_LEVEL 95    // 爆音预警电平阈值(0-100,95≈-5dBFS),达到即变红
+#define STATUS_CRITICAL_LEVEL 20 // 电量/信号不高于此值显示红色
+#define STATUS_WARNING_LEVEL 50  // 电量/信号不高于此值显示橙色
+#define CLIP_HOLD_TIME_MS 3000   // 爆音L/R文字红色保持时间;持续爆音不恢复
+#define CLIP_WARNING_LEVEL 90    // L/R电平超过90显示橙色
+#define CLIP_ALERT_LEVEL 95      // L/R电平达到95显示红色并触发保持
 
 typedef struct
 {
     lv_obj_t *left_voice_bar;
     lv_obj_t *right_voice_bar;
-    lv_obj_t *left_label;           // L标识:电平≥CLIP_ALERT_LEVEL时变红,保持CLIP_HOLD_TIME_MS后恢复
+    lv_obj_t *left_label;           // L标识:>90橙色,≥95红色并保持CLIP_HOLD_TIME_MS
     lv_obj_t *right_label;          // R标识:同上
     uint16_t left_clip_hold_ms;     // L爆音红色剩余保持时间(ms)
     uint16_t right_clip_hold_ms;    // R爆音红色剩余保持时间(ms)
