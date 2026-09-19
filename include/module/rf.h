@@ -3,6 +3,8 @@
 #include "config.h"
 
 #define RF_MAX_CONNECTION 4
+// 当前版本只启用一条发射器链路；保留设备缓存容量，便于发现并提示其他发射器。
+#define RF_ACTIVE_CONNECTION_LIMIT 1
 // 蓝牙
 #define BLE_NAME "MicTx"
 #define BLE_PACKET_LENGTH 251

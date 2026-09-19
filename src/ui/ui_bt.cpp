@@ -1,5 +1,6 @@
 #include "ui/ui_bt.h"
 #include "module/screen.h"
+#include "module/rf.h"
 #include "config.h"
 #include <cstdio>
 #include <utility>
@@ -171,6 +172,11 @@ static void bt_popup_connect_cb(lv_event_t *e)
 {
     lv_obj_t *cont = (lv_obj_t *)lv_event_get_user_data(e);
     bt_popup_close(cont); // 先关弹窗再发起,行状态由"(连接中)"跟踪
+    if (!ui_bt_can_link(bt_popup_mac))
+    {
+        ui_popwin_msgbox("目前版本仅支持一台\n未来版本才支持多台", g1, bt_list);
+        return;
+    }
     if (!ui_bt_link(bt_popup_mac))
         ui_popwin_msgbox("连接失败", g1, bt_list);
 }
@@ -402,6 +408,11 @@ void ui_bt_try_finish()
     if (n < 1)
     {
         ui_popwin_msgbox("请先连接设备", g1, bt_finish_row);
+        return;
+    }
+    if (n > RF_ACTIVE_CONNECTION_LIMIT)
+    {
+        ui_popwin_msgbox("目前版本仅支持一台\n未来版本才支持多台", g1, bt_finish_row);
         return;
     }
     if (config::config.rf.mode == RF_MODE_WIFI)

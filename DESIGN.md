@@ -172,7 +172,10 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   `accent-primary`, `(未连接)` in `status-error`. Connected rows additionally
   use the `status-success-bg` surface; all other rows are white.
 - **Behavior**: discovery auto-connects unlinked transmitters (the row runs
-  through `连接中` to `已连接` without user input); a transmitter the user
+  through `连接中` to `已连接` without user input), but the current firmware
+  permits only one active transmitter. Attempting to connect another shows the
+  two-line notice `目前版本仅支持一台` / `未来版本才支持多台`; discovered
+  extra transmitters remain listed and unlinked. A transmitter the user
   explicitly disconnects from its info dialog is not auto-reconnected until the
   page is re-entered. A single encoder confirm on a device row opens the device
   info dialog — confirm never toggles the link directly. After boot, the

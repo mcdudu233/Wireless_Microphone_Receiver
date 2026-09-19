@@ -24,6 +24,8 @@ void ui_bt_seed_devices();
 
 // 定义
 bool ui_bt_unlink(const std::string &mac);
+// 当前版本是否允许连接目标设备；已有其他活动链路/连接流程时返回false。
+bool ui_bt_can_link(const std::string &mac);
 bool ui_bt_link(const std::string &mac);
 void ui_bt_search();
 void ui_bt_pause_search();

@@ -491,7 +491,7 @@ static bool wifi_open()
           .channel = WIFI_CHANNEL,
           .authmode = WIFI_AUTH_WPA2_PSK,
           .ssid_hidden = 1,
-          .max_connection = RF_MAX_CONNECTION,
+          .max_connection = RF_ACTIVE_CONNECTION_LIMIT,
           .pmf_cfg = {
               .required = true,
           },
@@ -621,6 +621,20 @@ static uint32_t autoConnectStartMs = 0;  // 发起时刻(超时取消用)
 static volatile bool autoConnectGapFailed = false; // GAP连接失败(回调仅置标志)
 static volatile bool autoScanResume = false;       // 任意连接建立后恢复扫描
 static void rf_auto_connect_suspend();             // 前置声明(ble_close先于实现)
+
+static bool rf_has_other_connected_device(const std::string &mac)
+{
+  Device *devices = deviceManager.getAllDevices();
+  for (uint8_t i = 0; i < deviceManager.size(); i++)
+  {
+    if (devices[i].getBleMACString() != mac &&
+        (devices[i].isBleConnected() || devices[i].isWifiConnected()))
+    {
+      return true;
+    }
+  }
+  return false;
+}
 
 // L2CAP 事件
 static int ble_l2cap_handler(ble_l2cap_event *event, void *arg)
@@ -807,7 +821,8 @@ static int ble_gap_handler(ble_gap_event *event, void *arg)
         // 发现即自动连接:未连接且未被用户手动断开的发射器投递连接请求,
         // 由rf任务在GAP回调之外发起(邮箱满则丢弃,设备再次被发现后会重新入队)
         if (device != nullptr && !device->isBleConnected() && !device->isWifiConnected() &&
-            !device->isUserUnlinked() && !rfSwitchBusy && autoConnectQueue != nullptr)
+            !device->isUserUnlinked() && !rfSwitchBusy && autoConnectQueue != nullptr &&
+            !rf_has_other_connected_device(device->getBleMACString()))
         {
           AutoConnectReq req;
           snprintf(req.mac, sizeof(req.mac), "%s", device->getBleMACString().c_str());
@@ -1336,10 +1351,14 @@ static void rf_auto_connect_pump()
     {
       Device *target = deviceManager.getDeviceByBleMAC(req.mac);
       if (target != nullptr && !target->isBleConnected() && !target->isWifiConnected() &&
-          !target->isUserUnlinked())
+          !target->isUserUnlinked() && !rf_has_other_connected_device(req.mac))
       {
         autoConnectMac = req.mac;
         autoConnectInFlight = false;
+      }
+      else if (target != nullptr && !target->isBleConnected())
+      {
+        unlinkMac = req.mac;
       }
     }
   }
@@ -1348,7 +1367,8 @@ static void rf_auto_connect_pump()
   if (!autoConnectMac.empty())
   {
     Device *target = deviceManager.getDeviceByBleMAC(autoConnectMac);
-    if (target == nullptr || target->isBleConnected() || target->isUserUnlinked())
+    if (target == nullptr || target->isBleConnected() || target->isUserUnlinked() ||
+        rf_has_other_connected_device(autoConnectMac))
     {
       // 已连上/被移除/用户改意:结束本轮,恢复扫描继续发现其余设备
       // (已连上的行状态由连接回调更新;用户改意时行回退"未连接")
@@ -2594,6 +2614,31 @@ void rf::setup()
 *****************************/
 // 连接蓝牙设备(手动,来自设备信息弹窗):经自动连接状态机发起,
 // 与自动连接共享超时取消保护;目标已在流程中则幂等成功
+bool ui_bt_can_link(const std::string &mac)
+{
+  Device *device = deviceManager.getDeviceByBleMAC(mac);
+  if (device == nullptr)
+  {
+    return false;
+  }
+  if (device->isBleConnected() || device->isWifiConnected())
+  {
+    return true;
+  }
+  if (rf_has_other_connected_device(mac))
+  {
+    return false;
+  }
+
+  bool otherConnecting = false;
+  if (rf_auto_connect_lock())
+  {
+    otherConnecting = !autoConnectMac.empty() && autoConnectMac != mac;
+    rf_auto_connect_unlock();
+  }
+  return !otherConnecting;
+}
+
 bool ui_bt_link(const std::string &mac)
 {
   Device *device = deviceManager.getDeviceByBleMAC(mac);
@@ -2605,6 +2650,11 @@ bool ui_bt_link(const std::string &mac)
   if (device->isBleConnected() || device->isWifiConnected())
   {
     return true; // 已连接,幂等
+  }
+  if (!ui_bt_can_link(mac))
+  {
+    LOGGER_WARN("UI link rejected: current version supports one transmitter only.");
+    return false;
   }
   // 手动连接解除"用户断开"抑制
   device->setUserUnlinked(false);
@@ -2618,6 +2668,7 @@ bool ui_bt_link(const std::string &mac)
   }
   // 其他设备的挂起连接让位给手动目标
   rf_auto_connect_cancel_flight();
+  xQueueReset(autoConnectQueue);
   AutoConnectReq req;
   snprintf(req.mac, sizeof(req.mac), "%s", mac.c_str());
   if (xQueueSend(autoConnectQueue, &req, 0) != pdPASS)

@@ -84,6 +84,7 @@ uint8_t ui_info_get_loss(const std::string &) { return 0; }
 int8_t ui_info_get_left_voice(const std::string &) { return 100; }
 int8_t ui_info_get_right_voice(const std::string &) { return 100; }
 bool ui_bt_unlink(const std::string &) { return true; }
+bool ui_bt_can_link(const std::string &) { return true; }
 bool ui_bt_link(const std::string &) { return true; }
 void ui_bt_search() {}
 void ui_bt_pause_search() {}
