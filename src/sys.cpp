@@ -26,12 +26,23 @@ static void system_handle(void *arg)
     tasks_size = uxTaskGetNumberOfTasks();
     tasks = (TaskStatus_t *)malloc(sizeof(TaskStatus_t) * tasks_size);
     tasks_size = uxTaskGetSystemState(tasks, tasks_size, &tasktime);
+#ifdef BUILD_DEBUG
+    UBaseType_t minStack = UINT32_MAX;
+#endif
 #ifdef SYSTEM_PRINT_INFORMATION
     logger::debugln("CPU info:\n");
     logger::debugln("  | Task | Percentage | Stack High |");
 #endif
     for (int i = 0; i < tasks_size; i++)
     {
+#ifdef BUILD_DEBUG
+      // 全任务最小栈余量(字节),逼近0即有溢出风险
+      const UBaseType_t stackMark = uxTaskGetStackHighWaterMark(tasks[i].xHandle);
+      if (stackMark < minStack)
+      {
+        minStack = stackMark;
+      }
+#endif
 #ifdef SYSTEM_PRINT_INFORMATION
       logger::debugln("  | %s | %F | %d |", tasks[i].pcTaskName, tasks[i].ulRunTimeCounter * 100.0 / tasktime, uxTaskGetStackHighWaterMark(tasks[i].xHandle));
 #endif
@@ -60,6 +71,17 @@ static void system_handle(void *arg)
     heap_caps_get_info(&heapInfo, MALLOC_CAP_SPIRAM);
     systemInfo.psramUsedSize = heapInfo.total_allocated_bytes;
     systemInfo.psramTotalSize = heapInfo.total_allocated_bytes + heapInfo.total_free_bytes;
+
+#ifdef BUILD_DEBUG
+    // 调试汇总:每秒一行,双核CPU占用/内存用量与最大空闲块/全任务最小栈余量
+    LOGGER_INFO("System CPU0:%.1f%% CPU1:%.1f%% IRAM:%u/%uKB(blk%uKB) PSRAM:%u/%uKB(blk%uKB) minStack:%uB",
+                systemInfo.cpu0Usage, systemInfo.cpu1Usage,
+                (unsigned)(systemInfo.iramUsedSize / 1024), (unsigned)(systemInfo.iramTotalSize / 1024),
+                (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024),
+                (unsigned)(systemInfo.psramUsedSize / 1024), (unsigned)(systemInfo.psramTotalSize / 1024),
+                (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024),
+                (unsigned)minStack);
+#endif
 
     // 峰值减少模式下发射端增益只降不升:
     // 把下降后的实际增益回写配置,下次下发的初始增益即为当前实际值
