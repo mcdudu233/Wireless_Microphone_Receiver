@@ -32,12 +32,12 @@ static uint8_t ui_rssi_to_level(int8_t rssi)
     return (uint8_t)((rssi + 90) * 100 / 55);
 }
 
-// 爆音指示:峰值达到满刻度(100=0dBFS)时L/R文字变红,
-// 停止爆音后保持CLIP_HOLD_TIME_MS再恢复灰色;持续爆音时持续红色。
+// 爆音预警:峰值电平达到CLIP_ALERT_LEVEL(95,约-5dBFS)时L/R文字变红,
+// 电平回落后保持CLIP_HOLD_TIME_MS再恢复灰色;持续高于阈值时持续红色。
 // 仅在颜色切换瞬间更新样式,避免每个刷新周期重复刷新。
 static void ui_clip_label_refresh(lv_obj_t *label, int8_t voice, uint16_t &clip_hold_ms)
 {
-    if (voice >= 100)
+    if (voice >= CLIP_ALERT_LEVEL)
     {
         if (clip_hold_ms == 0)
             lv_obj_set_style_text_color(label, lv_palette_main(LV_PALETTE_RED), 0);
@@ -421,7 +421,7 @@ void ui_main_init()
         const int8_t right_voice = ui_info_get_right_voice(card_data->device_mac);
         lv_bar_set_value(card_data->left_voice_bar, left_voice, LV_ANIM_OFF);
         lv_bar_set_value(card_data->right_voice_bar, right_voice, LV_ANIM_OFF);
-        // 爆音指示:满刻度(0dBFS)时L/R文字变红并保持3秒,持续爆音不恢复
+        // 爆音预警:电平≥CLIP_ALERT_LEVEL(约-5dBFS)时L/R文字变红并保持3秒,持续超限不恢复
         ui_clip_label_refresh(card_data->left_label, left_voice, card_data->left_clip_hold_ms);
         ui_clip_label_refresh(card_data->right_label, right_voice, card_data->right_clip_hold_ms);
         timer_update_elapsed += UPDATE_TIMER_PERIOD;
