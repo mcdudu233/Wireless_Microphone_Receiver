@@ -37,10 +37,11 @@ static void system_handle(void *arg)
     {
 #ifdef BUILD_DEBUG
       // 全任务最小栈余量(字节),逼近0即有溢出风险
-      const UBaseType_t stackMark = uxTaskGetStackHighWaterMark(tasks[i].xHandle);
-      if (stackMark < minStack)
+      // 必须使用快照自带水位:uxTaskGetSystemState已在临界区内计算;
+      // 快照后若有任务退出,再经句柄查询会悬空(use-after-free)导致崩溃重启
+      if (tasks[i].usStackHighWaterMark < minStack)
       {
-        minStack = stackMark;
+        minStack = tasks[i].usStackHighWaterMark;
       }
 #endif
 #ifdef SYSTEM_PRINT_INFORMATION

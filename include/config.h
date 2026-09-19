@@ -19,7 +19,7 @@
 // 多线程任务配置
 #define TASK_SYSTEM_CORE 1
 #define TASK_SYSTEM_PERIOD 1000
-#define TASK_SYSTEM_STACK 2570
+#define TASK_SYSTEM_STACK 3072 // debug构建下sys任务需输出汇总日志(原2570不打印日志时的值)
 #define TASK_SYSTEM_PRIORITY 1
 
 #define TASK_BUTTON_CORE 1
