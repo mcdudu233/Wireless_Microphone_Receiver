@@ -217,8 +217,22 @@ void usb::setup()
     config::config.usb.mode = USB_MODE_NONE;
     config::save();
   }
-  usb_serial_jtag_ll_phy_enable_pad(false);
   on();
+  if (config::config.usb.mode == USB_MODE_DEBUG)
+  {
+    // Serial/JTAG is already enabled by ROM/bootloader. Claim that existing
+    // personality instead of disconnecting and rebuilding it: rebuilding
+    // invalidates the host's monitor handle just before runtime logs begin.
+    const USBRequest request = requested();
+    usb_active_mode.store(USB_MODE_DEBUG);
+    active_format = request.format;
+    applied_generation = request.generation;
+    usb_serial_jtag_ll_phy_enable_pad(true);
+  }
+  else
+  {
+    usb_serial_jtag_ll_phy_enable_pad(false);
+  }
   if (xTaskCreatePinnedToCore(usb_handle, "usb_handle", TASK_USB_STACK, nullptr, TASK_USB_PRIORITY,
                               nullptr, TASK_USB_CORE) != pdPASS)
     LOGGER_ERROR("USB task creation failed");

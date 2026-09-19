@@ -19,12 +19,14 @@
 // 多线程任务配置
 #define TASK_SYSTEM_CORE 1
 #define TASK_SYSTEM_PERIOD 1000
-#define TASK_SYSTEM_STACK 3072 // debug构建下sys任务需输出汇总日志(原2570不打印日志时的值)
+// 实机debug汇总日志下3072B栈最低仅余404B，增大后为日志格式化保留余量。
+#define TASK_SYSTEM_STACK 4096
 #define TASK_SYSTEM_PRIORITY 1
 
 #define TASK_BUTTON_CORE 1
 #define TASK_BUTTON_PERIOD 5
-#define TASK_BUTTON_STACK 1024
+// 实机全任务水位显示原1024B栈仅余212B；按键回调会进入LVGL导航，保留更安全余量。
+#define TASK_BUTTON_STACK 2048
 #define TASK_BUTTON_PRIORITY 5
 
 #define TASK_SCREEN_CORE 1
@@ -45,7 +47,9 @@
 #define TASK_AUDIO_DECODER_CORE 0
 #define TASK_AUDIO_DECODER_PERIOD 4
 #define TASK_AUDIO_DECODER_STACK 4096
-#define TASK_AUDIO_DECODER_PRIORITY 5
+// 解码任务大部分时间阻塞在I2S DMA写入；高于RF可保证突发收包期间仍按时补充DMA，
+// RF则由扩大后的RAW邮箱吸收这段短暂让步。
+#define TASK_AUDIO_DECODER_PRIORITY 10
 
 #define TASK_RF_CORE 0
 #define TASK_RF_PERIOD 1

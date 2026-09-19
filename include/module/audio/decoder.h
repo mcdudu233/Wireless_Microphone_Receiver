@@ -12,7 +12,9 @@
 
 #define AUDIO_DECODER_POLLING_CYCLE 4 // ms 决定了扬声器的延迟
 #define AUDIO_DECODER_LOSS_FADE_MS 2  // 丢包静音及恢复淡变时长，避免PCM断点爆音
-#define AUDIO_DECODER_DMA_DESC_NUM 8  // 192kHz时保留8ms DMA缓存
+// 实机调试观测到SD/网络突发可造成约30ms调度长尾；32ms DMA可在任务恢复前持续输出，
+// 额外占用约27KB内部DMA内存，仍在当前接收器余量内。
+#define AUDIO_DECODER_DMA_DESC_NUM 32
 #define AUDIO_DECODER_DMA_FRAME_NUM 192
 #define AUDIO_DECODER_RATE 192000     // 最大频率
 #define AUDIO_DECODER_BIT 32          // 固定的比特数

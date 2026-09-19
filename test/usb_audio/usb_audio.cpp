@@ -245,6 +245,15 @@ static void feed(const usb::AudioFormat &format, bool complete = true) {
 }
 int main() {
   audio::buffer::setup();
+  // Booting in debug mode must keep the ROM-created Serial/JTAG personality
+  // alive so an already-open monitor receives runtime logs without reconnecting.
+  config::config.usb.mode = USB_MODE_DEBUG;
+  jtag_pad = true;
+  const int64_t boot_clock = clock_us;
+  usb::setup();
+  assert(usb::active_mode() == USB_MODE_DEBUG && jtag_pad && usb_phy == nullptr);
+  assert(clock_us == boot_clock);
+  usb::off(); pump();
   unsigned supported = 0, rejected = 0;
   std::vector<std::string> identities;
   for (auto rate : {AUDIO_RATE_48000, AUDIO_RATE_96000, AUDIO_RATE_192000})
