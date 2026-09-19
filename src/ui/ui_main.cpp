@@ -32,6 +32,25 @@ static uint8_t ui_rssi_to_level(int8_t rssi)
     return (uint8_t)((rssi + 90) * 100 / 55);
 }
 
+// 爆音指示:峰值达到满刻度(100=0dBFS)时L/R文字变红,
+// 停止爆音后保持CLIP_HOLD_TIME_MS再恢复灰色;持续爆音时持续红色。
+// 仅在颜色切换瞬间更新样式,避免每个刷新周期重复刷新。
+static void ui_clip_label_refresh(lv_obj_t *label, int8_t voice, uint16_t &clip_hold_ms)
+{
+    if (voice >= 100)
+    {
+        if (clip_hold_ms == 0)
+            lv_obj_set_style_text_color(label, lv_palette_main(LV_PALETTE_RED), 0);
+        clip_hold_ms = CLIP_HOLD_TIME_MS;
+        return;
+    }
+    if (clip_hold_ms == 0)
+        return;
+    clip_hold_ms = clip_hold_ms > UPDATE_TIMER_PERIOD ? clip_hold_ms - UPDATE_TIMER_PERIOD : 0;
+    if (clip_hold_ms == 0)
+        lv_obj_set_style_text_color(label, lv_color_hex(0x6B7280), 0);
+}
+
 static std::vector<std::string> linked_devices;
 static std::vector<device_card_data *> cards;
 
@@ -398,8 +417,13 @@ void ui_main_init()
             return;
 
         // RF侧已经生成平滑包络，避免连续创建LVGL动画造成延迟和额外开销。
-        lv_bar_set_value(card_data->left_voice_bar, ui_info_get_left_voice(card_data->device_mac), LV_ANIM_OFF);
-        lv_bar_set_value(card_data->right_voice_bar, ui_info_get_right_voice(card_data->device_mac), LV_ANIM_OFF);
+        const int8_t left_voice = ui_info_get_left_voice(card_data->device_mac);
+        const int8_t right_voice = ui_info_get_right_voice(card_data->device_mac);
+        lv_bar_set_value(card_data->left_voice_bar, left_voice, LV_ANIM_OFF);
+        lv_bar_set_value(card_data->right_voice_bar, right_voice, LV_ANIM_OFF);
+        // 爆音指示:满刻度(0dBFS)时L/R文字变红并保持3秒,持续爆音不恢复
+        ui_clip_label_refresh(card_data->left_label, left_voice, card_data->left_clip_hold_ms);
+        ui_clip_label_refresh(card_data->right_label, right_voice, card_data->right_clip_hold_ms);
         timer_update_elapsed += UPDATE_TIMER_PERIOD;
         if (timer_update_elapsed >= UPDATE_INFO_PERIOD)
         {
@@ -458,11 +482,13 @@ static lv_obj_t *ui_create_device_card(lv_obj_t *parent, std::string &device_mac
     lv_obj_set_pos(left_label, 2, 0);
     lv_obj_set_style_text_font(left_label, &lv_font_harmonyos_12, 0);
     lv_obj_set_style_text_color(left_label, lv_color_hex(0x6B7280), 0);
+    data->left_label = left_label;
     lv_obj_t *right_label = lv_label_create(card);
     lv_label_set_text(right_label, "R");
     lv_obj_set_pos(right_label, 2, 16);
     lv_obj_set_style_text_font(right_label, &lv_font_harmonyos_12, 0);
     lv_obj_set_style_text_color(right_label, lv_color_hex(0x6B7280), 0);
+    data->right_label = right_label;
 
     data->left_voice_bar = lv_bar_create(card);
     lv_obj_add_style(data->left_voice_bar, &style_indic_h, LV_PART_INDICATOR);

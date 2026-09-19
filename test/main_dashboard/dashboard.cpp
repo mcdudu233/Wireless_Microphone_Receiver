@@ -167,6 +167,19 @@ int main() {
     const auto low=snapshot->data+(meter.y1+3)*snapshot->header.stride+(meter.x1+2)*3;
     assert(low[1]>low[2]);
     lv_draw_buf_destroy(snapshot);
+    // 爆音指示:满刻度L变红R保持灰色;停止爆音3秒内仍红,超时恢复;持续爆音不恢复
+    assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_palette_main(LV_PALETTE_RED)));
+    assert(lv_color_eq(lv_obj_get_style_text_color(data->right_label,LV_PART_MAIN),lv_color_hex(0x6B7280)));
+    capture("clip_full_scale");
+    left_level=72; // 停止爆音:保持期内仍红
+    for(int i=0;i<15;i++) { lv_tick_inc(50); lv_timer_handler(); }
+    assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_palette_main(LV_PALETTE_RED)));
+    for(int i=0;i<60;i++) { lv_tick_inc(50); lv_timer_handler(); } // 超过3秒:恢复灰色
+    assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_color_hex(0x6B7280)));
+    left_level=100; // 持续爆音:红色不恢复
+    for(int i=0;i<80;i++) { lv_tick_inc(50); lv_timer_handler(); }
+    assert(lv_color_eq(lv_obj_get_style_text_color(data->left_label,LV_PART_MAIN),lv_palette_main(LV_PALETTE_RED)));
+    left_level=72;capture("clip_recovered");
     left_level=72;right_level=46;
     ui_main_set_reconnect("4",true);settle();inside(reconnect_chip,info_widget);
     label_fits(lv_obj_get_child(reconnect_chip,0));capture("reconnect");
@@ -227,5 +240,5 @@ int main() {
     assert(std::strcmp(lv_label_get_text(status_rate_badge),"48k")==0);
     assert(lv_group_get_obj_count(main_group)==2);capture("empty");
     ui_free_main_widget();
-    puts("PASS: 72 modes, loss boundaries, meter gradient, telemetry extremes, 0/1/4 devices, focus, reconnect, repeat entry");
+    puts("PASS: 72 modes, loss boundaries, meter gradient, clip hold, telemetry extremes, 0/1/4 devices, focus, reconnect, repeat entry");
 }

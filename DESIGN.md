@@ -273,6 +273,12 @@ Spacing uses a 2 px micro-grid, with 4 px as the normal gap.
   meter tracks start at x=16, y=4/20. Their horizontal gradient is anchored
   to the entire track, green at zero and red at full scale; LVGL clips the
   gradient to the current level (a low value must not already have a red tip).
+- Clip indicator: the L/R markers use `text-muted` (`#6B7280`) normally and
+  semantic red (LVGL palette red) while their channel's peak is at full scale
+  (0 dBFS, meter value 100). Red persists for `CLIP_HOLD_TIME_MS` (3000 ms)
+  after the last clipped reading before returning to `text-muted`; sustained
+  clipping keeps the marker red. Hold state is per card and per channel and
+  only ticks for the visible card.
 - Four groups share the bottom line: transport (14 px WiFi/BLE icon), `S` + four ascending signal bars,
   `P` + four ascending packet-integrity bars, then battery (20x10, no text).
   Both S/P use the compact 10 px role; each marker shares its own bars' state color. S means Signal, P means Packets.
