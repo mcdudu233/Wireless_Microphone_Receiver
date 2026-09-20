@@ -6,7 +6,7 @@
 #define CONFIG_NAME "config"
 #define CONFIG_DATA_NAME "config"
 #define CONFIG_VERSION_NAME "version"
-#define CONFIG_VERSION_VALUE 0x0100 // 前两位大版本号 后两位小版本号（V1.0）
+#define CONFIG_VERSION_VALUE 0x0101 // 前两位大版本号 后两位小版本号（V1.1）
 
 // USB bcdDevice 用的 BCD 编码版本号，由 CONFIG_VERSION_VALUE 自动派生（大/小版本均限 0~99）
 // 修改版本号时只需修改 CONFIG_VERSION_VALUE，请勿单独改动此处
